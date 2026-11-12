@@ -15,7 +15,21 @@ node_modules/
 dist/
 .vite/
 coverage/
+.pnpm-store/
+__pycache__/
+*.py[cod]
+.worktrees/
+.qoder/
+.DS_Store
+Thumbs.db
+
+# 自动契约报告由验证与持续集成产出，确认记录单独保存
+.scratch/technical-design/contract-reports/
 *.log
+
+# 前端原型的自动浏览器测试产物
+front/artifacts/
+front/playwright-report/
 
 # 本地环境配置；仅提交不含凭据的示例
 .env

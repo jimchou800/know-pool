@@ -1,0 +1,28 @@
+# 已批准的实现任务
+
+状态：用户已批准并发布；所有任务尚未开始。
+
+- [01: 建立本机启动与接口契约验证闭环](issues/01-local-contract.md)
+- [02: 创建、查看和重命名数据集](issues/02-datasets.md)
+- [03: 上传与读取单份纯文本资料](issues/03-text-files.md)
+- [04: 预览与下载 Markdown 和文字 PDF](issues/04-document-preview.md)
+- [05: 完成批量上传、同名覆盖与重命名规则](issues/05-batch-upload.md)
+- [06: 配置生成与嵌入模型并测试连接](issues/06-model-settings.md)
+- [07: 创建空知识库并关联一份资料](issues/07-knowledge-base.md)
+- [08: 处理一份纯文本并执行管理检索测试](issues/08-text-index.md)
+- [09: 索引 Markdown 与文字 PDF 并验证原文定位](issues/09-document-index.md)
+- [10: 配置结构切片、降级拆分与预检](issues/10-chunk-preview.md)
+- [11: 同步数据集并管理多来源及文件排除](issues/11-associations.md)
+- [12: 更新资料、取消旧任务并追溯版本切换](issues/12-content-switch.md)
+- [13: 发布、下线和重新发布知识库](issues/13-publication.md)
+- [14: 在知识服务执行多知识库检索](issues/14-multi-search.md)
+- [15: 创建和切换检索实例](issues/15-search-instances.md)
+- [16: 异步问答并展示校验后的引用回答](issues/16-grounded-answer.md)
+- [17: 保存多轮会话并处理取消、断线和删除](issues/17-conversation-history.md)
+- [18: 配置变更后整库重建并原子切换](issues/18-configuration-rebuild.md)
+- [19: 恢复索引任务并重试失败项](issues/19-index-recovery.md)
+- [20: 删除传播及安全清理废弃数据](issues/20-deletion-cleanup.md)
+- [21: 迁移数据目录并处理中断恢复](issues/21-data-migration.md)
+- [22: 备份和恢复完整应用数据](issues/22-backup-restore.md)
+- [23: 评估中文检索问答质量与资源边界](issues/23-quality-evaluation.md)
+- [24: 验证 Windows 发行包和完整契约交付](issues/24-release-acceptance.md)
