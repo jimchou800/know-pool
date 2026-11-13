@@ -8,8 +8,10 @@ import java.util.List;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -43,6 +45,22 @@ public final class FileController {
         return files.get(fileId);
     }
 
+    @PatchMapping(value = "/api/v1/files/{fileId}/name", consumes = "application/json")
+    public FileService.FileView rename(
+            @PathVariable String fileId,
+            @RequestBody tools.jackson.databind.JsonNode input,
+            jakarta.servlet.http.HttpServletRequest request) {
+        query(request, java.util.Set.of());
+        if (!input.isObject()) throw cn.knowpool.infrastructure.ApiFailure.invalid(null, "请求正文须为字段对象。");
+        for (String field : input.propertyNames())
+            if (!field.equals("name"))
+                throw cn.knowpool.infrastructure.ApiFailure.invalid(
+                        "/" + field.replace("~", "~0").replace("/", "~1"), "请求包含未声明的字段。");
+        if (!input.has("name") || !input.get("name").isString())
+            throw cn.knowpool.infrastructure.ApiFailure.invalid("/name", "须提供字符串类型的文件名。");
+        return files.rename(fileId, input.get("name").asText());
+    }
+
     @GetMapping("/api/v1/datasets/{datasetId}/files")
     public FileService.Page list(
             @PathVariable String datasetId,
@@ -58,6 +76,23 @@ public final class FileController {
         if (cursor != null && (cursor.isEmpty() || cursor.length() > 2048))
             throw cn.knowpool.infrastructure.ApiFailure.invalid("cursor", "分页位置长度不正确。");
         return files.list(datasetId, limit, cursor);
+    }
+
+    @GetMapping("/api/v1/files/{fileId}/versions")
+    public FileService.VersionPage versions(
+            @PathVariable String fileId,
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(required = false) String cursor,
+            jakarta.servlet.http.HttpServletRequest request) {
+        query(request, java.util.Set.of("limit", "cursor"));
+        if (limit < 1
+                || limit > 100
+                || (request.getParameter("limit") != null
+                        && !request.getParameter("limit").matches("[0-9]+")))
+            throw cn.knowpool.infrastructure.ApiFailure.invalid("limit", "每页数量须为一至一百的整数。");
+        if (cursor != null && (cursor.isEmpty() || cursor.length() > 2048))
+            throw cn.knowpool.infrastructure.ApiFailure.invalid("cursor", "分页位置长度不正确。");
+        return files.versions(fileId, limit, cursor);
     }
 
     @GetMapping("/api/v1/files/{fileId}/latest/download")

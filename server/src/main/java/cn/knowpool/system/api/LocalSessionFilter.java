@@ -136,6 +136,10 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 || path.matches("/api/v1/files/[^/]+(?:/latest/(?:preview|download))?")
                         && request.getMethod().equals("GET")
                 || path.matches("/api/v1/datasets/[^/]+/files")
+                        && request.getMethod().equals("GET")
+                || path.matches("/api/v1/files/[^/]+/name")
+                        && request.getMethod().equals("PATCH")
+                || path.matches("/api/v1/files/[^/]+/versions")
                         && request.getMethod().equals("GET");
         if (collection || resource || fileOperation) {
             chain.doFilter(request, response);

@@ -41,7 +41,7 @@ public final class FileService {
         String now = Instant.now().toString();
         String uploader = uploader();
         String name = input.getOriginalFilename();
-        validateName(name);
+        validateName(name, "/files");
         if (input.getSize() > limits.maxFileBytes())
             throw new ApiFailure(413, "RESOURCE_LIMIT", "单份资料超过大小上限。", "/files");
         String relative = "files/versions/" + version;
@@ -200,12 +200,12 @@ public final class FileService {
                 retryable);
     }
 
-    private static void validateName(String name) {
+    private static void validateName(String name, String field) {
         if (name == null
                 || name.isEmpty()
                 || name.codePointCount(0, name.length()) > 255
                 || !name.matches("^(?!\\.{1,2}$)[^\\\\/\\x00-\\x1f\\x7f]+$"))
-            throw ApiFailure.invalid("/files", "文件名不合法，请勿包含目录或控制字符。");
+            throw ApiFailure.invalid(field, "文件名不合法，请勿包含目录或控制字符。");
     }
 
     private String validateContent(MultipartFile input, byte[] bytes) throws IOException {
@@ -306,6 +306,27 @@ public final class FileService {
                 .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "资料不存在。", null)));
     }
 
+    public FileView rename(String id, String name) {
+        validateName(name, "/name");
+        return data.write(jdbc -> {
+            FileView current = get(id);
+            if (jdbc.sql("SELECT COUNT(*) FROM files WHERE dataset_id=? AND name_key=? AND id<>?")
+                            .param(current.datasetId())
+                            .param(nameKey(name))
+                            .param(current.id())
+                            .query(Integer.class)
+                            .single()
+                    > 0) throw new ApiFailure(409, "NAME_EXISTS", "名称已存在，请使用其他名称。", "/name");
+            jdbc.sql("UPDATE files SET name=?,name_key=?,updated_at=? WHERE id=?")
+                    .param(name)
+                    .param(nameKey(name))
+                    .param(Instant.now().toString())
+                    .param(current.id())
+                    .update();
+            return get(current.id());
+        });
+    }
+
     public Page list(String datasetId, int limit, String cursor) {
         String canonicalId = datasets.get(datasetId).id();
         String time = "~", before = "~";
@@ -348,6 +369,65 @@ public final class FileService {
                                 .getBytes(StandardCharsets.US_ASCII))
                 : null;
         return new Page(items, next);
+    }
+
+    public VersionPage versions(String id, int limit, String cursor) {
+        String fileId = get(id).id();
+        String time = "~", before = "~";
+        if (cursor != null) {
+            try {
+                String decoded = new String(java.util.Base64.getUrlDecoder().decode(cursor), StandardCharsets.US_ASCII);
+                String[] parts = decoded.split("/", -1);
+                if (parts.length != 3
+                        || !parts[0].equals(fileId)
+                        || !java.util.Base64.getUrlEncoder()
+                                .withoutPadding()
+                                .encodeToString(decoded.getBytes(StandardCharsets.US_ASCII))
+                                .equals(cursor)) throw new IllegalArgumentException();
+                Instant.parse(parts[1]);
+                time = parts[1];
+                before = identifier(parts[2]);
+            } catch (IllegalArgumentException | java.time.DateTimeException failure) {
+                throw ApiFailure.invalid("cursor", "分页位置无效，请重新载入列表。");
+            }
+        }
+        String timestamp = time, lastId = before;
+        var rows = data.read(jdbc -> jdbc.sql(
+                        "SELECT * FROM file_versions WHERE file_id=? AND (uploaded_at<? OR (uploaded_at=? AND id<?)) ORDER BY uploaded_at DESC,id DESC LIMIT ?")
+                .param(fileId)
+                .param(timestamp)
+                .param(timestamp)
+                .param(lastId)
+                .param(limit + 1)
+                .query((row, index) -> new Version(
+                        row.getString("id"),
+                        row.getString("file_id"),
+                        row.getString("uploaded_name"),
+                        row.getString("file_type"),
+                        row.getString("media_type"),
+                        row.getLong("size_bytes"),
+                        "SHA-256",
+                        row.getString("content_hash"),
+                        row.getString("uploaded_by"),
+                        row.getString("uploaded_at"),
+                        row.getInt("available") == 1))
+                .list());
+        boolean more = rows.size() > limit;
+        var items = rows.subList(0, Math.min(limit, rows.size()));
+        String next = more
+                ? java.util.Base64.getUrlEncoder()
+                        .withoutPadding()
+                        .encodeToString((fileId + "/" + items.getLast().uploadedAt() + "/"
+                                        + items.getLast().id())
+                                .getBytes(StandardCharsets.US_ASCII))
+                : null;
+        return new VersionPage(items, next);
+    }
+
+    public record VersionPage(List<Version> items, String nextCursor) {
+        public VersionPage {
+            items = List.copyOf(items);
+        }
     }
 
     private static String identifier(String id) {

@@ -1429,6 +1429,11 @@ class LocalApplicationTest {
                         "jdbc:sqlite:" + dataDirectory.resolve("application.sqlite"));
                 var statement = connection.createStatement()) {
             statement.executeUpdate("UPDATE file_versions SET available=0 WHERE file_id='" + id + "'");
+            assertThat(JSON.readTree(call("GET", "/files/" + id + "/versions", null, credentials)
+                                    .body())
+                            .at("/items/0/originalAvailable")
+                            .booleanValue())
+                    .isFalse();
             assertError(
                     call("GET", "/files/" + id + "/latest/download", null, credentials), 410, "CONTENT_UNAVAILABLE");
             assertError(call("GET", "/files/" + id + "/latest/preview", null, credentials), 410, "CONTENT_UNAVAILABLE");
@@ -1543,6 +1548,389 @@ class LocalApplicationTest {
         }
     }
 
+    @Test
+    @Order(61)
+    @DisplayName("资料重命名保留原名空白且不改内容版本与上传信息")
+    void renameFilePreservesIdentityVersionAndUploadMetadata() throws Exception {
+        Credentials credentials = credentials();
+        String datasetId = createDataset("重命名身份验收", credentials);
+        JsonNode original = JSON.readTree(
+                        upload(datasetId, credentials, new UploadPart("原名.txt", "text/plain", new byte[] {65}))
+                                .body())
+                .at("/items/0/file");
+        String path = "/files/" + original.get("id").asText();
+        String body = "{\"name\":\" 新名.txt\"}";
+        HttpResponse<String> response = call("PATCH", path + "/name", body, credentials);
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode renamed = JSON.readTree(response.body());
+        assertThat(renamed.get("name").asText()).isEqualTo(" 新名.txt");
+        for (String field : List.of("id", "datasetId", "createdBy", "createdAt", "lastUploadedAt", "latestVersion"))
+            assertThat(renamed.get(field)).isEqualTo(original.get(field));
+        assertThat(Instant.parse(renamed.get("updatedAt").asText()))
+                .isAfterOrEqualTo(Instant.parse(original.get("updatedAt").asText()));
+        assertThat(JSON.readTree(call("GET", path, null, credentials).body())).isEqualTo(renamed);
+        verified("重命名保留身份内容与上传快照", "renameFile", response, body);
+    }
+
+    @Test
+    @Order(62)
+    @DisplayName("内容版本分页保留每次上传快照且重命名不新增版本")
+    void listFileVersionsRetainsHistoryWithStablePagination() throws Exception {
+        Credentials credentials = credentials();
+        String datasetId = createDataset("版本分页验收", credentials);
+        JsonNode first = JSON.readTree(
+                        upload(datasetId, credentials, new UploadPart("history.txt", "text/plain", new byte[] {65}))
+                                .body())
+                .at("/items/0/file");
+        JsonNode second = JSON.readTree(
+                        upload(datasetId, credentials, new UploadPart("HISTORY.TXT", "text/plain", new byte[] {66}))
+                                .body())
+                .at("/items/0/file");
+        String path = "/files/" + first.get("id").asText();
+        assertThat(call("PATCH", path + "/name", "{\"name\":\"history.pdf\"}", credentials)
+                        .statusCode())
+                .isEqualTo(200);
+        HttpResponse<String> response = call("GET", path + "/versions?limit=1", null, credentials);
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode page = JSON.readTree(response.body());
+        assertThat(page.get("items").size()).isEqualTo(1);
+        assertThat(page.at("/items/0")).isEqualTo(second.get("latestVersion"));
+        assertThat(page.get("nextCursor").isString()).isTrue();
+        JsonNode next = JSON.readTree(call(
+                        "GET",
+                        path + "/versions?limit=1&cursor="
+                                + page.get("nextCursor").asText(),
+                        null,
+                        credentials)
+                .body());
+        assertThat(next.get("items").size()).isEqualTo(1);
+        assertThat(next.at("/items/0")).isEqualTo(first.get("latestVersion"));
+        assertThat(next.get("nextCursor").isNull()).isTrue();
+        assertThat(response.body()).doesNotContain("relative_path", "relativePath", dataDirectory.toString());
+        JsonNode renamed = JSON.readTree(call("GET", path, null, credentials).body());
+        assertThat(renamed.get("latestVersion")).isEqualTo(second.get("latestVersion"));
+        HttpResponse<byte[]> downloaded = HTTP.send(
+                request("GET", path + "/latest/download", null, credentials).build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        verifiedBinary(downloaded, new byte[] {66}, "text/plain", false);
+    }
+
+    @Test
+    @Order(63)
+    @DisplayName("重命名冲突原子拒绝且名称边界不套用数据集规则")
+    void renameConflictAndFilenameBoundariesHaveNoSideEffects() throws Exception {
+        Credentials credentials = credentials();
+        String datasetId = createDataset("重命名冲突验收", credentials);
+        JsonNode items = JSON.readTree(upload(
+                                datasetId,
+                                credentials,
+                                new UploadPart("first.txt", "text/plain", new byte[] {65}),
+                                new UploadPart("second.txt", "text/plain", new byte[] {66}))
+                        .body())
+                .get("items");
+        JsonNode first = items.at("/0/file"), second = items.at("/1/file");
+        String path = "/files/" + first.get("id").asText();
+        HttpResponse<String> conflict = call("PATCH", path + "/name", "{\"name\":\"SECOND.TXT\"}", credentials);
+        assertError(conflict, 409, "NAME_EXISTS");
+        assertThat(JSON.readTree(call("GET", path, null, credentials).body())).isEqualTo(first);
+        assertThat(JSON.readTree(call("GET", "/files/" + second.get("id").asText(), null, credentials)
+                        .body()))
+                .isEqualTo(second);
+        HttpResponse<String> invalidName = call("PATCH", path + "/name", "{\"name\":\"\"}", credentials);
+        assertError(invalidName, 400, "INVALID_REQUEST");
+        assertThat(JSON.readTree(invalidName.body()).at("/fieldErrors/0/field").asText())
+                .isEqualTo("/name");
+        for (String invalid : List.of(
+                "{}",
+                "[]",
+                "null",
+                "{\"name\":null}",
+                "{\"name\":1}",
+                "{\"name\":\"ok\",\"other\":1}",
+                "{\"name\":\"\"}",
+                "{\"name\":\".\"}",
+                "{\"name\":\"..\"}",
+                "{\"name\":\"bad/name\"}",
+                "{\"name\":\"bad\\\\name\"}",
+                "{\"name\":\"bad\\n\"}",
+                "{\"name\":\"bad\\u0000\"}",
+                JSON.writeValueAsString(Map.of("name", "字".repeat(256))))) {
+            assertError(call("PATCH", path + "/name", invalid, credentials), 400, "INVALID_REQUEST");
+            assertThat(JSON.readTree(call("GET", path, null, credentials).body()))
+                    .isEqualTo(first);
+        }
+        for (String name : List.of("a", "字".repeat(255), "first.TXT", " ", "second.txt ")) {
+            String body = JSON.writeValueAsString(Map.of("name", name));
+            HttpResponse<String> response = call("PATCH", path + "/name", body, credentials);
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(JSON.readTree(response.body()).get("name").asText()).isEqualTo(name);
+            assertThat(JSON.readTree(response.body()).get("latestVersion")).isEqualTo(first.get("latestVersion"));
+            verified("文件名长度与空白边界" + name.length(), "renameFile", response, body);
+        }
+        JsonNode versions =
+                JSON.readTree(call("GET", path + "/versions", null, credentials).body());
+        assertThat(versions.get("items").size()).isEqualTo(1);
+        assertThat(versions.at("/items/0")).isEqualTo(first.get("latestVersion"));
+    }
+
+    @Test
+    @Order(64)
+    @DisplayName("版本分页拒绝非法与跨文件游标并检查未知输入及请求保护")
+    void fileManagementRejectsInvalidRequestsAndCrossFileCursors() throws Exception {
+        Credentials credentials = credentials();
+        String datasetId = createDataset("版本保护验收", credentials);
+        JsonNode items = JSON.readTree(upload(
+                                datasetId,
+                                credentials,
+                                new UploadPart("page.txt", "text/plain", new byte[] {65}),
+                                new UploadPart("other.txt", "text/plain", new byte[] {66}))
+                        .body())
+                .get("items");
+        String path = "/files/" + items.at("/0/file/id").asText();
+        upload(datasetId, credentials, new UploadPart("page.txt", "text/plain", new byte[] {67}));
+        String cursor = JSON.readTree(call("GET", path + "/versions?limit=1", null, credentials)
+                        .body())
+                .get("nextCursor")
+                .asText();
+        String other = "/files/" + items.at("/1/file/id").asText();
+        assertError(call("GET", other + "/versions?cursor=" + cursor, null, credentials), 400, "INVALID_REQUEST");
+        for (String query : List.of(
+                "limit=0",
+                "limit=101",
+                "limit=-1",
+                "limit=1.5",
+                "limit=x",
+                "limit=",
+                "limit=999999999999",
+                "limit=1&limit=2",
+                "extra=1",
+                "cursor=",
+                "cursor=!",
+                "cursor=abc",
+                "cursor=" + "a".repeat(2049),
+                "cursor="
+                        + java.util.Base64.getUrlEncoder()
+                                .withoutPadding()
+                                .encodeToString((items.at("/0/file/id").asText() + "/not-time/" + UUID.randomUUID())
+                                        .getBytes(StandardCharsets.US_ASCII)),
+                "cursor="
+                        + java.util.Base64.getUrlEncoder()
+                                .withoutPadding()
+                                .encodeToString((items.at("/0/file/id").asText() + "/2026-01-01T00:00:00Z/not-id")
+                                        .getBytes(StandardCharsets.US_ASCII))))
+            assertError(call("GET", path + "/versions?" + query, null, credentials), 400, "INVALID_REQUEST");
+        assertThat(call(
+                                "GET",
+                                path.toUpperCase(java.util.Locale.ROOT).replace("/FILES/", "/files/")
+                                        + "/versions?limit=100",
+                                null,
+                                credentials)
+                        .statusCode())
+                .isEqualTo(200);
+        assertError(call("PATCH", path + "/name?extra=1", "{\"name\":\"safe\"}", credentials), 400, "INVALID_REQUEST");
+        for (String suffix : List.of("/name", "/versions")) {
+            String method = suffix.equals("/name") ? "PATCH" : "GET";
+            String body = suffix.equals("/name") ? "{\"name\":\"safe\"}" : null;
+            assertError(call(method, path + suffix, body, new Credentials(null, null)), 401, "SESSION_EXPIRED");
+            assertError(
+                    call(method, path + suffix, body, new Credentials("KNOW_POOL_SESSION=invalid", null)),
+                    401,
+                    "SESSION_EXPIRED");
+            assertError(call(method, "/files/not-id" + suffix, body, credentials), 400, "INVALID_REQUEST");
+            assertError(call(method, "/files/" + UUID.randomUUID() + suffix, body, credentials), 404, "NOT_FOUND");
+            HttpResponse<String> origin = HTTP.send(
+                    request(method, path + suffix, body, credentials)
+                            .header("Origin", "https://invalid.example")
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertError(origin, 403, "ORIGIN_REJECTED");
+            verified("资料管理拒绝伪造来源" + suffix, suffix.equals("/name") ? "renameFile" : "listFileVersions", origin, null);
+        }
+        assertError(
+                call("PATCH", path + "/name", "{\"name\":\"safe\"}", new Credentials(credentials.cookie(), null)),
+                403,
+                "CSRF_REJECTED");
+        assertError(
+                call("PATCH", path + "/name", "{\"name\":\"safe\"}", new Credentials(credentials.cookie(), "invalid")),
+                403,
+                "CSRF_REJECTED");
+        assertThat(JSON.readTree(call("GET", path, null, credentials).body())
+                        .get("name")
+                        .asText())
+                .isEqualTo("page.txt");
+    }
+
+    @Test
+    @Order(65)
+    @DisplayName("并发重命名与上传共享名称唯一性且冲突不改变版本")
+    void concurrentRenamesAndUploadsPreserveUniqueNamesAndVersions() throws Exception {
+        Credentials credentials = credentials();
+        String datasetId = createDataset("并发重命名验收", credentials);
+        JsonNode items = JSON.readTree(upload(
+                                datasetId,
+                                credentials,
+                                new UploadPart("one.txt", "text/plain", new byte[] {65}),
+                                new UploadPart("two.txt", "text/plain", new byte[] {66}))
+                        .body())
+                .get("items");
+        String firstId = items.at("/0/file/id").asText(),
+                secondId = items.at("/1/file/id").asText();
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var start = new java.util.concurrent.CountDownLatch(1);
+            var first = executor.submit(() -> {
+                start.await();
+                return call("PATCH", "/files/" + firstId + "/name", "{\"name\":\"shared.txt\"}", credentials);
+            });
+            var second = executor.submit(() -> {
+                start.await();
+                return call("PATCH", "/files/" + secondId + "/name", "{\"name\":\"SHARED.TXT\"}", credentials);
+            });
+            start.countDown();
+            assertThat(List.of(first.get().statusCode(), second.get().statusCode()))
+                    .containsExactlyInAnyOrder(200, 409);
+        }
+        for (int index = 0; index < 2; index++) {
+            String id = items.at("/" + index + "/file/id").asText();
+            JsonNode current =
+                    JSON.readTree(call("GET", "/files/" + id, null, credentials).body());
+            assertThat(current.get("latestVersion")).isEqualTo(items.at("/" + index + "/file/latestVersion"));
+            assertThat(JSON.readTree(call("GET", "/files/" + id + "/versions", null, credentials)
+                                    .body())
+                            .get("items")
+                            .size())
+                    .isEqualTo(1);
+        }
+        String raceDataset = createDataset("上传改名竞态验收", credentials);
+        JsonNode original = JSON.readTree(
+                        upload(raceDataset, credentials, new UploadPart("source.txt", "text/plain", new byte[] {65}))
+                                .body())
+                .at("/items/0/file");
+        String path = "/files/" + original.get("id").asText();
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var start = new java.util.concurrent.CountDownLatch(1);
+            var rename = executor.submit(() -> {
+                start.await();
+                return call("PATCH", path + "/name", "{\"name\":\"target.txt\"}", credentials);
+            });
+            var uploading = executor.submit(() -> {
+                start.await();
+                return upload(raceDataset, credentials, new UploadPart("TARGET.TXT", "text/plain", new byte[] {66}));
+            });
+            start.countDown();
+            HttpResponse<String> renamed = rename.get();
+            JsonNode uploaded = JSON.readTree(uploading.get().body()).at("/items/0");
+            JsonNode listed = JSON.readTree(call("GET", "/datasets/" + raceDataset + "/files", null, credentials)
+                            .body())
+                    .get("items");
+            assertThat(listed.valueStream()
+                            .filter(file -> file.get("name").asText().equalsIgnoreCase("target.txt"))
+                            .count())
+                    .isEqualTo(1);
+            if (renamed.statusCode() == 200) {
+                assertThat(uploaded.get("outcome").asText()).isEqualTo("replaced");
+                assertThat(uploaded.at("/file/id")).isEqualTo(original.get("id"));
+                assertThat(listed.size()).isEqualTo(1);
+            } else {
+                assertError(renamed, 409, "NAME_EXISTS");
+                assertThat(uploaded.get("outcome").asText()).isEqualTo("created");
+                assertThat(uploaded.at("/file/id")).isNotEqualTo(original.get("id"));
+                assertThat(listed.size()).isEqualTo(2);
+                assertThat(JSON.readTree(call("GET", path, null, credentials).body()))
+                        .isEqualTo(original);
+            }
+        }
+    }
+
+    @Test
+    @Order(66)
+    @DisplayName("重命名和全部版本重启后持久保留且旧名称不冒充原资料")
+    void renamedFileAndVersionsPersistAcrossApplicationRestart() throws Exception {
+        Credentials before = credentials();
+        String datasetId = createDataset("改名版本持久验收", before);
+        JsonNode original = JSON.readTree(
+                        upload(datasetId, before, new UploadPart("persist.txt", "text/plain", new byte[] {65}))
+                                .body())
+                .at("/items/0/file");
+        upload(datasetId, before, new UploadPart("persist.txt", "text/plain", new byte[] {66}));
+        String path = "/files/" + original.get("id").asText();
+        JsonNode renamed = JSON.readTree(call("PATCH", path + "/name", "{\"name\":\"renamed.txt\"}", before)
+                .body());
+        JsonNode versions =
+                JSON.readTree(call("GET", path + "/versions", null, before).body());
+        assertThat(versions.get("items").size()).isEqualTo(2);
+        context.close();
+        context = SpringApplication.run(
+                KnowledgePoolApplication.class,
+                "--server.port=0",
+                "--know-pool.data-directory=" + dataDirectory,
+                "--logging.file.name=target/test-application.log");
+        base = "http://127.0.0.1:" + context.getEnvironment().getProperty("local.server.port");
+        Credentials after = credentials();
+        assertThat(JSON.readTree(call("GET", path, null, after).body())).isEqualTo(renamed);
+        assertThat(JSON.readTree(call("GET", path + "/versions", null, after).body()))
+                .isEqualTo(versions);
+        JsonNode unchanged = JSON.readTree(
+                        upload(datasetId, after, new UploadPart("RENAMED.TXT", "text/plain", new byte[] {66}))
+                                .body())
+                .at("/items/0");
+        assertThat(unchanged.get("outcome").asText()).isEqualTo("unchanged");
+        assertThat(unchanged.get("file")).isEqualTo(renamed);
+        JsonNode newFile = JSON.readTree(
+                        upload(datasetId, after, new UploadPart("persist.txt", "text/plain", new byte[] {65}))
+                                .body())
+                .at("/items/0");
+        assertThat(newFile.get("outcome").asText()).isEqualTo("created");
+        assertThat(newFile.at("/file/id")).isNotEqualTo(original.get("id"));
+        assertThat(JSON.readTree(call("GET", path + "/versions", null, after).body()))
+                .isEqualTo(versions);
+    }
+
+    @Test
+    @Order(67)
+    @DisplayName("重命名存储失败不改变名称更新时间或版本且恢复后可重试")
+    void renameStorageFailureRollsBackAllMetadataAndCanBeRetried() throws Exception {
+        Credentials credentials = credentials();
+        String datasetId = createDataset("重命名事务故障验收", credentials);
+        JsonNode original = JSON.readTree(
+                        upload(datasetId, credentials, new UploadPart("safe.txt", "text/plain", new byte[] {65}))
+                                .body())
+                .at("/items/0/file");
+        String path = "/files/" + original.get("id").asText();
+        JsonNode versions =
+                JSON.readTree(call("GET", path + "/versions", null, credentials).body());
+        try (var connection = java.sql.DriverManager.getConnection(
+                        "jdbc:sqlite:" + dataDirectory.resolve("application.sqlite"));
+                var statement = connection.createStatement()) {
+            statement.execute(
+                    "CREATE TRIGGER reject_test_rename BEFORE UPDATE OF name ON files BEGIN SELECT RAISE(ABORT,'固定重命名故障'); END");
+            try {
+                HttpResponse<String> response =
+                        call("PATCH", path + "/name", "{\"name\":\"changed.txt\"}", credentials);
+                assertError(response, 500, "INTERNAL_ERROR");
+                assertThat(response.body()).doesNotContain("固定重命名故障", "relative_path", dataDirectory.toString());
+                assertThat(JSON.readTree(call("GET", path, null, credentials).body()))
+                        .isEqualTo(original);
+                assertThat(JSON.readTree(call("GET", path + "/versions", null, credentials)
+                                .body()))
+                        .isEqualTo(versions);
+            } finally {
+                statement.execute("DROP TRIGGER reject_test_rename");
+            }
+            statement.execute("ALTER TABLE file_versions RENAME TO unavailable_test_versions");
+            try {
+                assertError(call("GET", path + "/versions", null, credentials), 500, "INTERNAL_ERROR");
+            } finally {
+                statement.execute("ALTER TABLE unavailable_test_versions RENAME TO file_versions");
+            }
+        }
+        assertThat(call("PATCH", path + "/name", "{\"name\":\"changed.txt\"}", credentials)
+                        .statusCode())
+                .isEqualTo(200);
+        assertThat(JSON.readTree(
+                        call("GET", path + "/versions", null, credentials).body()))
+                .isEqualTo(versions);
+    }
+
     private static Credentials credentials() throws Exception {
         HttpResponse<String> response = get("/session", null, null);
         JsonNode session = JSON.readTree(response.body());
@@ -1570,9 +1958,13 @@ class LocalApplicationTest {
                 HTTP.send(request(method, path, body, credentials).build(), HttpResponse.BodyHandlers.ofString());
         String route = path.split("\\?", 2)[0];
         String operation = route.startsWith("/files/")
-                ? (route.endsWith("/latest/preview")
-                        ? "previewLatestFile"
-                        : route.endsWith("/latest/download") ? "downloadLatestFile" : "getFile")
+                ? (route.endsWith("/name")
+                        ? "renameFile"
+                        : route.endsWith("/versions")
+                                ? "listFileVersions"
+                                : route.endsWith("/latest/preview")
+                                        ? "previewLatestFile"
+                                        : route.endsWith("/latest/download") ? "downloadLatestFile" : "getFile")
                 : route.matches("/datasets/[^/]+/files") ? "listDatasetFiles" : null;
         if (operation != null) verified("真实资料HTTP边界" + response.statusCode(), operation, response, null);
         return response;
@@ -1987,7 +2379,8 @@ class LocalApplicationTest {
         return sequence + "：" + operation + "：" + name;
     }
 
-    private static void record(String name, String operation, HttpResponse<?> response, List<String> constraintIds) {
+    private static synchronized void record(
+            String name, String operation, HttpResponse<?> response, List<String> constraintIds) {
         Map<String, Object> evidence = new LinkedHashMap<>();
         evidence.put("name", evidenceName(operation, EVIDENCE.size() + 1, name));
         evidence.put("passed", true);
