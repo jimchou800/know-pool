@@ -92,18 +92,18 @@ class ContractGateTests(unittest.TestCase):
     def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
         """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
         operations = verify.inventory(self.document)
-        self.assertEqual(verify.TICKET, '13')
-        self.assertEqual(len(verify.SCOPE), 54)
-        self.assertEqual(len(set(verify.SCOPE)), 54)
+        self.assertEqual(verify.TICKET, '14')
+        self.assertEqual(len(verify.SCOPE), 56)
+        self.assertEqual(len(set(verify.SCOPE)), 56)
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix
             self.assertIn(pointer, operations['watchTask']['constraints'])
             self.assertEqual(verify.coverage({'tests': []}, 'watchTask', pointer), [])
         rules = {
-            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig'},
-            'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase'},
-            'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase'},
+            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch'},
+            'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch'},
+            'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch'},
             'sse': {'watchTask', 'getTask'},
         }
         for rule, expected in rules.items():
@@ -209,6 +209,19 @@ class ContractGateTests(unittest.TestCase):
                          mapping['操作']['offlineKnowledgeBase'])
         self.assertNotIn('#/paths/~1knowledge-bases~1{knowledgeBaseId}~1check/post/responses/429',
                          mapping['操作']['checkKnowledgeBase'])
+
+    def test_multisearch_requires_instance_partial_scope_and_latest_request(self):
+        """普通检索不得沿用管理入口的空实例及无部分范围豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-14.json').read_bytes())
+        for operation in ('submitSearch', 'getSearchRequest'):
+            conditions = mapping['操作'][operation]
+            self.assertFalse(any('/instanceId/anyOf/0/' in key for key in conditions))
+            self.assertFalse(any('/warnings/items/' in key for key in conditions))
+        prefix = '#/paths/~1search-instances~1{instanceId}~1requests/post/responses/'
+        for code in ('404', '409', '429'):
+            self.assertNotIn(prefix + code, mapping['操作']['submitSearch'])
+        self.assertIn('createSearchInstance', verify.SCOPE)
+        self.assertIn('submitSearch', verify.SCOPE)
 
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
