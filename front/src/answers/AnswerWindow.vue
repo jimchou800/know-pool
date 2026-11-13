@@ -611,6 +611,11 @@ if (props.initialConversation) restore();
             @keydown.esc="closeEvidence"
           >
             <h3>{{ evidence.filenameAtCapture }}</h3>
+            <p>
+              当前文件名：{{
+                evidence.currentFilename || '源资料已删除'
+              }}；引用时名称：{{ evidence.filenameAtCapture }}
+            </p>
             <button @click="closeEvidence">关闭引用原文</button>
             <p>
               实际内容版本：{{ evidence.contentVersionId }}；索引版本：{{

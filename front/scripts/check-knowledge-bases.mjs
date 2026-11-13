@@ -10,6 +10,7 @@ import { checkMultiSearch } from './check-multi-search.mjs';
 import { checkSearchInstances } from './check-search-instances.mjs';
 import { checkGroundedAnswer } from './check-grounded-answer.mjs';
 import { checkConfigurationRebuild } from './check-configuration-rebuild.mjs';
+import { checkDeletionCleanup } from './check-deletion-cleanup.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -819,6 +820,12 @@ export async function checkKnowledgeBases(page, tests) {
         '未发布单库索引生效后检索真实切片与版本位置；无命中和嵌入故障分别展示',
       ],
       tasks: { initialAccepted: !!accepted.id },
+    });
+    await checkDeletionCleanup(page, tests, {
+      http,
+      base,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
     });
   } finally {
     releaseEmbedding?.();

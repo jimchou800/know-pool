@@ -1,4 +1,5 @@
 <script setup>
+import DeleteResource from '../cleanup/DeleteResource.vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { createDatasetClient, trimName } from './client';
@@ -76,6 +77,15 @@ async function refreshSummary() {
 }
 async function filesChanged() {
   await Promise.all([loadPage(), refreshSummary()]);
+}
+async function deleted(value) {
+  ++detailSequence;
+  ++summarySequence;
+  ++listSequence;
+  selected.value = null;
+  rows.value = rows.value.filter((item) => item.id !== value.id);
+  await router.push('/datasets');
+  await loadPage(0);
 }
 async function loadDetail() {
   const sequence = ++detailSequence;
@@ -322,6 +332,13 @@ loadPage(0);
             <p class="dataset-description">
               {{ selected.description || '暂无说明' }}
             </p>
+            <DeleteResource
+              :key="`delete-${selected.id}`"
+              :client="client"
+              kind="datasets"
+              :resource-id="selected.id"
+              :writable="writable"
+              @deleted="deleted" />
             <dl>
               <div>
                 <dt>资料数量</dt>

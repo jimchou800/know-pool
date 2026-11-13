@@ -11,6 +11,7 @@ import { createFileClient } from './client';
 import { decodePreviewText } from './preview-text';
 import FileKnowledgeBases from './FileKnowledgeBases.vue';
 import VersionDownload from './VersionDownload.vue';
+import DeleteResource from '../cleanup/DeleteResource.vue';
 import './files.css';
 
 const props = defineProps({
@@ -75,6 +76,18 @@ let detailSequence = 0;
 let uploadSequence = 0;
 let contentSequence = 0;
 let versionSequence = 0;
+async function deleted(value) {
+  ++detailSequence;
+  ++contentSequence;
+  ++versionSequence;
+  ++sequence;
+  resetDetailActions();
+  selected.value = null;
+  detailId.value = null;
+  rows.value = rows.value.filter((item) => item.id !== value.id);
+  notice.value = '资料已逻辑删除，后台清理可在清理任务页查看。';
+  emit('changed');
+}
 function resetDetailActions() {
   renameOpen.value = false;
   renameError.value = '';
@@ -514,6 +527,14 @@ onBeforeUnmount(() => {
     </p>
     <section v-if="selected" aria-label="资料详情" class="file-detail">
       <h4>{{ selected.name }}</h4>
+      <DeleteResource
+        :key="`delete-${selected.id}`"
+        :client="client"
+        kind="files"
+        :resource-id="selected.id"
+        :writable="writable"
+        @deleted="deleted"
+      />
       <button
         ref="renameButton"
         data-action="rename"
