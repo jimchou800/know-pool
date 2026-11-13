@@ -4,17 +4,17 @@
   <parent><groupId>cn.knowpool</groupId><artifactId>know-pool</artifactId><version>0.1.0-SNAPSHOT</version></parent>
   <artifactId>front</artifactId>
   <packaging>pom</packaging>
-  <name>本机前端</name>
+  <name>Know Pool Frontend</name>
   <build><plugins><plugin>
     <groupId>com.github.eirslett</groupId><artifactId>frontend-maven-plugin</artifactId><version>1.15.1</version>
     <configuration><installDirectory>${project.build.directory}/toolchain</installDirectory><workingDirectory>${project.basedir}</workingDirectory></configuration>
     <executions>
-      <execution><id>固定前端工具链</id><phase>generate-resources</phase><goals><goal>install-node-and-pnpm</goal></goals><configuration><nodeVersion>${node.version}</nodeVersion><pnpmVersion>${pnpm.version}</pnpmVersion></configuration></execution>
-      <execution><id>冻结安装</id><phase>generate-resources</phase><goals><goal>pnpm</goal></goals><configuration><arguments>install --frozen-lockfile</arguments></configuration></execution>
-      <execution><id>静态检查</id><phase>test</phase><goals><goal>pnpm</goal></goals><configuration><arguments>lint</arguments></configuration></execution>
-      <execution><id>格式检查</id><phase>test</phase><goals><goal>pnpm</goal></goals><configuration><arguments>format:check</arguments></configuration></execution>
-      <execution><id>前端测试与覆盖率</id><phase>test</phase><goals><goal>pnpm</goal></goals><configuration><arguments>test:coverage</arguments></configuration></execution>
-      <execution><id>前端构建</id><phase>prepare-package</phase><goals><goal>pnpm</goal></goals><configuration><arguments>build</arguments></configuration></execution>
+      <execution><id>install-frontend-toolchain</id><phase>generate-resources</phase><goals><goal>install-node-and-pnpm</goal></goals><configuration><nodeVersion>${node.version}</nodeVersion><pnpmVersion>${pnpm.version}</pnpmVersion></configuration></execution>
+      <execution><id>install-frozen-dependencies</id><phase>generate-resources</phase><goals><goal>pnpm</goal></goals><configuration><arguments>install --frozen-lockfile</arguments></configuration></execution>
+      <execution><id>lint-frontend</id><phase>test</phase><goals><goal>pnpm</goal></goals><configuration><arguments>lint</arguments></configuration></execution>
+      <execution><id>check-frontend-format</id><phase>test</phase><goals><goal>pnpm</goal></goals><configuration><arguments>format:check</arguments></configuration></execution>
+      <execution><id>test-frontend-coverage</id><phase>test</phase><goals><goal>pnpm</goal></goals><configuration><arguments>test:coverage</arguments></configuration></execution>
+      <execution><id>build-frontend</id><phase>prepare-package</phase><goals><goal>pnpm</goal></goals><configuration><arguments>build</arguments></configuration></execution>
     </executions>
   </plugin></plugins></build>
 </project>

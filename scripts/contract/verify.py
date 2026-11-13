@@ -15,7 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-SCOPE = ('initializeSession', 'getSystemStatus')
+TICKET = '02'
+SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset')
 METHODS = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options'}
 KEYWORDS = {
     'type', 'required', 'additionalProperties', 'enum', 'const', 'format',
@@ -137,12 +138,12 @@ def coverage(evidence, operation_id, constraint):
 
 
 def scope_mapping(contract_hash):
-    path = ROOT / 'scripts/contract/scope-01.json'
+    path = ROOT / f'scripts/contract/scope-{TICKET}.json'
     raw = path.read_bytes()
     mapping = json.loads(raw)
     actors = set()
     for role in ('frontend', 'backend'):
-        approval = json.loads((ROOT / f'docs/agents/api/reviews/scope-01-{role}.json').read_text(encoding='utf-8'))
+        approval = json.loads((ROOT / f'docs/agents/api/reviews/scope-{TICKET}-{role}.json').read_text(encoding='utf-8'))
         if (approval.get('mapSha256') != digest(raw) or approval.get('contractSha256') != contract_hash
                 or approval.get('role') != role or approval.get('conclusion') != '通过'
                 or not approval.get('actor') or not approval.get('evidence')):

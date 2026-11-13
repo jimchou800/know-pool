@@ -9,7 +9,8 @@ import run_live
 
 
 class LivePreflightTests(unittest.TestCase):
-    def test_缺少发行包或有多个发行包时拒绝启动(self):
+    def test_missing_or_multiple_packages_prevent_launch(self):
+        """缺少发行包或存在多个包时拒绝启动。"""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             target = root / 'server/target'

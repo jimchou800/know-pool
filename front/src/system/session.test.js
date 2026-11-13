@@ -274,7 +274,7 @@ it.each([
 afterAll(() => {
   mkdirSync('artifacts', { recursive: true });
   writeFileSync(
-    'artifacts/contract-consumer.json',
+    'artifacts/contract-consumer-01.json',
     JSON.stringify(
       {
         timestamp: new Date().toISOString(),

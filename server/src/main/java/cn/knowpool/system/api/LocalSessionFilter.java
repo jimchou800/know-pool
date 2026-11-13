@@ -127,6 +127,14 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
             }
             return;
         }
+        boolean collection =
+                path.equals("/api/v1/datasets") && Set.of("GET", "POST").contains(request.getMethod());
+        boolean resource =
+                path.matches("/api/v1/datasets/[^/]+") && Set.of("GET", "PATCH").contains(request.getMethod());
+        if (collection || resource) {
+            chain.doFilter(request, response);
+            return;
+        }
         error(response, 404, "NOT_FOUND", "请求的操作不存在或尚未实现。", requestId);
     }
 

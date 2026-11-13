@@ -1,0 +1,66 @@
+{
+  "任务": "02",
+  "说明": "02累积验收继承01；完整95操作与原始约束保留，条件未触发和后续规则不计通过。适用映射须由两方确认同一摘要。",
+  "操作": {
+    "initializeSession": {
+      "#/components/schemas/FieldError/additionalProperties": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/code/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/field/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/message/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/required": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/paths/~1session/get/responses/500": "共享故障响应声明；当前初始化没有可安全触发的运行期故障分支，消费方错误替身仍须验证。",
+      "#/x-business-constraints/security": "全局规则含后续 SSE 与正式写消费；本票只验收下列已列明的当前安全行为，完整全局规则保留未完成。"
+    },
+    "getSystemStatus": {
+      "#/components/schemas/FieldError/additionalProperties": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/code/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/field/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/message/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/required": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/SystemStatus/properties/warnings/items/type": "真实状态无警告时子项条件未触发；非空及非法元素的消费测试仍保留。",
+      "#/paths/~1system~1status/get/responses/404": "共享错误声明；精确状态路径本票没有资源缺失分支，不以其他路径的 404 冒充此操作。",
+      "#/paths/~1system~1status/get/responses/429": "共享错误声明；本票状态读取没有独立排队或容量分支，不以初始化容量响应冒充此操作。",
+      "#/paths/~1system~1status/get/responses/503": "共享错误声明；本票状态读取不依赖外部服务，不额外发明业务故障。",
+      "#/x-business-constraints/security": "全局规则含后续 SSE 与正式写消费；本票只验收下列已列明的当前安全行为，完整全局规则保留未完成。"
+    },
+    "listDatasets": {
+      "#/x-business-constraints/security": "共享全局规则按当前七项行为验证；后续SSE仍保留未实现。",
+      "#/paths/~1datasets/get/responses/429": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets/get/responses/503": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets/get/responses/404": "集合级操作没有资源缺失分支，不挪用单资源404作为证据。"
+    },
+    "createDataset": {
+      "#/x-business-constraints/security": "共享全局规则按当前七项行为验证；后续SSE仍保留未实现。",
+      "#/paths/~1datasets/post/responses/429": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets/post/responses/503": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets/post/responses/404": "集合级操作没有资源缺失分支，不挪用单资源404作为证据。",
+      "#/paths/~1datasets/post/responses/422": "共享配置或业务前置失败声明；本票仅创建修改数据集，没有此类前置分支，非法字段按400处理。"
+    },
+    "getDataset": {
+      "#/x-business-constraints/security": "共享全局规则按当前七项行为验证；后续SSE仍保留未实现。",
+      "#/paths/~1datasets~1{datasetId}/get/responses/429": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets~1{datasetId}/get/responses/503": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。"
+    },
+    "updateDataset": {
+      "#/x-business-constraints/security": "共享全局规则按当前七项行为验证；后续SSE仍保留未实现。",
+      "#/paths/~1datasets~1{datasetId}/patch/responses/429": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets~1{datasetId}/patch/responses/503": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets~1{datasetId}/patch/responses/422": "共享配置或业务前置失败声明；本票仅创建修改数据集，没有此类前置分支，非法字段按400处理。"
+    }
+  },
+  "当前安全行为": [
+    "仅回环监听及 Host 白名单",
+    "Origin 白名单与拒绝非法来源",
+    "会话 Cookie 的 HttpOnly、SameSite=Strict、Path=/ 属性",
+    "HTTP 不强制 Secure，HTTPS 安全请求设置 Secure",
+    "缺失或失效会话拒绝访问受保护读取与写入",
+    "非法写请求在业务路由前校验 CSRF，合法保护信息不绕过路由检查",
+    "会话令牌不进入 URL 或前端持久化，报告日志不保存真实值"
+  ],
+  "后续保留": [
+    "SSE 的 Cookie 会话兼容性待事件操作切片验证",
+    "真实 TLS 部署不属于本票已验证范围，Secure 属性由安全请求边界测试验证"
+  ]
+}

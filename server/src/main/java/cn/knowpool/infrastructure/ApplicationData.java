@@ -1,4 +1,4 @@
-package cn.knowpool.system.data;
+package cn.knowpool.infrastructure;
 
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
@@ -10,10 +10,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.List;
+import java.util.function.Function;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Component
 public final class ApplicationData implements AutoCloseable {
@@ -49,21 +52,47 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 1) {
+            if (version > 2) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version == 0) {
-                jdbc.sql("CREATE TABLE IF NOT EXISTS application_metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            if (version == 1) {
+                Path backups = directory.resolve("schema-backups");
+                Files.createDirectories(backups);
+                Path backup = backups.resolve("schema-1-" + java.util.UUID.randomUUID() + ".sqlite");
+                jdbc.sql("VACUUM INTO '" + backup.toString().replace("'", "''") + "'")
                         .update();
-                jdbc.sql("INSERT OR IGNORE INTO application_metadata(name, value) VALUES ('created_at', ?)")
-                        .param(startedAt.toString())
-                        .update();
-                jdbc.sql("PRAGMA user_version=1").update();
+            }
+            if (version < 2) {
+                write(transaction -> {
+                    transaction
+                            .sql(
+                                    "CREATE TABLE IF NOT EXISTS application_metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                            .update();
+                    transaction
+                            .sql("INSERT OR IGNORE INTO application_metadata(name, value) VALUES ('created_at', ?)")
+                            .param(startedAt.toString())
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE datasets (id TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL UNIQUE, description TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+                            .update();
+                    transaction.sql("PRAGMA user_version=2").update();
+                    return null;
+                });
             }
         } catch (RuntimeException | IOException failure) {
             close();
             throw new IOException("数据目录初始化失败，已停止业务写入。", failure);
         }
+    }
+
+    public <T> T read(Function<JdbcClient, T> action) {
+        return action.apply(JdbcClient.create(dataSource));
+    }
+
+    public synchronized <T> T write(Function<JdbcClient, T> action) {
+        return new TransactionTemplate(new DataSourceTransactionManager(dataSource))
+                .execute(status -> action.apply(JdbcClient.create(dataSource)));
     }
 
     public synchronized Status status() {

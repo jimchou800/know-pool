@@ -1,6 +1,6 @@
 package cn.knowpool.system.api;
 
-import cn.knowpool.system.data.ApplicationData;
+import cn.knowpool.infrastructure.ApplicationData;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RestController;

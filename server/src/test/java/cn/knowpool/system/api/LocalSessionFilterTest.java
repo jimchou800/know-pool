@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -17,7 +18,8 @@ class LocalSessionFilterTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Test
-    void 会话过期重新初始化且容量有界() throws Exception {
+    @DisplayName("会话过期重新初始化且容量有界")
+    void renewExpiredSessionsAndBoundSessionCapacity() throws Exception {
         AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-11-12T00:00:00Z"));
         Clock clock = new Clock() {
             @Override
@@ -56,7 +58,8 @@ class LocalSessionFilterTest {
     }
 
     @Test
-    void 恶意或缺失主机和伪造来源不进入业务链() throws Exception {
+    @DisplayName("恶意或缺失主机和伪造来源不进入业务链")
+    void rejectMissingOrUntrustedHostsBeforeBusinessHandling() throws Exception {
         LocalSessionFilter filter = new LocalSessionFilter("", JSON);
         for (String host : new String[] {null, "[", "example.com", "127.0.0.1:1"}) {
             MockHttpServletRequest request = request(false);

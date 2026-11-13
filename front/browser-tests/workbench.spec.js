@@ -40,11 +40,14 @@ for (const width of [1280, 1440, 1920]) {
     ).toBe(true);
     await page.keyboard.press('Tab');
     await expect(page.locator('.brand')).toBeFocused();
+    await page.route('**/api/v1/datasets?*', (route) =>
+      route.fulfill({ json: { items: [], nextCursor: null } }),
+    );
     await page.getByRole('link', { name: '数据集 导入与管理原始资料' }).click();
     await expect(
-      page.getByText('数据集功能尚未接通，请返回首页。'),
+      page.getByText('尚无数据集。点击“创建数据集”开始整理资料。'),
     ).toBeVisible();
-    await page.getByRole('link', { name: '返回首页' }).click();
+    await page.locator('.brand').click();
     await expect(
       page.getByRole('heading', { name: '欢迎回到知池' }),
     ).toBeVisible();

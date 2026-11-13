@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Icon from '../Icon.vue';
 import { createSystemClient } from './session';
+import Datasets from '../datasets/Datasets.vue';
 
 const props = defineProps({
   client: { type: Object, default: () => createSystemClient() },
@@ -87,7 +88,7 @@ onMounted(connect);
             :key="entry.path"
             :to="entry.path"
             class="nav-item"
-            :class="{ selected: route.path === entry.path }"
+            :class="{ selected: route.path.startsWith(entry.path) }"
             ><Icon :name="entry.icon" />{{ entry.title }}</RouterLink
           >
           <p class="nav-group">知识服务</p>
@@ -165,6 +166,15 @@ onMounted(connect);
             </section>
           </div>
         </section>
+        <template
+          v-else-if="
+            route.path === '/datasets' || route.path.startsWith('/datasets/')
+          "
+          ><Datasets
+            v-if="status && !loading"
+            :client="client"
+            :writable="status.writeState === 'ready'"
+        /></template>
         <section v-else class="welcome-content">
           <h1>{{ pageNames[route.path] || '页面不存在' }}</h1>
           <p>

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { checkDatasets } from './check-datasets.mjs';
 
 const baseURL = process.argv[2] || 'http://127.0.0.1:4173';
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
@@ -130,10 +131,16 @@ try {
   const integrationReport = await readFile(originalReports[0], 'utf8');
   const filterReport = await readFile(originalReports[1], 'utf8');
   assert.ok(
-    integrationReport.includes('拒绝外部来源和伪造主机并允许明确开发来源'),
+    integrationReport.includes(
+      'rejectUntrustedOriginsAndHostsAndAllowConfiguredOrigins',
+    ),
   );
-  assert.ok(integrationReport.includes('本机会话和持久状态通过真实接口联通'));
-  assert.ok(filterReport.includes('会话过期重新初始化且容量有界'));
+  assert.ok(
+    integrationReport.includes('sessionAndPersistentStatusWorkOverHttp'),
+  );
+  assert.ok(
+    filterReport.includes('renewExpiredSessionsAndBoundSessionCapacity'),
+  );
   const sources = await Promise.all(
     reviewedSources.map(async (path) => ({
       path,
@@ -171,6 +178,7 @@ try {
     );
     await page.screenshot({ path: `artifacts/live-home-${width}.png` });
   }
+  await checkDatasets(page, baseURL, tests);
   await writeFile(
     'artifacts/contract-browser.json',
     JSON.stringify(

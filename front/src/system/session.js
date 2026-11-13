@@ -1,12 +1,13 @@
 import axios from 'axios';
 
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const date = (value) =>
+export const uuid =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const date = (value) =>
   typeof value === 'string' &&
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value) &&
   Number.isFinite(Date.parse(value)) &&
   new Date(value).toISOString().slice(0, 19) === value.slice(0, 19);
-const exact = (value, fields) =>
+export const exact = (value, fields) =>
   value !== null &&
   typeof value === 'object' &&
   !Array.isArray(value) &&
@@ -68,6 +69,50 @@ export function createSystemClient(adapter) {
   });
   let csrfToken;
   return {
+    async request(config) {
+      if (!csrfToken) throw new Error('会话已失效，请重新连接本机服务。');
+      try {
+        const write = ['post', 'patch'].includes(config.method);
+        return (
+          await http.request({
+            ...config,
+            headers: write ? { 'X-CSRF-Token': csrfToken } : {},
+          })
+        ).data;
+      } catch (error) {
+        const detail = error.response?.data;
+        if (
+          exact(detail, [
+            'requestId',
+            'code',
+            'message',
+            'fieldErrors',
+            'retryable',
+          ]) &&
+          typeof detail.requestId === 'string' &&
+          uuid.test(detail.requestId) &&
+          errorCodes.includes(detail.code) &&
+          typeof detail.message === 'string' &&
+          Array.isArray(detail.fieldErrors) &&
+          detail.fieldErrors.every(
+            (field) =>
+              exact(field, ['field', 'code', 'message']) &&
+              ['field', 'code', 'message'].every(
+                (key) => typeof field[key] === 'string',
+              ),
+          ) &&
+          typeof detail.retryable === 'boolean'
+        ) {
+          const failure = new Error(
+            `${detail.message} 请求标识：${detail.requestId}`,
+          );
+          failure.fieldErrors = detail.fieldErrors;
+          failure.code = detail.code;
+          throw failure;
+        }
+        throw new Error('请求未完成，请重新读取记录确认保存结果后重试。');
+      }
+    },
     async connect() {
       csrfToken = undefined;
       try {

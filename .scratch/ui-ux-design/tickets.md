@@ -1,6 +1,6 @@
 # 已批准的前端任务
 
-状态：用户已确认并发布 24 个本地前端工作包；01 已随技术 01 共同完成验收，后续按技术票据依赖推进。
+状态：用户已确认并发布 24 个本地前端工作包；01、02 已随对应技术切片共同完成验收，后续按技术票据依赖推进。
 
 这些工作包细化既有技术切片，不形成独立实施排期。原技术任务是端到端状态的唯一依据，领取时同步记录双方负责人，避免重复派发。下表阻塞均指原技术任务完成且证据已验收，不能依据前端单方完成或 `ready-for-agent` 分流状态解除。
 
@@ -9,7 +9,7 @@
 | 前端工作包 | 阻塞于原技术任务 | 关联原切片 | 执行状态 |
 | --- | --- | --- | --- |
 | [01：建立受保护的正式工作台入口](issues/01-local-contract.md) | 无 | [技术 01](../technical-design/issues/01-local-contract.md) | 已完成 |
-| [02：创建和维护数据集](issues/02-datasets.md) | 技术 01 | [技术 02](../technical-design/issues/02-datasets.md) | 未开始 |
+| [02：创建和维护数据集](issues/02-datasets.md) | 技术 01 | [技术 02](../technical-design/issues/02-datasets.md) | 已完成 |
 | [03：上传、预览和下载单份纯文本资料](issues/03-text-files.md) | 技术 02 | [技术 03](../technical-design/issues/03-text-files.md) | 未开始 |
 | [04：安全预览 Markdown 和文字 PDF](issues/04-document-preview.md) | 技术 03 | [技术 04](../technical-design/issues/04-document-preview.md) | 未开始 |
 | [05：批量上传、同名覆盖和资料重命名](issues/05-batch-upload.md) | 技术 03 | [技术 05](../technical-design/issues/05-batch-upload.md) | 未开始 |

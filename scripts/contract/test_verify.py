@@ -14,12 +14,14 @@ class ContractGateTests(unittest.TestCase):
     def setUp(self):
         self.document = json.loads(verify.CONTRACT.read_text(encoding='utf-8'))
 
-    def test_空契约拒绝(self):
+    def test_rejects_empty_contract(self):
+        """拒绝空契约。"""
         with self.assertRaisesRegex(ValueError, '空契约'):
             verify.inventory({'paths': {}})
 
-    def test_适用映射不得删除原约束或单方批准(self):
-        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-01.json').read_text(encoding='utf-8'))
+    def test_scope_preserves_constraints_and_requires_both_approvals(self):
+        """适用映射保留原约束并要求双方批准。"""
+        mapping = json.loads((verify.ROOT / f'scripts/contract/scope-{verify.TICKET}.json').read_text(encoding='utf-8'))
         operations = verify.inventory(self.document)
         self.assertEqual(set(mapping['操作']), set(verify.SCOPE))
         for operation, conditions in mapping['操作'].items():
@@ -31,17 +33,20 @@ class ContractGateTests(unittest.TestCase):
                 with self.assertRaises(FileNotFoundError):
                     verify.scope_mapping('契约')
 
-    def test_重复操作拒绝(self):
+    def test_rejects_duplicate_operations(self):
+        """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])
         with self.assertRaisesRegex(ValueError, '操作标识重复'):
             verify.inventory(self.document)
 
-    def test_缺失引用拒绝(self):
+    def test_rejects_missing_references(self):
+        """拒绝缺失引用。"""
         self.document['paths']['/session']['get']['responses']['200']['content']['application/json']['schema']['$ref'] = '#/components/schemas/不存在'
         with self.assertRaises(KeyError):
             verify.inventory(self.document)
 
-    def test_分母来自契约且包含共享约束(self):
+    def test_inventory_includes_shared_constraints(self):
+        """分母来自契约并包含共享约束。"""
         operations = verify.inventory(self.document)
         self.assertEqual(len(operations), 95)
         self.assertIn('#/components/schemas/Session/properties/csrfToken/minLength',
@@ -49,19 +54,22 @@ class ContractGateTests(unittest.TestCase):
         self.assertIn('#/paths/~1system~1status/get/responses/401',
                       operations['getSystemStatus']['constraints'])
 
-    def test_自称通过但无约束映射不计覆盖(self):
+    def test_unmapped_claim_does_not_count_as_coverage(self):
+        """无约束映射的通过声明不计覆盖。"""
         self.assertEqual(verify.coverage({'tests': [{'name': '空声明', 'passed': True,
                          'operationIds': ['initializeSession']}]}, 'initializeSession', '约束'), [])
 
-    def test_额外公开接口缺失路由拒绝(self):
-        routes = [{'method': 'GET', 'path': '/api/v1/session'},
-                  {'method': 'GET', 'path': '/api/v1/system/status'}]
+    def test_rejects_extra_or_missing_routes(self):
+        """拒绝额外公开接口和缺失路由。"""
+        routes = [{'method': operation['method'], 'path': '/api/v1' + operation['path']}
+                  for identifier, operation in verify.inventory(self.document).items() if identifier in verify.SCOPE]
         verify.check_routes(self.document, routes)
         for invalid in ([], routes[:1], routes + [{'method': 'POST', 'path': '/api/v1/未声明'}]):
             with self.assertRaises(ValueError):
                 verify.check_routes(self.document, invalid)
 
-    def test_另一操作或失败例不计覆盖(self):
+    def test_failed_or_unrelated_tests_do_not_count_as_coverage(self):
+        """其他操作或失败用例不计覆盖。"""
         evidence = {'tests': [{'name': '失败例', 'passed': False,
                               'operationIds': ['initializeSession'], 'constraintIds': ['约束']}]}
         self.assertEqual(verify.coverage(evidence, 'initializeSession', '约束'), [])
@@ -69,7 +77,8 @@ class ContractGateTests(unittest.TestCase):
         self.assertEqual(verify.coverage(evidence, 'getSystemStatus', '约束'), [])
         self.assertEqual(verify.coverage(evidence, 'initializeSession', '约束'), ['失败例'])
 
-    def test_过期契约实现和空测试拒绝(self):
+    def test_rejects_stale_evidence_and_empty_tests(self):
+        """拒绝过期契约、实现和空测试。"""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'evidence.json'
             for evidence in ({'contractSha256': '旧'},
@@ -79,7 +88,8 @@ class ContractGateTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     verify.read_evidence(path, '契约', '实现')
 
-    def test_畸形证据拒绝而非未捕获异常(self):
+    def test_rejects_malformed_evidence(self):
+        """畸形证据按验证错误拒绝。"""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'evidence.json'
             for tests in ([True], [{'passed': True}],
@@ -90,14 +100,16 @@ class ContractGateTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     verify.read_evidence(path, '契约', '实现')
 
-    def test_失败报告拒绝验收(self):
+    def test_rejects_failed_report_acceptance(self):
+        """失败报告不能验收。"""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'report.json'
             path.write_text(json.dumps({'失败': ['未验证']}), encoding='utf-8')
             with self.assertRaisesRegex(ValueError, '不能验收'):
                 verify.acceptance(path)
 
-    def test_原始测试失败或跳过不得由映射覆盖(self):
+    def test_mapping_cannot_hide_failed_or_skipped_tests(self):
+        """映射不能覆盖原始测试失败或跳过。"""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             frontend = root / 'front/artifacts/vitest.json'
@@ -118,7 +130,8 @@ class ContractGateTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     verify.check_test_results()
 
-    def test_缺单方或同代理代签拒绝且不修改原报告(self):
+    def test_acceptance_requires_independent_approvals_and_preserves_report(self):
+        """拒绝漏签或代签，并保持原报告不变。"""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             contract = root / 'contract.json'
@@ -148,7 +161,8 @@ class ContractGateTests(unittest.TestCase):
                 self.assertIn('双方独立签认', verify.acceptance(path))
                 self.assertEqual(path.read_bytes(), original)
 
-    def test_报告过期拒绝(self):
+    def test_rejects_stale_report(self):
+        """拒绝过期报告。"""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'report.json'
             path.write_text(json.dumps({'失败': [], '结论': '校验通过，仍待双方独立验收',

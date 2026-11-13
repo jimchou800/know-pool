@@ -47,7 +47,7 @@ it('首页显示真实连接结果，不显示演示问答或假历史', async (
   expect(wrapper.findAll('.shortcut')).toHaveLength(4);
   await wrapper.findAll('.shortcut')[0].trigger('click');
   await flushPromises();
-  expect(wrapper.text()).toContain('数据集功能尚未接通');
+  expect(wrapper.get('h1').text()).toBe('数据集');
   await wrapper.get('.brand').trigger('click');
   await flushPromises();
   expect(wrapper.get('h1').text()).toBe('欢迎回到知池');
