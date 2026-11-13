@@ -52,31 +52,41 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 2) {
+            if (version > 3) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version == 1) {
+            if (version > 0 && version < 3) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
-                Path backup = backups.resolve("schema-1-" + java.util.UUID.randomUUID() + ".sqlite");
+                Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
                 jdbc.sql("VACUUM INTO '" + backup.toString().replace("'", "''") + "'")
                         .update();
             }
-            if (version < 2) {
+            if (version < 3) {
                 write(transaction -> {
+                    if (version < 2) {
+                        transaction
+                                .sql(
+                                        "CREATE TABLE IF NOT EXISTS application_metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                                .update();
+                        transaction
+                                .sql("INSERT OR IGNORE INTO application_metadata(name, value) VALUES ('created_at', ?)")
+                                .param(startedAt.toString())
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE datasets (id TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL UNIQUE, description TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+                                .update();
+                    }
                     transaction
                             .sql(
-                                    "CREATE TABLE IF NOT EXISTS application_metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
-                            .update();
-                    transaction
-                            .sql("INSERT OR IGNORE INTO application_metadata(name, value) VALUES ('created_at', ?)")
-                            .param(startedAt.toString())
+                                    "CREATE TABLE files (id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL REFERENCES datasets(id), name TEXT NOT NULL, name_key TEXT NOT NULL, created_by TEXT, created_at TEXT NOT NULL, uploaded_at TEXT NOT NULL, updated_at TEXT NOT NULL, latest_version TEXT NOT NULL, UNIQUE(dataset_id,name_key))")
                             .update();
                     transaction
                             .sql(
-                                    "CREATE TABLE datasets (id TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL UNIQUE, description TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+                                    "CREATE TABLE file_versions (id TEXT PRIMARY KEY, file_id TEXT NOT NULL REFERENCES files(id), uploaded_name TEXT NOT NULL, file_type TEXT NOT NULL, media_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, content_hash TEXT NOT NULL, uploaded_by TEXT, uploaded_at TEXT NOT NULL, relative_path TEXT NOT NULL, available INTEGER NOT NULL)")
                             .update();
-                    transaction.sql("PRAGMA user_version=2").update();
+                    transaction.sql("PRAGMA user_version=3").update();
                     return null;
                 });
             }
@@ -88,6 +98,10 @@ public final class ApplicationData implements AutoCloseable {
 
     public <T> T read(Function<JdbcClient, T> action) {
         return action.apply(JdbcClient.create(dataSource));
+    }
+
+    public Path directory() {
+        return directory;
     }
 
     public synchronized <T> T write(Function<JdbcClient, T> action) {

@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class DatasetRepository {
+    private static final String SELECT =
+            "SELECT d.*, (SELECT COUNT(*) FROM files f WHERE f.dataset_id=d.id) AS file_count, (SELECT COALESCE(SUM(v.size_bytes),0) FROM files f JOIN file_versions v ON f.latest_version=v.id WHERE f.dataset_id=d.id) AS total_bytes FROM datasets d ";
     private final ApplicationData data;
 
     public DatasetRepository(ApplicationData data) {
@@ -17,7 +19,8 @@ public final class DatasetRepository {
 
     public List<Dataset> list(int count, String beforeTime, String beforeId) {
         return data.read(jdbc -> jdbc.sql(
-                        "SELECT * FROM datasets WHERE (? IS NULL OR created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?")
+                        SELECT
+                                + "WHERE (? IS NULL OR created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?")
                 .param(beforeTime)
                 .param(beforeTime)
                 .param(beforeTime)
@@ -28,7 +31,9 @@ public final class DatasetRepository {
                         row.getString("name"),
                         row.getString("description"),
                         row.getString("created_at"),
-                        row.getString("updated_at")))
+                        row.getString("updated_at"),
+                        row.getLong("file_count"),
+                        row.getLong("total_bytes")))
                 .list());
     }
 
@@ -65,19 +70,28 @@ public final class DatasetRepository {
                     .param(timestamp)
                     .param(id)
                     .update();
-            return new Dataset(id, finalName, finalDescription, current.createdAt(), timestamp);
+            return new Dataset(
+                    id,
+                    finalName,
+                    finalDescription,
+                    current.createdAt(),
+                    timestamp,
+                    current.fileCount(),
+                    current.totalBytes());
         });
     }
 
     private static Dataset find(JdbcClient jdbc, String id) {
-        return jdbc.sql("SELECT * FROM datasets WHERE id=?")
+        return jdbc.sql(SELECT + "WHERE id=?")
                 .param(id)
                 .query((row, index) -> new Dataset(
                         row.getString("id"),
                         row.getString("name"),
                         row.getString("description"),
                         row.getString("created_at"),
-                        row.getString("updated_at")))
+                        row.getString("updated_at"),
+                        row.getLong("file_count"),
+                        row.getLong("total_bytes")))
                 .optional()
                 .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "数据集不存在。", null));
     }

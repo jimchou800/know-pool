@@ -3,5 +3,6 @@
   <!-- 框架注入对象按应用生命周期共享，不返回可变业务集合。 -->
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.api.SystemController"/><Field name="data"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.datasets.data.DatasetRepository"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.datasets.FileService"/><Field name="data"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.api.LocalSessionFilter"/><Field name="json"/></Match>
 </FindBugsFilter>

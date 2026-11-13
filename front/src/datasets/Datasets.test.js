@@ -26,22 +26,58 @@ const status = {
   schemaVersion: 1,
   warnings: [],
 };
+const fileRecord = (size) => ({
+  id: record.id,
+  datasetId: record.id,
+  name: '资料.txt',
+  createdBy: null,
+  createdAt: record.createdAt,
+  lastUploadedAt: record.createdAt,
+  updatedAt: record.updatedAt,
+  latestVersion: {
+    id: record.id,
+    fileId: record.id,
+    uploadedName: '资料.txt',
+    fileType: 'text',
+    mediaType: 'text/plain',
+    sizeBytes: size,
+    hashAlgorithm: 'SHA-256',
+    contentHash: 'a'.repeat(64),
+    uploadedBy: null,
+    uploadedAt: record.createdAt,
+    originalAvailable: true,
+  },
+});
 let wrapper;
 let requests;
 let handler;
 afterEach(() => wrapper?.unmount());
-async function setup(path = '/datasets', writable = true) {
+async function setup(path = '/datasets', writable = true, respond) {
   requests = [];
   handler = vi.fn((config) =>
     config.url === '/datasets' ? { items: [record], nextCursor: null } : record,
   );
+  if (respond) handler.mockImplementation(respond);
   const client = createSystemClient(async (config) => {
     if (config.url === '/session')
       return { data: session, status: 200, config };
     if (config.url === '/system/status')
       return { data: status, status: 200, config };
     requests.push(config);
-    return { data: await handler(config), status: 200, config };
+    return {
+      data: await handler(config),
+      status: 200,
+      config,
+      headers: config.rawResponse
+        ? {
+            'content-type': 'text/plain;charset=UTF-8',
+            'content-disposition': 'inline; filename="资料.txt"',
+            'x-content-type-options': 'nosniff',
+            'cache-control': 'no-store',
+            'content-security-policy': "sandbox; default-src 'none'",
+          }
+        : undefined,
+    };
   });
   await client.connect();
   const router = createRouter({
@@ -95,12 +131,186 @@ it('列表分页携带真实游标，失败保留旧页并支持重试与上一�
   await flushPromises();
   expect(wrapper.text()).toContain('第 1 页');
 });
+
+it('新增和覆盖上传后真实重读集中统计且保留资料详情与保存结果', async () => {
+  let size = 0;
+  const file = () => fileRecord(size);
+  await setup(`/datasets/${record.id}`, true, (config) => {
+    const dataset = () => ({
+      ...record,
+      fileCount: size ? 1 : 0,
+      totalBytes: size,
+    });
+    if (config.url.endsWith('/files:upload')) {
+      const outcome = size ? 'replaced' : 'created';
+      size = outcome === 'created' ? 3 : 8;
+      return {
+        requestId: record.id,
+        items: [
+          {
+            index: 0,
+            submittedName: '资料.txt',
+            outcome,
+            file: file(),
+            error: null,
+            indexTaskIds: [],
+          },
+        ],
+      };
+    }
+    if (config.url.endsWith('/files'))
+      return { items: size ? [file()] : [], nextCursor: null };
+    if (config.url.startsWith('/files/')) return file();
+    return config.url === '/datasets'
+      ? { items: [dataset()], nextCursor: null }
+      : dataset();
+  });
+  for (const expected of [3, 8]) {
+    Object.defineProperty(wrapper.get('input[type=file]').element, 'files', {
+      value: [new File(['固定内容'], '资料.txt', { type: 'text/plain' })],
+      configurable: true,
+    });
+    await wrapper.get('input[type=file]').trigger('change');
+    await wrapper.get('.files-panel form').trigger('submit');
+    await flushPromises();
+    const summary = wrapper.get('.dataset-detail > dl');
+    expect(summary.text()).toContain('1 份');
+    expect(summary.text()).toContain(`${expected} 字节`);
+    expect(wrapper.get('.dataset-rows').text()).toContain(
+      `1 份资料 · ${expected} 字节`,
+    );
+    expect(wrapper.get('.file-detail').text()).toContain('资料.txt');
+    expect(wrapper.get('.files-panel [role=status]').text()).toContain(
+      '资料已保存',
+    );
+  }
+});
+it('上传后的统计刷新失败保留已保存资料及结果，重试成功不卸载资料面板', async () => {
+  let saved = false;
+  let fail = true;
+  await setup(`/datasets/${record.id}`, true, (config) => {
+    if (config.rawResponse)
+      return new TextEncoder().encode('固定预览正文').buffer;
+    if (config.url.endsWith('/files:upload')) {
+      saved = true;
+      return {
+        requestId: record.id,
+        items: [
+          {
+            index: 0,
+            submittedName: '资料.txt',
+            outcome: 'created',
+            file: fileRecord(3),
+            error: null,
+            indexTaskIds: [],
+          },
+        ],
+      };
+    }
+    if (config.url.endsWith('/files'))
+      return { items: saved ? [fileRecord(3)] : [], nextCursor: null };
+    if (config.url.startsWith('/files/')) return fileRecord(3);
+    const dataset = {
+      ...record,
+      fileCount: saved ? 1 : 0,
+      totalBytes: saved ? 3 : 0,
+    };
+    if (config.url === '/datasets')
+      return { items: [dataset], nextCursor: null };
+    if (saved && fail) throw new Error('固定读取故障');
+    return dataset;
+  });
+  const panel = wrapper.get('.files-panel').element;
+  Object.defineProperty(wrapper.get('input[type=file]').element, 'files', {
+    value: [new File(['固定内容'], '资料.txt', { type: 'text/plain' })],
+  });
+  await wrapper.get('input[type=file]').trigger('change');
+  await wrapper.get('.files-panel form').trigger('submit');
+  await flushPromises();
+  expect(wrapper.text()).toContain('资料统计刷新失败');
+  expect(wrapper.get('.file-detail').text()).toContain('资料.txt');
+  expect(wrapper.get('.files-panel [role=status]').text()).toContain(
+    '资料已保存',
+  );
+  expect(wrapper.get('.files-panel').element).toBe(panel);
+  await button('预览最新文本').trigger('click');
+  await flushPromises();
+  expect(wrapper.get('.file-preview pre').text()).toBe('固定预览正文');
+  fail = false;
+  await button('重试资料统计').trigger('click');
+  await flushPromises();
+  expect(wrapper.get('.dataset-detail > dl').text()).toContain('3 字节');
+  expect(wrapper.text()).not.toContain('资料统计刷新失败');
+  expect(wrapper.get('.files-panel').element).toBe(panel);
+  expect(wrapper.get('.file-detail').text()).toContain('资料.txt');
+  expect(wrapper.get('.file-preview pre').text()).toBe('固定预览正文');
+});
+it.each([false, true])(
+  '统计刷新迟到成功或失败不能覆盖新数据集：%s',
+  async (reject) => {
+    let saved = false;
+    let finish;
+    const otherId = '00000000-0000-4000-8000-000000000002';
+    const router = await setup(`/datasets/${record.id}`, true, (config) => {
+      if (config.url.endsWith('/files:upload')) {
+        saved = true;
+        return {
+          requestId: record.id,
+          items: [
+            {
+              index: 0,
+              submittedName: '资料.txt',
+              outcome: 'created',
+              file: fileRecord(3),
+              error: null,
+              indexTaskIds: [],
+            },
+          ],
+        };
+      }
+      if (config.url.endsWith('/files')) return { items: [], nextCursor: null };
+      if (config.url.startsWith('/files/')) return fileRecord(3);
+      if (config.url === '/datasets')
+        return { items: [record], nextCursor: null };
+      if (config.url.endsWith(otherId))
+        return {
+          ...record,
+          id: otherId,
+          name: '新数据集',
+          fileCount: 2,
+          totalBytes: 12,
+        };
+      if (saved)
+        return new Promise((resolve, fail) => {
+          finish = reject ? fail : resolve;
+        });
+      return record;
+    });
+    Object.defineProperty(wrapper.get('input[type=file]').element, 'files', {
+      value: [new File(['内容'], '资料.txt')],
+    });
+    await wrapper.get('input[type=file]').trigger('change');
+    await wrapper.get('.files-panel form').trigger('submit');
+    await flushPromises();
+    await router.push(`/datasets/${otherId}`);
+    await flushPromises();
+    finish(
+      reject
+        ? new Error('迟到故障')
+        : { ...record, fileCount: 1, totalBytes: 3 },
+    );
+    await flushPromises();
+    expect(wrapper.get('.dataset-detail h2').text()).toBe('新数据集');
+    expect(wrapper.get('.dataset-detail > dl').text()).toContain('12 字节');
+    expect(wrapper.text()).not.toContain('资料统计刷新失败');
+  },
+);
 it('无资料空态、稳定标识详情导航与读失败恢复', async () => {
   const router = await setup();
   await wrapper.get('.dataset-rows a').trigger('click');
   await flushPromises();
   expect(router.currentRoute.value.path).toBe(`/datasets/${record.id}`);
-  expect(wrapper.get('.dataset-detail').text()).toContain('还没有资料');
+  expect(wrapper.get('.dataset-detail').text()).toContain('上传文本资料');
   expect(wrapper.text()).toContain(record.createdAt);
   handler.mockRejectedValueOnce(new Error('不显示的内部路径'));
   await router.push('/datasets/00000000-0000-4000-8000-000000000002');
@@ -116,7 +326,7 @@ it('无资料空态、稳定标识详情导航与读失败恢复', async () => {
   await button('重试详情').trigger('click');
   await flushPromises();
   expect(wrapper.get('.dataset-detail').text()).toContain('暂无说明');
-  expect(wrapper.get('.dataset-detail').text()).not.toContain('还没有资料');
+  expect(wrapper.get('.dataset-detail').text()).toContain('上传文本资料');
 });
 it('创建空说明省略，请求保护头来自共享会话；成功重新读取详情', async () => {
   await setup();

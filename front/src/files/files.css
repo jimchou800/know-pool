@@ -1,0 +1,114 @@
+.files-panel {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+
+.files-panel h3,
+.files-panel h4 {
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+
+.files-panel > p {
+  color: var(--muted);
+  line-height: 1.7;
+  font-size: 13px;
+}
+
+.files-panel form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.files-panel label {
+  width: 100%;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.files-panel .file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.chosen-file {
+  overflow-wrap: anywhere;
+  min-width: 0;
+  flex: 1 1 160px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.file-rows {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+}
+
+.file-rows button {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.file-rows li + li {
+  margin-top: 8px;
+}
+
+.file-rows button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.file-rows span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.file-detail {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.file-detail dd {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.file-detail > button + button {
+  margin-left: 10px;
+}
+
+.file-preview {
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  padding: 16px;
+  border-radius: 6px;
+}
+
+.file-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.files-panel .dataset-pagination {
+  flex-wrap: wrap;
+}

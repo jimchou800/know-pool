@@ -116,8 +116,8 @@ public final class DatasetController {
                     dataset.description(),
                     dataset.createdAt(),
                     dataset.updatedAt(),
-                    0,
-                    0);
+                    dataset.fileCount(),
+                    dataset.totalBytes());
         }
     }
 

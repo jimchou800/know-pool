@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { createDatasetClient, trimName } from './client';
 import './datasets.css';
+import Files from '../files/Files.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -19,6 +20,7 @@ const loading = ref(false);
 const detailLoading = ref(false);
 const error = ref('');
 const detailError = ref('');
+const summaryError = ref('');
 const selected = ref(null);
 const editing = ref(false);
 const creating = ref(false);
@@ -35,6 +37,7 @@ const editButton = ref(null);
 const selectedId = computed(() => route.path.slice('/datasets/'.length));
 let listSequence = 0;
 let detailSequence = 0;
+let summarySequence = 0;
 
 async function loadPage(index = page.value) {
   const sequence = ++listSequence;
@@ -56,12 +59,31 @@ async function nextPage() {
   cursors.value[page.value + 1] = nextCursor.value;
   await loadPage(page.value + 1);
 }
+async function refreshSummary() {
+  const id = selected.value?.id;
+  if (!id) return;
+  const detail = detailSequence;
+  const sequence = ++summarySequence;
+  summaryError.value = '';
+  try {
+    const result = await api.get(id);
+    if (detail === detailSequence && sequence === summarySequence)
+      selected.value = result;
+  } catch (failure) {
+    if (detail === detailSequence && sequence === summarySequence)
+      summaryError.value = `资料统计刷新失败。${failure.message}`;
+  }
+}
+async function filesChanged() {
+  await Promise.all([loadPage(), refreshSummary()]);
+}
 async function loadDetail() {
   const sequence = ++detailSequence;
   selected.value = null;
   editing.value = false;
   creating.value = false;
   detailError.value = '';
+  summaryError.value = '';
   detailLoading.value = false;
   if (route.path === '/datasets') return;
   detailLoading.value = true;
@@ -75,6 +97,7 @@ async function loadDetail() {
   }
 }
 async function openForm(create) {
+  ++summarySequence;
   creating.value = create;
   editing.value = !create;
   name.value = create ? '' : selected.value.name;
@@ -317,11 +340,16 @@ loadPage(0);
                 <dd>{{ selected.updatedAt }}</dd>
               </div>
             </dl>
-            <div v-if="selected.fileCount === 0" class="dataset-empty">
-              <h3>还没有资料</h3>
-              <p>数据集已就绪，文件导入将在后续功能中接通。</p>
-            </div></template
-          >
+            <p v-if="summaryError" role="alert">
+              {{ summaryError }}
+              <button @click="refreshSummary">重试资料统计</button>
+            </p>
+            <Files
+              :client="client"
+              :dataset-id="selected.id"
+              :writable="writable"
+              @changed="filesChanged"
+          /></template>
           <p v-else class="dataset-empty">
             从左侧选择一个数据集，查看说明与资料概况。
           </p>

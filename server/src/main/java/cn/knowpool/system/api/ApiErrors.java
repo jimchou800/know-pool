@@ -13,14 +13,36 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public final class ApiErrors {
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<Map<String, Object>> uploadSize(Exception failure, HttpServletResponse response) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.apache.tomcat.util.http.fileupload.impl.FileCountLimitExceededException)
+                return body(400, "INVALID_REQUEST", "上传文件数量超出允许范围。", List.of(), response);
+        }
+        return body(413, "RESOURCE_LIMIT", "上传请求超过总大小上限。", List.of(), response);
+    }
+
     @ExceptionHandler(ApiFailure.class)
     public ResponseEntity<Map<String, Object>> expected(ApiFailure failure, HttpServletResponse response) {
         return body(failure.status(), failure.code(), failure.getMessage(), failure.fieldErrors(), response);
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, HttpMediaTypeNotSupportedException.class})
+    @ExceptionHandler({
+        HttpMessageNotReadableException.class,
+        org.springframework.web.multipart.MultipartException.class,
+        org.springframework.web.multipart.support.MissingServletRequestPartException.class,
+        org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class
+    })
     public ResponseEntity<Map<String, Object>> malformed(Exception failure, HttpServletResponse response) {
         return body(400, "INVALID_REQUEST", "请求正文格式或内容类型不正确。", List.of(), response);
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> media(
+            Exception failure, HttpServletResponse response, jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getRequestURI().endsWith("/files:upload"))
+            return body(415, "UNSUPPORTED_FILE", "上传请求须使用多部分文件媒体类型。", List.of(), response);
+        return body(400, "INVALID_REQUEST", "请求内容类型不正确。", List.of(), response);
     }
 
     @ExceptionHandler(Exception.class)

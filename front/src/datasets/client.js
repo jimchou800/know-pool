@@ -36,7 +36,7 @@ function verify(value, valid) {
 function identifier(id) {
   if (typeof id !== 'string' || !uuid.test(id))
     throw new Error('数据集标识无效，请返回列表重新选择。');
-  return `/datasets/${id}`;
+  return `/datasets/${id.toLowerCase()}`;
 }
 function input(value, create) {
   if (
@@ -77,7 +77,10 @@ export function createDatasetClient(session) {
         method: 'get',
         url: identifier(id),
       });
-      return verify(value, validDataset(value) && value.id === id);
+      return verify(
+        value,
+        validDataset(value) && value.id.toLowerCase() === id.toLowerCase(),
+      );
     },
     async create(data) {
       const value = await session.request({
@@ -93,7 +96,10 @@ export function createDatasetClient(session) {
         url: identifier(id),
         data: input(data, false),
       });
-      return verify(value, validDataset(value) && value.id === id);
+      return verify(
+        value,
+        validDataset(value) && value.id.toLowerCase() === id.toLowerCase(),
+      );
     },
   };
 }

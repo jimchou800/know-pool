@@ -73,14 +73,22 @@ export function createSystemClient(adapter) {
       if (!csrfToken) throw new Error('会话已失效，请重新连接本机服务。');
       try {
         const write = ['post', 'patch'].includes(config.method);
-        return (
-          await http.request({
-            ...config,
-            headers: write ? { 'X-CSRF-Token': csrfToken } : {},
-          })
-        ).data;
+        const response = await http.request({
+          ...config,
+          headers: write ? { 'X-CSRF-Token': csrfToken } : {},
+        });
+        return config.rawResponse ? response : response.data;
       } catch (error) {
-        const detail = error.response?.data;
+        let detail = error.response?.data;
+        if (Object.prototype.toString.call(detail) === '[object ArrayBuffer]') {
+          try {
+            detail = JSON.parse(
+              new TextDecoder('utf-8', { fatal: true }).decode(detail),
+            );
+          } catch {
+            detail = null;
+          }
+        }
         if (
           exact(detail, [
             'requestId',

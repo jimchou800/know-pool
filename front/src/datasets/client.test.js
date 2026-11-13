@@ -80,6 +80,18 @@ let requests;
 let system;
 let api;
 let failure;
+it('合法大写标识可读取和更新规范化的小写数据集', async () => {
+  const canonical = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  response = { ...record, id: canonical };
+  expect(await api.get(canonical.toUpperCase())).toEqual(response);
+  expect(await api.update(canonical.toUpperCase(), { name: '新名称' })).toEqual(
+    response,
+  );
+  expect(requests.map((request) => request.url)).toEqual([
+    `/datasets/${canonical}`,
+    `/datasets/${canonical}`,
+  ]);
+});
 beforeEach(async () => {
   response = record;
   requests = [];

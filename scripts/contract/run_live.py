@@ -32,7 +32,8 @@ def main():
     directory = ROOT / '.runtime/live-checks' / uuid.uuid4().hex
     directory.mkdir(parents=True)
     base_url = f'http://127.0.0.1:{port}'
-    command = [java_command, '-jar', str(jars[0]), f'--server.port={port}',
+    # 固定测试账号，避免个人运行账号进入界面截图。
+    command = [java_command, '-Duser.name=验收样例账号', '-jar', str(jars[0]), f'--server.port={port}',
                '--server.address=127.0.0.1', f'--know-pool.data-directory={directory / "data"}',
                f'--logging.file.name={directory / "application.log"}']
     with (directory / 'startup.log').open('wb') as log:

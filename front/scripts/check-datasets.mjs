@@ -71,7 +71,9 @@ export async function checkDatasets(page, baseURL, tests) {
     await page.locator('.dataset-detail h2').textContent(),
     '浏览器数据集',
   );
-  await page.getByText('还没有资料', { exact: true }).waitFor();
+  await page
+    .getByText('尚无资料，选择文本文件开始导入。', { exact: true })
+    .waitFor();
   await page.getByRole('button', { name: '修改名称与说明' }).click();
   await page.getByLabel('名称 必填').fill('浏览器已修改数据集');
   await sample('updateDataset', 'PATCH', () =>
@@ -177,10 +179,16 @@ export async function checkDatasets(page, baseURL, tests) {
   await page.getByRole('button', { name: '刷新列表' }).click();
   await page.getByRole('link', { name: /分页验收19/ }).waitFor();
   await page.getByRole('button', { name: '下一页', exact: true }).click();
-  await page.getByText('第 2 页', { exact: true }).waitFor();
+  await page
+    .locator('.dataset-list')
+    .getByText('第 2 页', { exact: true })
+    .waitFor();
   await page.getByRole('link', { name: /浏览器已修改数据集/ }).waitFor();
   await page.getByRole('button', { name: '上一页', exact: true }).click();
-  await page.getByText('第 1 页', { exact: true }).waitFor();
+  await page
+    .locator('.dataset-list')
+    .getByText('第 1 页', { exact: true })
+    .waitFor();
   for (const width of [1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
     assert.equal(

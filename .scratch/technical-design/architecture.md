@@ -6,7 +6,7 @@
 
 ## 工程与领域
 
-根 Maven 聚合 `server/` 和 `front/`。本地模块化单体按数据集、知识库、检索、问答、系统配置分包，跨业务使用公开接口。Java 21、Spring Boot 4.1.x、Spring AI 2.0.2、Maven 3.9.x、JdbcClient 和显式 SQL；精确补丁及迁移工具仍待验证。
+根 Maven 管理公共版本及工具版本门禁，聚合 `front/`、`server/`、`verification/`；前后端各自检查与构建，验证模块在两方产物就绪后执行统一联调和契约报告。本地模块化单体按数据集、知识库、检索、问答、系统配置分包，跨业务使用公开接口。Java 21、Spring Boot 4.1.x、Spring AI 2.0.2、Maven 3.9.x、JdbcClient 和显式 SQL；精确补丁及迁移工具仍待验证。
 
 前端 Vue 3、Vite、Pinia、Vue Router 4、Axios、JavaScript 与原生 CSS，pnpm 指定镜像及冻结锁文件。开发 Vite 代理，发行 Spring Boot 同源提供静态资源与接口；Windows x64、主流 Chrome/Edge，压缩包包含 Java 运行时。
 

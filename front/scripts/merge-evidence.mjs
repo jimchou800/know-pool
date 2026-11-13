@@ -7,15 +7,20 @@ const first = JSON.parse(
 const second = JSON.parse(
   await readFile('artifacts/contract-consumer-02.json', 'utf8'),
 );
+const third = JSON.parse(
+  await readFile('artifacts/contract-consumer-03.json', 'utf8'),
+);
 assert.equal(first.contractSha256, second.contractSha256);
 assert.equal(first.implementationSha256, second.implementationSha256);
+assert.equal(second.contractSha256, third.contractSha256);
+assert.equal(second.implementationSha256, third.implementationSha256);
 await writeFile(
   'artifacts/contract-consumer.json',
   JSON.stringify(
     {
-      ...second,
-      scope: [...first.scope, ...second.scope],
-      tests: [...first.tests, ...second.tests],
+      ...third,
+      scope: [...first.scope, ...second.scope, ...third.scope],
+      tests: [...first.tests, ...second.tests, ...third.tests],
     },
     null,
     2,

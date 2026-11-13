@@ -38,11 +38,6 @@
                 <version>3.0.6</version>
             </dependency>
             <dependency>
-                <groupId>org.commonmark</groupId>
-                <artifactId>commonmark</artifactId>
-                <version>0.26.0</version>
-            </dependency>
-            <dependency>
                 <groupId>com.tngtech.archunit</groupId>
                 <artifactId>archunit-junit5</artifactId>
                 <version>1.4.1</version>

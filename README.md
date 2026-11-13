@@ -6,7 +6,7 @@
 
 需求与技术访谈已确认。`front/` 已提供三套浅色界面原型，覆盖首页与问答页，可点击切换方案、新建与切换问答、查看模拟处理进度和原文依据抽屉。用户已采纳方案 1“紧凑高效”为后续界面设计基线；其余两套保留为探索记录。
 
-演示原型使用固定样例，不调用真实模型或后端。技术任务 01 的正式工作台、本机会话、安全及统一构建，以及 02 的数据集管理已通过端到端验收，见[01 实施记录](.scratch/technical-design/implementation-01.md)与[02 实施记录](.scratch/technical-design/implementation-02.md)。其余业务尚未验收；后续变更须重新验证，不沿用旧快照结论。
+演示原型使用固定样例，不调用真实模型或后端。技术任务 01 的正式工作台、本机会话、安全及统一构建，02 的数据集管理及 03 的单份文本上传、预览与原格式下载已通过端到端验收，见[01 实施记录](.scratch/technical-design/implementation-01.md)、[02 实施记录](.scratch/technical-design/implementation-02.md)与[03 实施记录](.scratch/technical-design/implementation-03.md)。其余业务尚未验收；后续变更须重新验证，不沿用旧快照结论。
 
 ## 运行界面原型
 
@@ -47,11 +47,13 @@ mvn --batch-mode --no-transfer-progress verify
 java -jar server/target/server-0.1.0-SNAPSHOT.jar
 ```
 
-01、02 已实际通过根验证，后续工作区变更须重新执行。后端同源提供正式前端与接口，默认地址 <http://127.0.0.1:8080/>；原型位于 `/prototype.html`。开发数据和日志保存在已忽略的 `.runtime/`，不提交个人资料、数据库或凭据。
+01、02、03 已实际通过根验证，后续工作区变更须重新执行。后端同源提供正式前端与接口，默认地址 <http://127.0.0.1:8080/>；原型位于 `/prototype.html`。开发数据和日志保存在已忽略的 `.runtime/`，不提交个人资料、数据库或凭据。
 
 根验证包含格式、静态检查、前后端测试与覆盖率、生产构建、接口证据门禁及真实同源 Edge 联调；使用独立临时数据目录，结束关闭自建进程。自动报告和截图已忽略，双方独立签认在报告生成后执行。完整 Windows 运行时发行包与远程 GitHub 工作流尚未验收。
 
 Maven 职责分为四层：根 POM 管理公共版本、工具版本门禁及模块聚合，`front/pom.xml` 执行前端工具链，`server/pom.xml` 执行后端检查与发行包装配，`verification/pom.xml` 在前后端产物就绪后运行联调和契约检查。全量检查仍从根目录执行上述 `mvn verify`。
+
+后端装配依赖前端构建结果，单独选择后端模块时从根目录使用 `mvn -pl server -am verify`，让反应堆先构建所需前端模块；该命令只执行领域门禁，最终联调与契约报告仍须运行根 `mvn verify`。
 
 ## 阅读入口
 
@@ -59,7 +61,7 @@ Maven 职责分为四层：根 POM 管理公共版本、工具版本门禁及模
 - [完整技术规格](.scratch/technical-design/spec.md)与[现行架构索引](.scratch/technical-design/architecture.md)。
 - [领域术语](GLOSSARY.md)与[代理入口](AGENTS.md)。
 - [前后端派活](docs/agents/collaboration.md)、[工程门禁](docs/agents/engineering.md)、[接口协作规范](docs/agents/api/README.md)。
-- [已批准实现任务](.scratch/technical-design/tickets.md)：24 个任务已逐项发布，01、02 已验收；[拆分基线](.scratch/technical-design/tickets-draft.md)保留批准依据。
+- [已批准实现任务](.scratch/technical-design/tickets.md)：24 个任务已逐项发布，01、02、03 已验收；[拆分基线](.scratch/technical-design/tickets-draft.md)保留批准依据。
 - [实施待办与次日入口](.scratch/technical-design/implementation-todos.md)、[契约实现校验工具](scripts/contract/README.md)。
 
 接口唯一契约为 `docs/agents/api/openapi.yaml`，完整设计、静态检查与双方独立签认见[接口开发共识](docs/agents/api/reviews/baseline.md)。设计批准不代表全部业务已实现；01 已接通运行期自动报告，后续逐票扩展。前端角色文件为 `.codex/agents/fornt-agent.md`，后端为 `.codex/agents/backend.md`；派发时显式加载角色，不自动注册为工具代理。技术细节由两代理协商，业务不确定项先记待办。

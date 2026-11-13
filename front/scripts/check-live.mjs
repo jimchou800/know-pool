@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { checkDatasets } from './check-datasets.mjs';
+import { checkFiles } from './check-files.mjs';
 
 const baseURL = process.argv[2] || 'http://127.0.0.1:4173';
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
@@ -179,6 +180,7 @@ try {
     await page.screenshot({ path: `artifacts/live-home-${width}.png` });
   }
   await checkDatasets(page, baseURL, tests);
+  await checkFiles(page, baseURL, tests);
   await writeFile(
     'artifacts/contract-browser.json',
     JSON.stringify(
