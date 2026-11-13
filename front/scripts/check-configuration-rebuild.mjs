@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { checkIndexRecovery } from './check-index-recovery.mjs';
 
 export async function checkConfigurationRebuild(
   page,
@@ -158,6 +159,14 @@ export async function checkConfigurationRebuild(
       path: `artifacts/live-configuration-rebuild-${width}.png`,
     });
   }
+  await checkIndexRecovery(page, tests, {
+    http,
+    base,
+    headers,
+    knowledgeBaseId,
+    gateEmbedding,
+    releaseEmbedding,
+  });
   tests.push({
     name: '真实整库重建目标生效配置失败旧库服务及发布独立',
     passed: true,

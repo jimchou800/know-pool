@@ -4,6 +4,7 @@ import { createKnowledgeBaseClient } from './client';
 import { watchTask } from './task-events';
 import ChunkPreflight from './ChunkPreflight.vue';
 import CancelTask from './CancelTask.vue';
+import RetryFiles from './RetryFiles.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -165,6 +166,12 @@ onBeforeUnmount(() => {
     <p>
       上传成功仅表示文件已保存；处理成功后仍以当前生效版本为准，不自动发布知识库。
     </p>
+    <RetryFiles
+      :client="client"
+      :knowledge-base-id="knowledgeBaseId"
+      :writable="writable"
+      @completed="load()"
+    />
     <p v-if="loading" role="status">正在读取处理任务…</p>
     <p v-if="error" role="alert">
       {{ error
@@ -227,6 +234,27 @@ onBeforeUnmount(() => {
           }}；尝试 {{ item.attempt }} 次
         </p>
         <p v-if="item.failure" role="status">{{ item.failure.message }}</p>
+        <p v-if="item.retryOfTaskId">
+          本次为显式重试新任务；原失败任务：{{
+            item.retryOfTaskId
+          }}。原失败原因与历史继续保留。
+        </p>
+        <p v-if="item.state === 'interrupted'">
+          任务曾中断；索引按服务端安全检查点恢复或保留失败原因，不自动复活取消或过时任务。
+        </p>
+        <RetryFiles
+          v-if="
+            item.kind === 'index_file' &&
+            item.fileId &&
+            ['failed', 'interrupted'].includes(item.state)
+          "
+          :key="`retry-${item.id}`"
+          :client="client"
+          :knowledge-base-id="knowledgeBaseId"
+          :file-id="item.fileId"
+          :writable="writable"
+          @completed="load()"
+        />
         <p v-for="warning in item.warnings" :key="warning">{{ warning }}</p>
         <ChunkPreflight
           v-if="item.kind === 'index_file'"
