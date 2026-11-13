@@ -14,7 +14,7 @@ SOURCES = (
     'provider-evidence.json', 'provider-settings-evidence.json',
     'provider-knowledge-bases-evidence.json', 'provider-indexing-evidence.json',
     'provider-indexing-events-evidence.json',
-    'provider-indexing-gaps-evidence.json',
+    'provider-indexing-gaps-evidence.json', 'provider-maintenance-evidence.json',
 )
 READ_METHODS = {'GET', 'HEAD', 'OPTIONS'}
 REQUIRED_TESTS = {

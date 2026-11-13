@@ -326,6 +326,7 @@ def main():
                                   ROOT / 'server/target/contract/provider-indexing-evidence.json',
                                   ROOT / 'server/target/contract/provider-indexing-events-evidence.json',
                                   ROOT / 'server/target/contract/provider-indexing-gaps-evidence.json',
+                                  ROOT / 'server/target/contract/provider-maintenance-evidence.json',
                                   ROOT / 'server/target/contract/provider-security-evidence.json']
     if args.acceptance:
         try:
