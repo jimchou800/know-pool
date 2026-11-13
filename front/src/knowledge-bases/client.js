@@ -347,6 +347,35 @@ export function createKnowledgeBaseClient(session) {
     );
   }
   return {
+    async retry(id, fileId, key) {
+      if (!identifier(key) || (fileId !== null && !identifier(fileId)))
+        throw new Error('重试操作或文件标识无效。');
+      const value = await session.request({
+        method: 'post',
+        url:
+          path(id) +
+          (fileId === null ? '/retry-failed' : `/files/${fileId}/retry`),
+        headers: { 'Idempotency-Key': key },
+      });
+      return verify(
+        value,
+        exact(value, ['items']) &&
+          Array.isArray(value.items) &&
+          value.items.every(
+            (item) =>
+              exact(item, ['fileId', 'outcome', 'taskId', 'reason']) &&
+              identifier(item.fileId) &&
+              (fileId === null || item.fileId === fileId) &&
+              ['enqueued', 'already_active', 'ineligible'].includes(
+                item.outcome,
+              ) &&
+              nullable(item.taskId, identifier) &&
+              nullable(item.reason, text),
+          ) &&
+          new Set(value.items.map((item) => item.fileId)).size ===
+            value.items.length,
+      );
+    },
     async publish(id) {
       const value = await session.request({
         method: 'post',
