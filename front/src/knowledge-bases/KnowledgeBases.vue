@@ -7,6 +7,7 @@ import { createDatasetClient, trimName } from '../datasets/client';
 import { createFileClient } from '../files/client';
 import IndexTasks from './IndexTasks.vue';
 import ManagementSearch from './ManagementSearch.vue';
+import ProcessingEditor from './ProcessingEditor.vue';
 import '../datasets/datasets.css';
 import './knowledge-bases.css';
 
@@ -1177,6 +1178,14 @@ loadPage(0);
                 更多文件
               </button>
             </section>
+            <ProcessingEditor
+              v-if="snapshot"
+              :key="`processing-${selected.id}`"
+              :client="client"
+              :config="snapshot"
+              :writable="writable"
+              @completed="loadDetail"
+            />
             <IndexTasks
               :key="selected.id"
               :client="client"

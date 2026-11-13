@@ -356,7 +356,12 @@ export function createKnowledgeBaseClient(session) {
     async task(id, kind = 'knowledge_base_create') {
       if (
         !identifier(id) ||
-        !['knowledge_base_create', 'index_file', 'search'].includes(kind)
+        ![
+          'knowledge_base_create',
+          'index_file',
+          'search',
+          'rebuild_knowledge_base',
+        ].includes(kind)
       )
         throw new Error('任务标识或类型无效。');
       const value = await session.request({
@@ -386,6 +391,22 @@ export function createKnowledgeBaseClient(session) {
       return verify(
         value,
         validBase(value) && value.id.toLowerCase() === id.toLowerCase(),
+      );
+    },
+    async updateProcessing(id, data, key) {
+      if (!identifier(key) || !validProcessing(data))
+        throw new Error('请填写有效的切片配置与操作标识。');
+      const value = await session.request({
+        method: 'put',
+        url: path(id) + '/processing-config',
+        data,
+        headers: { 'Idempotency-Key': key },
+      });
+      return verify(
+        value,
+        exact(value, ['task']) &&
+          validTask(value.task, 'rebuild_knowledge_base') &&
+          value.task.knowledgeBaseId.toLowerCase() === id.toLowerCase(),
       );
     },
     async config(id) {
@@ -437,6 +458,13 @@ export function createKnowledgeBaseClient(session) {
     sources: (id, cursor) => page(id, '/sources', validSource, cursor),
     files: (id, cursor) => page(id, '/files', validFile, cursor),
     tasks: (id, cursor) =>
-      page(id, '/tasks', (value) => validTask(value, 'index_file'), cursor),
+      page(
+        id,
+        '/tasks',
+        (value) =>
+          ['index_file', 'rebuild_knowledge_base'].includes(value?.kind) &&
+          validTask(value, value.kind),
+        cursor,
+      ),
   };
 }

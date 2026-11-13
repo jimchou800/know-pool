@@ -45,7 +45,7 @@ function validScope(value, knowledgeBaseId) {
     typeof value.incomplete === 'boolean'
   );
 }
-function validLocation(value) {
+export function validLocation(value) {
   return (
     exact(value, [
       'format',

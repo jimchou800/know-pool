@@ -13,6 +13,8 @@ import { search, evidence, scope } from '../../test-fixtures/indexing';
 import { createManagementSearchClient } from './search-client';
 import { watchTask } from './task-events';
 import { errorCodes } from '../system/session';
+import { preflight, config, rebuild } from '../../test-fixtures/preflight';
+import { createPreflightClient } from './preflight-client';
 const observations = [];
 function observed(operationId, request) {
   observations.push({
@@ -555,6 +557,186 @@ it('事件订阅复用全部正式共享错误码并保留可重试事实', asyn
     });
   }
 });
+it('实际会话请求消费预检全部统计及配置更新原任务，保留版本安全信息', async () => {
+  const s = await setup(() => preflight),
+    api = createPreflightClient(s.client);
+  for (const location of [
+    preflight.samples[0].location,
+    {
+      ...preflight.samples[0].location,
+      format: 'pdf',
+      pageStart: 1,
+      pageEnd: 2,
+      lineStart: null,
+      lineEnd: null,
+    },
+    {
+      ...preflight.samples[0].location,
+      format: 'markdown',
+      titlePath: ['指南'],
+      paragraphId: 'p-1',
+      structureId: 's-1',
+      continuationIndex: 0,
+      tableRowStart: 0,
+      tableRowEnd: 1,
+      tableColumnStart: 0,
+      tableColumnEnd: 1,
+      codeBlockId: 'c-1',
+      codeLanguage: 'java',
+    },
+  ]) {
+    const value = {
+      ...preflight,
+      samples: [
+        {
+          ...preflight.samples[0],
+          location,
+          fallbackModes: [
+            'sentence',
+            'delimiter',
+            'hard',
+            'table_row',
+            'table_cell',
+            'code_line',
+          ],
+        },
+      ],
+    };
+    s.reply(value);
+    expect(await api.get(otherId)).toEqual(value);
+    observed('getChunkPreflight', s.requests.at(-1));
+  }
+  const empty = {
+    ...preflight,
+    samples: [],
+    warnings: [],
+    fallbackCounts: {},
+    chunkCount: 0,
+    minimumLength: 0,
+    maximumLength: 0,
+    medianLength: 0,
+    p95Length: 0,
+    emptyText: true,
+    integrityPassed: false,
+  };
+  s.reply(empty);
+  expect(await api.get(otherId)).toEqual(empty);
+  observed('getChunkPreflight', s.requests.at(-1));
+  for (const state of [
+    'queued',
+    'running',
+    'succeeded',
+    'failed',
+    'cancelled',
+    'interrupted',
+  ]) {
+    const terminal = !['queued', 'running'].includes(state);
+    const task = {
+      ...rebuild,
+      state,
+      phase: terminal ? 'completed' : 'queued',
+      startedAt: state === 'queued' ? null : time,
+      finishedAt: terminal ? time : null,
+      failure: ['failed', 'interrupted'].includes(state)
+        ? {
+            code: 'INTEGRITY_FAILED',
+            message: '固定完整性失败',
+            retryable: false,
+          }
+        : null,
+      warnings: ['固定降级提示'],
+    };
+    s.reply({ task });
+    expect(await s.api.updateProcessing(id, config.input, otherId)).toEqual({
+      task,
+    });
+    expect(s.requests.at(-1).headers.get('Idempotency-Key')).toBe(otherId);
+    observed('updateProcessingConfig', s.requests.at(-1));
+    s.reply(task);
+    expect(await s.api.task(otherId, 'rebuild_knowledge_base')).toEqual(task);
+    observed('getTask', s.requests.at(-1));
+    s.reply({ items: [task], nextCursor: null });
+    expect((await s.api.tasks(id)).items[0]).toEqual(task);
+    observed('listKnowledgeBaseTasks', s.requests.at(-1));
+  }
+});
+it('预检所有公开错误和配置更新字段失败实际消费不重提', async () => {
+  const s = await setup(() => null),
+    api = createPreflightClient(s.client);
+  for (const [status, code] of [
+    [400, 'INVALID_REQUEST'],
+    [401, 'SESSION_EXPIRED'],
+    [403, 'ORIGIN_REJECTED'],
+    [404, 'NOT_FOUND'],
+    [409, 'CONFLICT'],
+    [422, 'INVALID_REQUEST'],
+    [429, 'QUEUE_FULL'],
+    [500, 'INTERNAL_ERROR'],
+    [503, 'DEPENDENCY_UNAVAILABLE'],
+  ]) {
+    s.reply({
+      errorStatus: status,
+      body: {
+        requestId: id,
+        code,
+        message: '固定配置错误',
+        fieldErrors: [
+          {
+            field: '/chunking/overlapCodePoints',
+            code,
+            message: '固定字段错误',
+          },
+        ],
+        retryable: false,
+      },
+    });
+    await expect(
+      s.api.updateProcessing(id, config.input, otherId),
+    ).rejects.toThrow('固定配置错误');
+    observed('updateProcessingConfig', s.requests.at(-1));
+    if (![409, 422].includes(status)) {
+      await expect(api.get(otherId)).rejects.toThrow('固定配置错误');
+      observed('getChunkPreflight', s.requests.at(-1));
+    }
+  }
+});
+it('未知字段、非整数计数、非法样例位置与超量样例拒绝，不消费伪统计', async () => {
+  const s = await setup(() => null),
+    api = createPreflightClient(s.client);
+  for (const value of [
+    null,
+    { ...preflight, extra: true },
+    { ...preflight, taskId: id },
+    { ...preflight, chunkCount: -1 },
+    { ...preflight, p95Length: NaN },
+    { ...preflight, fallbackCounts: { hard: -1 } },
+    { ...preflight, samples: Array(21).fill(preflight.samples[0]) },
+    { ...preflight, warnings: [null] },
+    {
+      ...preflight,
+      samples: [{ ...preflight.samples[0], fallbackModes: ['invalid'] }],
+    },
+    {
+      ...preflight,
+      samples: [
+        {
+          ...preflight.samples[0],
+          location: {
+            ...preflight.samples[0].location,
+            lineStart: 5,
+            lineEnd: 1,
+          },
+        },
+      ],
+    },
+  ]) {
+    s.reply(value);
+    await expect(api.get(otherId)).rejects.toThrow('预检响应格式');
+  }
+  for (const taskId of [null, '', 5, '错误'])
+    await expect(api.get(taskId)).rejects.toThrow('任务标识');
+});
+
 afterAll(() => {
   execFileSync('python', ['scripts/settings-evidence.py', '08'], {
     input: JSON.stringify(observations),
