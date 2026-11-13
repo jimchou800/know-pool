@@ -1,6 +1,26 @@
 ﻿import { expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import TextPreview from './TextPreview.vue';
+it('证据初始源行直接打开规范化源文本并聚焦，越界不伪造首行', async () => {
+  const wrapper = mount(TextPreview, {
+    props: {
+      text: '\ufeff# 标题\r\n正文\r末行\n',
+      markdown: true,
+      initialLine: 3,
+    },
+    attachTo: document.body,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(document.activeElement.textContent).toBe('末行');
+  wrapper.unmount();
+  const invalid = mount(TextPreview, {
+    props: { text: '仅一行', initialLine: 2 },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(invalid.get('[role=alert]').text()).toContain('1至1');
+  expect(invalid.find('.located-line').exists()).toBe(false);
+  invalid.unmount();
+});
 it('定位源行显示原始Markdown并以焦点指向真实行，越界明确报错', async () => {
   const wrapper = mount(TextPreview, {
     props: { text: '# 标题\r\n正文\r尾行\n', markdown: true },

@@ -3,7 +3,10 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { getDocument, GlobalWorkerOptions, TextLayer } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
-const props = defineProps({ bytes: { type: ArrayBuffer, required: true } });
+const props = defineProps({
+  bytes: { type: ArrayBuffer, required: true },
+  initialPage: { type: Number, default: 1 },
+});
 GlobalWorkerOptions.workerSrc = workerUrl;
 const host = ref(null);
 const canvas = ref(null);
@@ -164,7 +167,18 @@ onMounted(async () => {
     if (disposed || timedOut) return;
     total.value = document.numPages;
     await nextTick();
-    await showPage(1);
+    if (
+      !Number.isInteger(props.initialPage) ||
+      props.initialPage < 1 ||
+      props.initialPage > total.value
+    ) {
+      clearTimeout(timer);
+      busy.value = false;
+      error.value = `证据页码越界，请核对1至${total.value}页的实际原文。`;
+      if (canvas.value) canvas.value.width = canvas.value.height = 0;
+      return;
+    }
+    await showPage(props.initialPage);
     if (!disposed && typeof ResizeObserver !== 'undefined') {
       let width = host.value.clientWidth;
       observer = new ResizeObserver(([entry]) => {
