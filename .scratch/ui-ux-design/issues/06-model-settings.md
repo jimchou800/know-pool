@@ -12,13 +12,13 @@ Blocked by: [技术任务 01：建立本机启动与接口契约验证闭环](..
 
 阻塞仅在上述原技术任务执行状态为已完成且证据已验收时解除；分流状态不能代替完成状态。同票后端与前端共同推进，不将其完成设为启动前置。
 
-执行状态：未开始
+执行状态：进行中
 
-前端负责人：待领取
+前端负责人：`/root/frontend06`，`.worktrees/frontend06`，分支 `implement/06-frontend`
 
-后端负责人：随关联原切片领取
+后端负责人：`/root/backend06`，`.worktrees/backend06`，分支 `implement/06-backend`
 
-共享文件写入者：领取时由总协调指定
+共享文件写入者：总协调在 `.worktrees/integration06` 维护契约、范围、工具、POM、依赖锁及共享文档；双方独立源码工作树按角色隔离。
 
 ## 交付行为
 
@@ -43,11 +43,11 @@ Blocked by: [技术任务 01：建立本机启动与接口契约验证闭环](..
 
 ## 契约与证据
 
-契约版本：`1.0.0`。
+契约版本：`1.0.2`。
 
-契约 SHA-256：`48f98810322f07e3b8380359f37d43ade7fac221ff056f34f05383c9a0b04fcb`。
+契约 SHA-256：`16c66a6a591eb5e9b32e85d6adcb16f27429cc1b916bb4a0b42bed475c278879`。
 
-操作范围：`getGenerationModel`、`updateGenerationModel`、`testGenerationModel`、`getEmbeddingModel`、`updateEmbeddingModel`、`testEmbeddingModel`、`listEmbeddingModelVersions`、`getEmbeddingModelVersion`、`updateEmbeddingVersionCredential`、`getConnectionTestResult`、`getVectorConfig`、`updateVectorConfig`、`testVectorConfig`。
+操作范围：`getGenerationModel`、`updateGenerationModel`、`testGenerationModel`、`getEmbeddingModel`、`updateEmbeddingModel`、`testEmbeddingModel`、`listEmbeddingModelVersions`、`getEmbeddingModelVersion`、`updateEmbeddingVersionCredential`、`getConnectionTestResult`、`getVectorConfig`、`updateVectorConfig`、`testVectorConfig`、`getTask`。契约 `1.0.2`，摘要 `16c66a6a591eb5e9b32e85d6adcb16f27429cc1b916bb4a0b42bed475c278879`，详见 06 实施协调记录。
 
 字段、类型、媒体、安全、事件及错误以唯一正式契约为准；领取前复核摘要与双方设计签认，字节变更先重新校验与双审，不自行猜测。
 
@@ -61,9 +61,11 @@ Blocked by: [技术任务 01：建立本机启动与接口契约验证闭环](..
 - 每票均检查加载、空态、逐字段错误、成功、失败及恢复入口；键盘可操作、焦点可见且关闭弹层返回触发点，状态不只依赖颜色，遵守减少动态效果偏好。用中文标签及脱敏错误，不泄露密钥、供应商原始异常或内部副本路径。
 - 请求、分页、标识、时间、必填与可空、枚举、未知字段、媒体类型、错误、安全、幂等及事件均严格消费唯一契约。普通请求用 Axios；事件流只通知阶段和终态，结果由查询获取。异步重复提交复用同一次操作的幂等键；显式重试按契约使用新键，断线不重新提交收费任务。
 - 每票提供真实浏览器业务流程、实际请求与响应消费证据、关键状态组件测试及截图；固定资料与模拟模型配合真实后端，不以手写响应样例代替提供方行为。覆盖 1280、1440、1920 像素及长内容；相关界面变化逐票验证，最终在 Chrome、Edge 汇总回归。
-- 格式、静态、单元与组件、生产构建及根统一验证通过；前后端各自行与分支覆盖率至少 80%。自动契约报告绑定同一契约摘要和实现快照，切片操作及约束 100%，同时保留全项目缺项；双方分别确认同一报告，再由总协调验收。当前根统一验证尚未接通，不宣称已经通过。
+- 格式、静态、单元与组件、生产构建及根统一验证通过；前后端各自行与分支覆盖率至少 80%。自动契约报告绑定同一契约摘要和实现快照，切片操作及约束 100%，同时保留全项目缺项；双方分别确认同一报告，再由总协调验收。根统一验证已接通，本票当前快照须完整重跑，未执行不宣称通过。
 - 不自动收费调用或实施外部发布。真实模型评测另行授权；界面的显式连接测试、检索与重试须按业务规则告知可能费用。
 
 ## 讨论记录
 
 - 2026-11-12：用户回复“确认”，批准 24 个前端工作包的粒度、阻塞及划分，按依赖顺序发布本地文件。仅发布，未领取或开始实现；原技术任务及接口未修改。
+
+- 2026-11-13：01 至 05 已验收，06 已经双方完成接口技术互审并确认同一摘要；在独立 06 集成分支采纳 1.0.2，正式派发两方独立实现，受控替身验证，不调用真实模型。

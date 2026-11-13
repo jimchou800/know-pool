@@ -8,13 +8,13 @@ Status: ready-for-agent
 
 Blocked by: 01: 建立本机启动与接口契约验证闭环
 
-执行状态：未开始
+执行状态：进行中
 
-前端负责人：待领取
+前端负责人：`/root/frontend06`，`.worktrees/frontend06`，分支 `implement/06-frontend`
 
-后端负责人：待领取
+后端负责人：`/root/backend06`，`.worktrees/backend06`，分支 `implement/06-backend`
 
-共享文件写入者：由总协调指定
+共享文件写入者：总协调在 `.worktrees/integration06` 维护契约、范围、工具、POM、依赖锁及共享文档；双方独立源码工作树按角色隔离。
 
 ## 验收条件
 
@@ -32,10 +32,12 @@ Blocked by: 01: 建立本机启动与接口契约验证闭环
 
 ## 契约与证据
 
-操作范围：覆盖上述全部交付行为，领取时由双方补充已确认操作标识和契约摘要；未定义时先定义并双审，再实现。
+操作范围：`getGenerationModel`、`updateGenerationModel`、`testGenerationModel`、`getEmbeddingModel`、`updateEmbeddingModel`、`testEmbeddingModel`、`listEmbeddingModelVersions`、`getEmbeddingModelVersion`、`updateEmbeddingVersionCredential`、`getConnectionTestResult`、`getVectorConfig`、`updateVectorConfig`、`testVectorConfig`、`getTask`。契约 `1.0.2`，摘要 `16c66a6a591eb5e9b32e85d6adcb16f27429cc1b916bb4a0b42bed475c278879`，详见 06 实施协调记录。
 
 验收证据：待实现后记录命令、结果、报告摘要、双方确认和端到端证据。
 
 ## 讨论记录
 
 - 用户回复“确认”，批准 24 个切片的粒度与阻塞关系，据此发布本地任务；尚未开始实现。
+
+- 2026-11-13：01 至 05 已验收，06 已经双方完成接口技术互审并确认同一摘要；在独立 06 集成分支采纳 1.0.2，正式派发两方独立实现，受控替身验证，不调用真实模型。
