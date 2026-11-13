@@ -22,6 +22,18 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'questionVersions': ({'groundedQuestionBudgetsValidationAndSnapshotsStayBound','groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'submitFirstQuestion','getQuestionTask','getConversationEvidence'},
+        '#/x-business-constraints/indexSwitch', '问答预处理前固定生效版本，切换后仍引用捕获切片；范围位置引用标识及支持性通过才持久保存完整实际切片，取消校验不泄露草稿。'),
+    'questionPublication': ({'groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'submitFirstQuestion'},
+        '#/x-business-constraints/publication', '已开始问答按固定范围版本继续，期间主动下线不篡改既有请求，后续新请求必须重新检查。'),
+    'questionCost': ({'groundedQuestionBudgetsValidationAndSnapshotsStayBound','groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'submitFirstQuestion','getQuestionTask','cancelQuestionTask'},
+        '#/x-business-constraints/cost', '最多一次预处理、一次生成及一次校验，无依据不生成，同键返回原任务；重启不重发，取消不递归修订，缺用量与截断输出拒绝。'),
+    'questionEvents': ({'groundedQuestionSharedQueueAndEventCapacityAreBounded','groundedQuestionBudgetsValidationAndSnapshotsStayBound','groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'watchQuestionTask','getQuestionTask'},
+        '#/x-business-constraints/sse', '问答专用事件只有阶段和终态，不含回答或草稿，完成后查询原持久任务，重连不外发。'),
+    'questionEventCursor': ({'groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'watchQuestionTask'},
+        '#/paths/~1question-tasks~1{taskId}~1events/get/x-sse/lastEventIdHeader', '真实旧和未来合法游标终态可重发，零序号或其他任务身份拒绝。'),
+    'questionEventReconnect': ({'groundedQuestionSharedQueueAndEventCapacityAreBounded','groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'watchQuestionTask'},
+        '#/paths/~1question-tasks~1{taskId}~1events/get/x-sse/reconnect', '同一持久任务重连不重发模型请求，终态重复通知不泄露正文。'),
     'instanceLifecycleCost': ({'searchInstanceMetadataAndRestartKeepOnlyConditions','searchInstanceCancellationDeletionAndLateResultsStayIsolated'}, {'listSearchInstances','createSearchInstance','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest','submitSearch'},
         '#/x-business-constraints/cost', '范围保存、切换读取和重启不触发嵌入，重启只恢复条件，原请求和证据失效；取消和删除不重发，资料及其他实例不受影响。'),
     'instanceLifecycleVersions': ({'searchInstanceMetadataAndRestartKeepOnlyConditions','searchInstanceCancellationDeletionAndLateResultsStayIsolated'}, {'deleteSearchInstance','cancelSearchRequest','submitSearch','getSearchRequest'},
@@ -109,7 +121,8 @@ def event_constraints(item, prefix):
         raise AssertionError('真实事件响应必须保留原始帧。')
     found = {prefix + '/responses/200/content/text~1event-stream/schema/type'}
     task_id = item['path'].split('?', 1)[0].split('/')[-2]
-    cursor_schema = document['paths']['/tasks/{taskId}/events']['get']['parameters'][1]['schema']
+    event_path = '/question-tasks/{taskId}/events' if item['path'].startswith('/question-tasks/') or item['path'].startswith('/api/v1/question-tasks/') else '/tasks/{taskId}/events'
+    cursor_schema = document['paths'][event_path]['get']['parameters'][1]['schema']
     count = 0
     normalized = item['response'].replace('\r\n', '\n').replace('\r', '\n')
     if not normalized.endswith('\n\n'):
@@ -132,7 +145,7 @@ def event_constraints(item, prefix):
         validator(cursor_schema).validate(fields['id'])
         if value['taskId'] != task_id or fields['id'] != task_id + ':' + str(value['sequence']):
             raise AssertionError('真实事件身份或序号不一致。')
-        terminal = value['state'] in document['paths']['/tasks/{taskId}/events']['get']['x-sse']['terminalStates']
+        terminal = value['state'] in document['paths'][event_path]['get']['x-sse']['terminalStates']
         if (fields['event'] == 'terminal') != terminal:
             raise AssertionError('真实事件类型与任务终态不一致。')
         if count and previous_terminal:
@@ -280,10 +293,13 @@ if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
                            'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig',
                            'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources',
                            'listIndexSwitches','cancelTask','downloadVersionFile','previewVersionFile',
-                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult','createSearchInstance','submitSearch','listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest',
+                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult','submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','createSearchInstance','submitSearch','listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'groundedQuestionSharedQueueAndEventCapacityAreBounded': ('真实知识服务队列容量满时首问四二九且同键不重提；问答专用事件六十四订阅及下一订阅四二九，阶段到取消终态恢复无正文不重发。', {'submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask'}),
+        'groundedQuestionBudgetsValidationAndSnapshotsStayBound': ('真实首问持久受理、手动名称、原问题和额外查询、生成校验最多各一次、无依据不生成、部分缺口矛盾澄清、无效预处理回退，坏引用及模型截断缺用量不泄草稿，引用跨重启保存且同键不重发。', {'submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','getTask'}),
+        'groundedQuestionFixedVersionsCancellationAndEventsStaySafe': ('预处理前捕获全部生效版本，资料切换及主动下线后仍用旧快照；校验期间没有草稿，取消后迟到不发布，专用事件终态重连游标和安全拒绝不重发模型。', {'submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','getTask'}),
         'searchInstanceMetadataAndRestartKeepOnlyConditions': ('真实实例允许重名、首查自动名及不覆盖手改，稳定分页、条件保存、事务失败不改旧指针；重启恢复条件不恢复正文或自动外发，原结果证据四一零，确认删除及同键原清理任务。', {'listSearchInstances','createSearchInstance','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest','submitSearch','getSearchRequest','getSearchEvidence','getTask'}),
         'searchInstanceCancellationDeletionAndLateResultsStayIsolated': ('切换读取不互相取消，显式取消保留已核范围；删除事务失败保留原请求，成功后任务取消及请求失效，迟到不复活，其他实例及资料保持，管理和普通终态取消幂等。', {'listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest','getSearchRequest','getTask'}),
         'multiSearchScopesFusionAndCostsAreExplicit': ('真实最小实例和多库去重融合、固定身份、部分范围警示、全部故障与空命中区分、同键只嵌入一次及非法安全拒绝。', {'createSearchInstance','submitSearch','getSearchRequest','getSearchEvidence','getTask'}),
@@ -329,7 +345,7 @@ for index, item in enumerate(observations):
         continue
     name, operation = selected
     is_indexing = profile in ('indexing', 'indexing-events', 'indexing-gaps')
-    is_event = is_indexing and name == 'watchTask' and item['status'] == 200
+    is_event = is_indexing and name in ('watchTask','watchQuestionTask') and item['status'] == 200
     is_binary = name in ('previewVersionFile','downloadVersionFile') and item['status'] == 200
     if not is_event and not is_binary and item['status'] != 204:
         validate_media(item['contentType'])
