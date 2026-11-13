@@ -12,7 +12,7 @@
 | [02：创建和维护数据集](issues/02-datasets.md) | 技术 01 | [技术 02](../technical-design/issues/02-datasets.md) | 已完成 |
 | [03：上传、预览和下载单份纯文本资料](issues/03-text-files.md) | 技术 02 | [技术 03](../technical-design/issues/03-text-files.md) | 已完成 |
 | [04：安全预览 Markdown 和文字 PDF](issues/04-document-preview.md) | 技术 03 | [技术 04](../technical-design/issues/04-document-preview.md) | 已完成 |
-| [05：批量上传、同名覆盖和资料重命名](issues/05-batch-upload.md) | 技术 03 | [技术 05](../technical-design/issues/05-batch-upload.md) | 进行中（后端） |
+| [05：批量上传、同名覆盖和资料重命名](issues/05-batch-upload.md) | 技术 03 | [技术 05](../technical-design/issues/05-batch-upload.md) | 进行中（前后端） |
 | [06：显式配置模型与向量连接](issues/06-model-settings.md) | 技术 01 | [技术 06](../technical-design/issues/06-model-settings.md) | 未开始 |
 | [07：创建空知识库并关联资料](issues/07-knowledge-base.md) | 技术 03、技术 06 | [技术 07](../technical-design/issues/07-knowledge-base.md) | 未开始 |
 | [08：查看纯文本索引并执行管理检索](issues/08-text-index.md) | 技术 07 | [技术 08](../technical-design/issues/08-text-index.md) | 未开始 |
