@@ -22,6 +22,9 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'processingConfigurationSwitch': ({'preflightAndRebuildKeepVersionsAtomic'}, {
+        'updateProcessingConfig', 'getChunkPreflight', 'getProcessingConfig', 'getKnowledgeBase', 'getTask', 'getSearchRequest'},
+        '#/x-business-constraints/indexSwitch', '真实公开接口断言配置幂等任务、整库切换成功、后续失败保留旧生效版本及检索证据配置身份；预检读取不触发模型。'),
     'currentIndexVersions': ({'textIndexBecomesEffective'}, {
         'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'},
         '#/x-business-constraints/indexSwitch', '真实生效版本、替换和失败保留旧索引经公开接口断言。'),
@@ -257,9 +260,11 @@ if profile == 'knowledge-bases':
 
 if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
     selected_operations = {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
+                           'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'preflightAndRebuildKeepVersionsAtomic': ('预检真实码点、无损正文、硬切降级及完整性经断言；同键配置更新复用父任务、整库成功切换、失败继续检索旧版本，未知及错误类型预检拒绝。', {'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig', 'getTask', 'getKnowledgeBase', 'listKnowledgeBaseTasks', 'getSearchRequest'}),
         'markdownLocationsRemainBoundToOriginalSource': ('真实Markdown标题、源行、段落、表格、代码、实际内容版本和完整证据读取，经固定原文逐项断言。', {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'pdfLocationsKeepCrossPageSourceAndBlankPages': ('真实中文PDF全文提取、跨页句子和空白页保留原始页号，固定副本版本与证据一致。', {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'textIndexBecomesEffective': ('真实文本索引、生效版本及管理结果身份与证据读取。',

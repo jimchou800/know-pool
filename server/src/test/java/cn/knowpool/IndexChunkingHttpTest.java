@@ -26,6 +26,7 @@ class IndexChunkingHttpTest {
     private static boolean gapsPassed;
     private static boolean documentPassed;
     private static boolean pdfPassed;
+    private static boolean previewPassed;
 
     @org.junit.jupiter.api.extension.RegisterExtension
     final org.junit.jupiter.api.extension.TestWatcher completed = new org.junit.jupiter.api.extension.TestWatcher() {
@@ -35,8 +36,66 @@ class IndexChunkingHttpTest {
                 gapsPassed = true;
             if (context.getRequiredTestMethod().getName().equals("markdownLocationsRemainBoundToOriginalSource")) documentPassed = true;
             if (context.getRequiredTestMethod().getName().equals("pdfLocationsKeepCrossPageSourceAndBlankPages")) pdfPassed = true;
+            if (context.getRequiredTestMethod().getName().equals("preflightAndRebuildKeepVersionsAtomic")) previewPassed = true;
         }
     };
+
+    @Test
+    @DisplayName("切片预检记录真实降级与码点，配置幂等重建原子生效且失败保留旧版")
+    void preflightAndRebuildKeepVersionsAtomic() throws Exception {
+        var inputs = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        HttpServer vector = indexedVector(inputs, () -> {});
+        Path directory = Files.createTempDirectory(Path.of("target"), "chunk-preflight-http-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String source = "甲😀".repeat(1400) + "，" + "乙".repeat(2500) + "。末句。";
+            String kb = createIndexedBase(client, processing, "切片预检库", source);
+            JsonNode original = read(client, "/knowledge-bases/" + kb);
+            JsonNode file = read(client, "/knowledge-bases/" + kb + "/files").path("items").get(0);
+            String taskId = file.at("/task/id").asText();
+            int calls = inputs.size();
+            JsonNode preview = read(client, "/tasks/" + taskId + "/chunk-preflight");
+            assertThat(preview.path("integrityPassed").asBoolean()).isTrue();
+            assertThat(preview.path("emptyText").asBoolean()).isFalse();
+            assertThat(preview.path("maximumLength").asInt()).isLessThanOrEqualTo(2000);
+            assertThat(preview.path("fallbackCounts").path("hard").asInt()).isPositive();
+            StringBuilder reconstructed = new StringBuilder();
+            for (JsonNode sample : preview.path("samples")) {
+                String text = sample.path("text").asText();
+                assertThat(sample.path("codePointCount").asInt()).isEqualTo(text.codePointCount(0,text.length()));
+                reconstructed.append(text);
+            }
+            assertThat(reconstructed.toString()).isEqualTo(source);
+            read(client, "/tasks/" + taskId + "/chunk-preflight");
+            assertThat(inputs.size()).isEqualTo(calls);
+            String endpoint = "/knowledge-bases/" + kb + "/processing-config";
+            var update = (tools.jackson.databind.node.ObjectNode) JSON.readTree(processing);
+            ((tools.jackson.databind.node.ObjectNode) update.path("chunking")).put("strategy", "fixed");
+            String key = UUID.randomUUID().toString();
+            HttpResponse<String> accepted = send(client, endpoint, "PUT", update.toString(), key);
+            assertThat(accepted.statusCode()).isEqualTo(202);
+            String parent = JSON.readTree(accepted.body()).at("/task/id").asText();
+            assertThat(JSON.readTree(send(client, endpoint, "PUT", update.toString(), key).body()).at("/task/id").asText()).isEqualTo(parent);
+            assertThat(await(client,parent).path("state").asText()).isEqualTo("succeeded");
+            JsonNode effective = read(client, "/knowledge-bases/" + kb);
+            assertThat(effective.path("effectiveConfigVersionId")).isEqualTo(effective.path("targetConfigVersionId"));
+            assertThat(effective.path("effectiveConfigVersionId")).isNotEqualTo(original.path("effectiveConfigVersionId"));
+            ((tools.jackson.databind.node.ObjectNode) update.path("chunking")).put("strategy", "page");
+            assertThat(send(client, endpoint, "PUT", update.toString(), key).statusCode()).isEqualTo(409);
+            JsonNode failed = JSON.readTree(send(client, endpoint, "PUT", update.toString(), UUID.randomUUID().toString()).body());
+            assertThat(await(client,failed.at("/task/id").asText()).path("state").asText()).isEqualTo("failed");
+            assertThat(read(client, "/knowledge-bases/" + kb).path("effectiveConfigVersionId")).isEqualTo(effective.path("effectiveConfigVersionId"));
+            JsonNode search = search(client,kb);
+            assertThat(await(client,search.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+            JsonNode result = read(client,"/search-requests/" + search.path("id").asText());
+            for (JsonNode evidence : result.at("/result/evidence")) assertThat(evidence.path("configVersionId")).isEqualTo(effective.path("effectiveConfigVersionId"));
+            assertThat(send(client,"/tasks/" + parent + "/chunk-preflight","GET",null,null).statusCode()).isEqualTo(404);
+            assertThat(send(client,"/tasks/" + taskId + "/chunk-preflight?unknown=1","GET",null,null).statusCode()).isEqualTo(400);
+            assertThat(send(client,"/tasks/" + UUID.randomUUID() + "/chunk-preflight","GET",null,null).statusCode()).isEqualTo(404);
+            read(client,"/knowledge-bases/" + kb + "/tasks");
+        } finally { vector.stop(0); }
+    }
 
     @Test
     @DisplayName("Markdown索引保留真实标题段落表格代码与源行")
@@ -901,7 +960,7 @@ class IndexChunkingHttpTest {
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
         if (java.util.Arrays.stream(Thread.currentThread().getStackTrace())
-                .anyMatch(frame -> java.util.Set.of("publicContractBranchesRemainReachable", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(frame.getMethodName()))) {
+                .anyMatch(frame -> java.util.Set.of("preflightAndRebuildKeepVersionsAtomic", "publicContractBranchesRemainReachable", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(frame.getMethodName()))) {
             java.util.Map<String, Object> item = new java.util.LinkedHashMap<>();
             item.put("path", response.request().uri().getRawPath());
             item.put("method", method);
@@ -913,8 +972,9 @@ class IndexChunkingHttpTest {
             java.util.Map<String, String> parameters = new java.util.LinkedHashMap<>();
             response.request().headers().map().forEach((name, values) -> parameters.put(name, values.getFirst()));
             item.put("parameters", parameters);
-            String behavior = java.util.Arrays.stream(Thread.currentThread().getStackTrace()).map(StackTraceElement::getMethodName).filter(name -> java.util.Set.of("markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(name)).findFirst().orElse("publicContractBranchesRemainReachable");
+            String behavior = java.util.Arrays.stream(Thread.currentThread().getStackTrace()).map(StackTraceElement::getMethodName).filter(name -> java.util.Set.of("preflightAndRebuildKeepVersionsAtomic", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(name)).findFirst().orElse("publicContractBranchesRemainReachable");
             item.put("behavior", behavior);
+            if (behavior.equals("preflightAndRebuildKeepVersionsAtomic")) item.put("behaviorChecks", java.util.List.of("processingConfigurationSwitch"));
             GAP_OBSERVATIONS.add(item);
         }
         return response;
@@ -1039,7 +1099,7 @@ class IndexChunkingHttpTest {
 
     @org.junit.jupiter.api.AfterAll
     static void gapEvidence() throws Exception {
-        if (!gapsPassed && !documentPassed && !pdfPassed) return;
+        if (!gapsPassed && !documentPassed && !pdfPassed && !previewPassed) return;
         GAP_OBSERVATIONS.getFirst().put("routes", GAP_ROUTES);
         Path root = Path.of(System.getProperty("maven.multiModuleProjectDirectory", ".."))
                 .toAbsolutePath()

@@ -594,7 +594,7 @@ class LocalApplicationTest {
         try (var connection =
                         java.sql.DriverManager.getConnection("jdbc:sqlite:" + newer.resolve("application.sqlite"));
                 var statement = connection.createStatement()) {
-            statement.execute("PRAGMA user_version=8");
+            statement.execute("PRAGMA user_version=9");
         }
         assertThatThrownBy(() -> new ApplicationData(newer.toString()))
                 .isInstanceOf(IOException.class)
