@@ -361,7 +361,7 @@ for index, item in enumerate(observations):
             except ValueError: pass
         found.update(parameter_constraints(schema,pointer,actual,parameter.get('required',False),item['status']))
     found &= set(operation['constraints']) | ({'security.8'} if is_indexing else set())
-    request_label = '真实事件请求' if profile == 'indexing-events' else '真实索引请求' if is_indexing else '真实知识库请求' if profile == 'knowledge-bases' else '真实设置请求'
+    request_label = '真实索引边界请求' if profile == 'indexing-gaps' else '真实事件请求' if profile == 'indexing-events' else '真实索引请求' if is_indexing else '真实知识库请求' if profile == 'knowledge-bases' else '真实设置请求'
     tests.append({'name': str(index + 1) + '：' + request_label + '：' + name + '：' + str(item['status']),
                   'passed': True, 'operationIds': [name], 'constraintIds': sorted(found),
                   'request': {'method': item['method'], 'path': path},
