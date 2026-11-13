@@ -414,8 +414,7 @@
       "#/components/schemas/Task/allOf/2/then/then/properties/resultResourceId/type": "索引列表和文件任务只含索引类型，管理检索只含search，不返回knowledge_base_create；创建成功与失败结果条件由createKnowledgeBase及getTask真实验证。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1tasks/get/responses/429": "此操作仅本地分页或读取运行期请求、证据及身份墓碑，不入执行队列、不外发，当前没有独立容量拒绝机制；后续全局资源限额或维护能力建立对应拒绝机制时再验证此状态，不能挪用提交或事件订阅的429。异步任务失败及不存在、失效身份仍须按本操作真实查询验证。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1tasks/get/responses/503": "此操作只读本地任务或运行期事实，不调用模型及向量服务，依赖故障由原任务失败表达而非查询503；数据迁移等全局维护暂停能力由后续运行数据切片提供，届时验证对应503。原任务失败、404和适用410仍须真实验证，消费方共享故障处理不豁免。",
-      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。",
-      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。"
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。"
     },
     "testKnowledgeBaseSearch": {
       "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "08后台阶段有限重试仍属于原任务，不创建显式重试来源任务；retryOfTaskId非空留给后续单项及全部失败重试入口，必填、联合类型及空分支仍适用。",
