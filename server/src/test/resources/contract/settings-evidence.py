@@ -22,6 +22,9 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'contentVersionSwitch': ({'contentSwitchHistoryAndCancellationRemainBoundToVersions','runningSearchAndRebuildCancellationRejectLateResults'}, {
+        'listIndexSwitches','cancelTask','downloadVersionFile','listKnowledgeBaseFiles','getTask'},
+        '#/x-business-constraints/indexSwitch','公开接口核对同源多库独立切换、原子指针关系、旧版保留、取消幂等及目标版本正文下载；未受理的非法新文件不取消在途任务。'),
     'processingConfigurationSwitch': ({'preflightAndRebuildKeepVersionsAtomic'}, {
         'updateProcessingConfig', 'getChunkPreflight', 'getProcessingConfig', 'getKnowledgeBase', 'getTask', 'getSearchRequest'},
         '#/x-business-constraints/indexSwitch', '真实公开接口断言配置幂等任务、整库切换成功、后续失败保留旧生效版本及检索证据配置身份；预检读取不触发模型。'),
@@ -262,9 +265,12 @@ if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
     selected_operations = {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
                            'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig',
                            'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources',
+                           'listIndexSwitches','cancelTask','downloadVersionFile','previewVersionFile',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'runningSearchAndRebuildCancellationRejectLateResults': ('运行中检索取消后等待后继请求完成，旧结果仍为空；整库父任务取消传播子任务，旧生效指针与切换记录保持，取消接口会话与保护令牌真实拒绝。', {'cancelTask','getTask','getSearchRequest','listIndexSwitches','listKnowledgeBaseTasks','getKnowledgeBase'}),
+        'contentSwitchHistoryAndCancellationRemainBoundToVersions': ('实际内容版本、多库独立生效指针、完整前后切换关系、允许任务终态幂等取消与初始化类型拒绝，以及指定旧版下载正文和安全头均由真实接口断言。', {'listIndexSwitches','cancelTask','downloadVersionFile','listKnowledgeBaseFiles','getTask'}),
         'associationUnionExclusionsAndLateTasksStayConsistent': ('真实来源重叠不重复索引、保留单来源不下线、排除优先、无来源排除可见、取消排除无来源不排队、上传新增同步及覆盖后迟到任务不得复活；排除持久化跨重启仍有效。', {'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources', 'listKnowledgeBaseFiles', 'getKnowledgeBase', 'getTask'}),
         'preflightAndRebuildKeepVersionsAtomic': ('预检真实码点、无损正文、硬切降级及完整性经断言；同键配置更新复用父任务、整库成功切换、失败继续检索旧版本，未知及错误类型预检拒绝。', {'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig', 'getTask', 'getKnowledgeBase', 'listKnowledgeBaseTasks', 'getSearchRequest'}),
         'markdownLocationsRemainBoundToOriginalSource': ('真实Markdown标题、源行、段落、表格、代码、实际内容版本和完整证据读取，经固定原文逐项断言。', {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
@@ -304,7 +310,8 @@ for index, item in enumerate(observations):
     name, operation = selected
     is_indexing = profile in ('indexing', 'indexing-events', 'indexing-gaps')
     is_event = is_indexing and name == 'watchTask' and item['status'] == 200
-    if not is_event and item['status'] != 204:
+    is_binary = name in ('previewVersionFile','downloadVersionFile') and item['status'] == 200
+    if not is_event and not is_binary and item['status'] != 204:
         validate_media(item['contentType'])
     method = item['method'].lower()
     prefix = '#/paths/' + verification.escape(operation['path']) + '/' + method
@@ -330,6 +337,19 @@ for index, item in enumerate(observations):
     elif item['status'] == 204:
         if item['response'] is not None or 'content' in response_definition:
             raise AssertionError('真实204响应必须无正文且契约不能声明响应内容。')
+    elif is_binary:
+        media = item['contentType'].split(';',1)[0].strip().lower()
+        response_schema = response_definition['content'][media]['schema']
+        validator(response_schema).validate(item['response'])
+        keywords(response_schema,response_pointer + '/content/' + verification.escape(media) + '/schema',item['response'],found)
+        headers = {key.lower():value for key,value in item.get('responseHeaders',{}).items()}
+        for header, definition in response_definition.get('headers',{}).items():
+            value = headers.get(header.lower())
+            validator(definition['schema']).validate(value)
+            pointer = response_pointer + '/headers/' + verification.escape(header)
+            found.add(pointer)
+            if definition.get('description'): found.add(pointer + '/description')
+            keywords(definition['schema'],pointer + '/schema',value,found)
     else:
         response_schema = response_definition['content']['application/json']['schema']
         errors = list(validator(response_schema).iter_errors(item['response']))
