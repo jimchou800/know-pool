@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '14'
+TICKET = '15'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
@@ -30,7 +30,9 @@ SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset'
          'includeKnowledgeBaseFile', 'listFileKnowledgeBases',
          'listIndexSwitches', 'downloadVersionFile', 'cancelTask',
          'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase',
-         'createSearchInstance', 'submitSearch')
+         'createSearchInstance', 'submitSearch',
+         'listSearchInstances', 'getSearchInstance', 'renameSearchInstance',
+         'updateSearchInstanceScope', 'deleteSearchInstance', 'cancelSearchRequest')
 BUSINESS_OPERATIONS = {
     'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch'},
     'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch'},

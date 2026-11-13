@@ -92,9 +92,9 @@ class ContractGateTests(unittest.TestCase):
     def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
         """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
         operations = verify.inventory(self.document)
-        self.assertEqual(verify.TICKET, '14')
-        self.assertEqual(len(verify.SCOPE), 56)
-        self.assertEqual(len(set(verify.SCOPE)), 56)
+        self.assertEqual(verify.TICKET, '15')
+        self.assertEqual(len(verify.SCOPE), 62)
+        self.assertEqual(len(set(verify.SCOPE)), 62)
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix
@@ -224,6 +224,15 @@ class ContractGateTests(unittest.TestCase):
                          mapping['操作']['getSearchRequest'])
         self.assertIn('createSearchInstance', verify.SCOPE)
         self.assertIn('submitSearch', verify.SCOPE)
+
+    def test_instance_reads_require_submitted_metadata_branches(self):
+        """实例读取不能继承创建响应的空查询与空范围条件保留。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-15.json').read_bytes())
+        for name in ('listSearchInstances', 'getSearchInstance', 'renameSearchInstance', 'updateSearchInstanceScope'):
+            self.assertFalse(any('/SearchInstance/' in key for key in mapping['操作'][name]))
+        self.assertNotIn('#/paths/~1search-requests~1{requestId}~1cancel/post/responses/410',
+                         mapping['操作']['cancelSearchRequest'])
+        self.assertIn('deleteSearchInstance', verify.SCOPE)
 
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
