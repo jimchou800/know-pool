@@ -10,9 +10,10 @@ public final class MaintenanceGate {
     public synchronized boolean pause() { if (paused) return false; paused=true; return true; }
     public void resume() { paused=false; }
     public Lease enter() {
-        if (paused) return null;
+        boolean admitted=lock.getReadHoldCount()>0 || lock.isWriteLockedByCurrentThread();
+        if (paused && !admitted) return null;
         lock.readLock().lock();
-        if (paused) { lock.readLock().unlock();return null; }
+        if (paused && !admitted) { lock.readLock().unlock();return null; }
         return () -> lock.readLock().unlock();
     }
     public Lease exclusive() { lock.writeLock().lock();return () -> lock.writeLock().unlock(); }
