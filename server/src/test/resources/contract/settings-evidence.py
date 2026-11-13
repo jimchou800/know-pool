@@ -83,6 +83,8 @@ def keywords(schema, pointer, value, found, visited=None):
         if key == 'properties' and isinstance(value, dict):
             for name, part in child.items():
                 if name in value:
+                    if name in verification.KEYWORDS:
+                        found.add(here + '/' + verification.escape(name))
                     keywords(part, here + '/' + verification.escape(name), value[name], found, visited)
         elif key == 'propertyNames' and isinstance(value, dict):
             for name in value:
@@ -132,6 +134,13 @@ def self_check():
     assert behavior_assertions({}, 'getVectorConfig') == []
     assert behavior_assertions({'behavior':'initialConfigurationSurvivesRestart'}, 'updateVectorConfig') == []
     assert behavior_assertions({'behavior':'initialConfigurationSurvivesRestart'}, 'getVectorConfig')
+    found = set()
+    keywords({'type':'object','properties':{'type':{'type':'string'}}}, '#/named', {'type':'dataset'}, found)
+    assert '#/named/properties/type' in found
+    assert '#/named/properties/type/type' in found
+    found = set()
+    keywords({'type':'object','properties':{'type':{'type':'string'}}}, '#/named', {}, found)
+    assert '#/named/properties/type' not in found
     found = set()
     error_field_constraints({'allOf':[{'$ref':'#/components/schemas/ModelConfigInput'}]}, '#/request', 'contextWindowTokens', None, found)
     assert '#/components/schemas/ModelConfigInput/properties/contextWindowTokens/anyOf/1/type' in found

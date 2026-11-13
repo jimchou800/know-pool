@@ -345,6 +345,29 @@ class KnowledgeBasesTest {
                             .path("items")
                             .size())
                     .isEqualTo(1);
+            java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(2),
+                    release = new java.util.concurrent.CountDownLatch(1);
+            try (var workers = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+                java.util.List<java.util.concurrent.Future<Integer>> results = new java.util.ArrayList<>();
+                for (int i = 0; i < 2; i++)
+                    results.add(workers.submit(() -> {
+                        ready.countDown();
+                        release.await();
+                        return send(
+                                        client,
+                                        "/knowledge-bases",
+                                        "POST",
+                                        body.replace("库甲", "并发唯一"),
+                                        UUID.randomUUID().toString())
+                                .statusCode();
+                    }));
+                assertThat(ready.await(3, java.util.concurrent.TimeUnit.SECONDS))
+                        .isTrue();
+                release.countDown();
+                assertThat(java.util.List.of(
+                                results.get(0).get(), results.get(1).get()))
+                        .containsExactlyInAnyOrder(202, 409);
+            }
         } finally {
             vector.stop(0);
         }
