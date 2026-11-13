@@ -1,6 +1,6 @@
 # 已批准的前端任务
 
-状态：用户已确认并发布 24 个本地前端工作包；01 至 06 已随对应技术切片共同完成验收，后续按技术票据依赖推进。
+状态：用户已确认并发布 24 个本地前端工作包；01 至 07 已随对应技术切片共同完成验收，后续按技术票据依赖推进。
 
 这些工作包细化既有技术切片，不形成独立实施排期。原技术任务是端到端状态的唯一依据，领取时同步记录双方负责人，避免重复派发。下表阻塞均指原技术任务完成且证据已验收，不能依据前端单方完成或 `ready-for-agent` 分流状态解除。
 
@@ -14,7 +14,7 @@
 | [04：安全预览 Markdown 和文字 PDF](issues/04-document-preview.md) | 技术 03 | [技术 04](../technical-design/issues/04-document-preview.md) | 已完成 |
 | [05：批量上传、同名覆盖和资料重命名](issues/05-batch-upload.md) | 技术 03 | [技术 05](../technical-design/issues/05-batch-upload.md) | 已完成 |
 | [06：显式配置模型与向量连接](issues/06-model-settings.md) | 技术 01 | [技术 06](../technical-design/issues/06-model-settings.md) | 已完成 |
-| [07：创建空知识库并关联资料](issues/07-knowledge-base.md) | 技术 03、技术 06 | [技术 07](../technical-design/issues/07-knowledge-base.md) | 进行中 |
+| [07：创建空知识库并关联资料](issues/07-knowledge-base.md) | 技术 03、技术 06 | [技术 07](../technical-design/issues/07-knowledge-base.md) | 已完成 |
 | [08：查看纯文本索引并执行管理检索](issues/08-text-index.md) | 技术 07 | [技术 08](../technical-design/issues/08-text-index.md) | 未开始 |
 | [09：核对文档索引结果的原文位置](issues/09-document-index.md) | 技术 04、技术 08 | [技术 09](../technical-design/issues/09-document-index.md) | 未开始 |
 | [10：配置切片并查看完整性预检](issues/10-chunk-preview.md) | 技术 09 | [技术 10](../technical-design/issues/10-chunk-preview.md) | 未开始 |
@@ -35,7 +35,7 @@
 
 ## 当前可领取范围
 
-01 至 06 已完成端到端验收，07 的前置 03、06 已解除阻塞，先按设计预检补齐技术契约并双审。后续依据原技术切片已验收状态计算可领取范围，不以领域自检通过解除阻塞。
+01 至 07 已完成端到端验收；07 合入主线后解除 08 阻塞。08 已完成双方只读预检，正式领取时先补齐索引恢复与管理检索技术设计，按现行契约和双审门禁推进。后续依据原技术切片已验收状态计算可领取范围，不以领域自检通过解除阻塞。
 
 ## 完成门槛
 
