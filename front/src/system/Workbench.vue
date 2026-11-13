@@ -6,6 +6,7 @@ import { createSystemClient } from './session';
 import Datasets from '../datasets/Datasets.vue';
 import Settings from '../settings/Settings.vue';
 import KnowledgeBases from '../knowledge-bases/KnowledgeBases.vue';
+import Search from '../search/Search.vue';
 
 const props = defineProps({
   client: { type: Object, default: () => createSystemClient() },
@@ -189,6 +190,11 @@ onMounted(connect);
             status &&
             !loading
           "
+          :client="client"
+          :writable="status.writeState === 'ready'"
+        />
+        <Search
+          v-else-if="route.path === '/search' && status && !loading"
           :client="client"
           :writable="status.writeState === 'ready'"
         />

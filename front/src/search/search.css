@@ -1,0 +1,18 @@
+.search-page .datasets-layout {
+  grid-template-columns: minmax(200px, 0.5fr) minmax(0, 1.6fr);
+}
+
+.search-page fieldset {
+  min-width: 0;
+}
+
+.search-page p,
+.search-page label {
+  overflow-wrap: anywhere;
+}
+
+.search-page textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
