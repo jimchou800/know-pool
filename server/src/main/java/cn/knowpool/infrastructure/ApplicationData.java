@@ -311,7 +311,7 @@ public final class ApplicationData implements AutoCloseable {
     public MaintenanceGate gate() { return gate; }
     public Path anchor() { return anchor; }
     public synchronized void checkpoint() {
-        JdbcClient.create(dataSource).sql("PRAGMA wal_checkpoint(TRUNCATE)").query((row,n) -> row.getInt(1)).list();
+        if (JdbcClient.create(dataSource).sql("PRAGMA wal_checkpoint(TRUNCATE)").query((row,n) -> row.getInt(1)).single()!=0) throw new IllegalStateException("数据库仍被占用，不能开始复制。");
     }
     public synchronized void switchDirectory(Path target) throws IOException {
         FileChannel nextChannel=FileChannel.open(target.resolve("application.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
@@ -324,9 +324,10 @@ public final class ApplicationData implements AutoCloseable {
             Files.writeString(pending,target.toString(),StandardOpenOption.CREATE,StandardOpenOption.TRUNCATE_EXISTING,StandardOpenOption.SYNC);
             Files.move(pending,pointer,java.nio.file.StandardCopyOption.ATOMIC_MOVE,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException failure) { nextLock.release();nextChannel.close();throw failure; }
-        lock.release();lockChannel.close();
+        FileLock previousLock=lock;FileChannel previousChannel=lockChannel;
+        dataSource.setUrl("jdbc:sqlite:"+target.resolve("application.sqlite")+"?foreign_keys=on&busy_timeout=5000");
         directory=target;lockChannel=nextChannel;lock=nextLock;
-        dataSource.setUrl("jdbc:sqlite:"+directory.resolve("application.sqlite")+"?foreign_keys=on&busy_timeout=5000");
+        try { previousLock.release(); } finally { previousChannel.close(); }
     }
     private static Path locate(Path anchor) throws IOException {
         Path pointer=anchor.resolve("active-directory");

@@ -119,6 +119,7 @@ public final class Maintenance {
             ObjectNode result=json.createObjectNode().put("operation","migration").put("activeDataDirectory",data.directory().toString()).put("targetPath",target.toString()).put("configurationSwitched",cleanup).put("oldDirectoryResidue",cleanup).put("recoverable",false).put("indexStatus",cleanup?previous.path("result").path("indexStatus").asText():"not_checked").put("credentialsIncluded",credentials()).put("vectorSnapshotIncluded",false).putNull("failureStage");
             result.set("task",task);result.set("warnings",json.createArrayNode().add("迁移包含本地明文凭据；向量服务原生数据不在迁移范围内。"));
             ObjectNode stored=json.createObjectNode().put("sourcePath",source.toString()).put("cleanupOnly",cleanup);stored.set("result",result);stored.set("manifest",previous==null?json.createArrayNode():previous.path("manifest").deepCopy());
+            if (previous!=null && previous.path("targetInitialized").asBoolean()) stored.put("targetInitialized",true);
             if (previous!=null && previous.has("copyTemporary")) stored.put("copyTemporary",previous.path("copyTemporary").asText());
             data.write(jdbc -> {
                 jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'migration','queued',?,?,?,?,?)").params(id,json.writeValueAsString(task),session,operation,key,fingerprint).update();
@@ -143,6 +144,7 @@ public final class Maintenance {
                     var reasons=pathReasons(source,target,false);if (!reasons.isEmpty()) throw new IOException("路径安全检查未通过。");
                     removePreviousCopies(target,stored);
                     if (Files.exists(target)) try (var items=Files.list(target)) { if (items.findAny().isPresent()) throw new IOException("目标目录含有非本次迁移登记的内容。"); }
+                    stored.put("targetInitialized",true);journal(stored);
                     Files.createDirectories(target);safePath(target);
                     var targetChannel=java.nio.channels.FileChannel.open(target.resolve("application.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
                     java.nio.channels.FileLock targetLock;
@@ -261,8 +263,8 @@ public final class Maintenance {
     }
     private List<Entry> manifest(Path root) throws IOException {
         List<Entry> entries=new ArrayList<>();
-        try (var paths=Files.walk(root)) {
-            for (Path file:paths.toList()) {
+        {
+            for (Path file:tree(root)) {
                 safePath(file);if (Files.isDirectory(file)) continue;
                 String relative=root.relativize(file).toString();if (metadata(root,relative)) continue;
                 if (!Files.isRegularFile(file,LinkOption.NOFOLLOW_LINKS)) throw new IOException("数据目录含有非普通文件。");
@@ -283,7 +285,7 @@ public final class Maintenance {
     }
     private void removePreviousCopies(Path target,JsonNode stored) throws IOException {
         JsonNode manifest=stored.path("manifest");
-        if (!Files.exists(target) || manifest.isEmpty()) return;safePath(target);
+        if (!Files.exists(target) || !stored.path("targetInitialized").asBoolean()) return;safePath(target);
         Path lockFile=target.resolve("application.lock");safePath(lockFile);
         try (var channel=java.nio.channels.FileChannel.open(lockFile,StandardOpenOption.CREATE,StandardOpenOption.WRITE)) {
           var lease=channel.tryLock();if (lease==null) throw new IOException("目标目录已被占用。");
@@ -313,16 +315,24 @@ public final class Maintenance {
         }
         for (String sidecar:List.of("application.sqlite-wal","application.sqlite-shm")) { Path file=source.resolve(sidecar);safePath(file);Files.deleteIfExists(file); }
         removeEmptyDirectories(source);
-        try (var paths=Files.walk(source)) {
-            for (Path file:paths.toList()) if (!Files.isDirectory(file) && !metadata(source,source.relativize(file).toString())) throw new IOException("旧目录出现未登记文件，保留残留等待核查。");
+        {
+            for (Path file:tree(source)) if (!Files.isDirectory(file) && !metadata(source,source.relativize(file).toString())) throw new IOException("旧目录出现未登记文件，保留残留等待核查。");
         }
           }
         }
     }
+    private static List<Path> tree(Path root) throws IOException {
+        List<Path> paths=new ArrayList<>();
+        Files.walkFileTree(root,new SimpleFileVisitor<Path>() {
+            @Override public FileVisitResult preVisitDirectory(Path directory,java.nio.file.attribute.BasicFileAttributes attributes) throws IOException { safePath(directory);paths.add(directory);return FileVisitResult.CONTINUE; }
+            @Override public FileVisitResult visitFile(Path file,java.nio.file.attribute.BasicFileAttributes attributes) throws IOException { safePath(file);paths.add(file);return FileVisitResult.CONTINUE; }
+        });
+        return paths;
+    }
     private static void removeEmptyDirectories(Path root) throws IOException {
         if (!Files.exists(root)) return;
-        try (var paths=Files.walk(root)) {
-            for (Path path:paths.sorted(Comparator.reverseOrder()).toList()) if (!path.equals(root) && Files.isDirectory(path,LinkOption.NOFOLLOW_LINKS)) try (var children=Files.list(path)) { if (children.findAny().isEmpty()) Files.delete(path); }
+        {
+            for (Path path:tree(root).stream().sorted(Comparator.reverseOrder()).toList()) if (!path.equals(root) && Files.isDirectory(path,LinkOption.NOFOLLOW_LINKS)) { boolean empty;try (var children=Files.list(path)) { empty=children.findAny().isEmpty(); } if (empty) Files.delete(path); }
         }
     }
     private static void verifyDatabase(Path target) throws IOException {
