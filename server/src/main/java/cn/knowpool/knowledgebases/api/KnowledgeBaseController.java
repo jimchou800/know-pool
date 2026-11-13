@@ -117,6 +117,18 @@ public final class KnowledgeBaseController {
         return service.addSource(identifier(knowledgeBaseId), input.path("type").asText(), id);
     }
 
+    @PostMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/publish")
+    public JsonNode publish(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
+        query(request,Set.of()); empty(request);
+        return service.publish(identifier(knowledgeBaseId));
+    }
+
+    @PostMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/offline")
+    public JsonNode offline(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
+        query(request,Set.of()); empty(request);
+        return service.offline(identifier(knowledgeBaseId));
+    }
+
     private static String identifier(String value) {
         return ModelSettingsService.identifier(value, "knowledgeBaseId");
     }

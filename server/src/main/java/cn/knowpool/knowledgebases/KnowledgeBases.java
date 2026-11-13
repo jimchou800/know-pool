@@ -497,6 +497,44 @@ public final class KnowledgeBases {
         });
     }
 
+    public JsonNode publish(String id) {
+        return data.write(jdbc -> {
+            ObjectNode value = (ObjectNode)get(jdbc,id);
+            int searchable = searchableCount(jdbc,id);
+            if (searchable == 0) throw new ApiFailure(422,"INVALID_STATE","至少需要一份有效关联、未被排除且已完成索引的资料才能发布。",null);
+            if (value.path("publicationState").asText().equals("published")) return value;
+            String now = Instant.now().toString();
+            value.put("publicationState","published").put("publishedAt",now).put("updatedAt",now).put("searchableFileCount",searchable);
+            jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(value),id).update();
+            return value;
+        });
+    }
+
+    public JsonNode offline(String id) {
+        return data.write(jdbc -> {
+            ObjectNode value = (ObjectNode)get(jdbc,id);
+            String state = value.path("publicationState").asText();
+            if (state.equals("unpublished")) throw new ApiFailure(409,"INVALID_STATE","尚未发布的知识库不能主动下线。",null);
+            if (state.equals("offline")) return value;
+            String now = Instant.now().toString();
+            value.put("publicationState","offline").put("offlineAt",now).put("offlineReason","manual").put("updatedAt",now);
+            jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(value),id).update();
+            return value;
+        });
+    }
+
+    private int searchableCount(JdbcClient jdbc, String kb) {
+        List<String> ids = jdbc.sql("SELECT file_id FROM effective_files WHERE knowledge_base_id=?").param(kb).query(String.class).list();
+        var current = files.currentFiles(jdbc,ids);
+        int count = 0;
+        for (String id : ids) {
+            var file = current.get(id);
+            if (file != null && file.available() && !excluded(jdbc,kb,id)
+                    && hasSource(jdbc,kb,new FileService.SourceFile(id,file.datasetId(),file.contentVersionId()))) count++;
+        }
+        return count;
+    }
+
     public JsonNode addSource(String id, String type, String resource) {
         return data.write(jdbc -> {
             get(jdbc, id);
@@ -769,7 +807,7 @@ public final class KnowledgeBases {
     private void updateCounts(JdbcClient jdbc, String kb) {
         ObjectNode value = (ObjectNode) get(jdbc,kb);
         int included = jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=?").param(kb).query(Integer.class).single();
-        int searchable = jdbc.sql("SELECT COUNT(*) FROM effective_files WHERE knowledge_base_id=?").param(kb).query(Integer.class).single();
+        int searchable = searchableCount(jdbc,kb);
         value.put("includedFileCount",included).put("searchableFileCount",searchable).put("updatedAt",Instant.now().toString());
         if (searchable == 0 && value.path("publicationState").asText().equals("published"))
             value.put("publicationState","offline").put("offlineAt",Instant.now().toString()).put("offlineReason","no_searchable_files");
