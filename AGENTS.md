@@ -14,4 +14,4 @@
 - 实现与验证遵循 `docs/agents/engineering.md`。根 `mvn verify` 已接通，工作区变更后须重新执行并核验当前证据。前后端行、分支覆盖率分别至少 80%，契约对齐率要求 100%，二者不能互相替代。
 - 模型配置由用户显式提供，密钥在数据目录明文保存，无环境变量兜底；读取仅返回掩码和状态，禁止密钥进入日志、前端持久化、报告或提交。真实模型评测单独授权，普通持续集成用固定资料和模拟模型。
 - 交付据实记录目的、影响、已执行检查与未验证项；界面附截图。提交前排除个人资料、凭据、数据库和生成物。当前仅本地提交，按用户要求不拉取、不推送或外部发布。
-- 后续 Git 提交遵循 Conventional Commits：`<type>[可选范围][!]: <简短中文说明>`。类型及可选范围使用英文，类型按变更选择 `feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore` 或 `revert`；破坏性变更用 `!` 或正文中的 `BREAKING CHANGE:` 标明并用中文说明影响。例如：`feat(files): 支持资料上传与下载`、`docs: 规范提交说明`。
+- Git 提交遵循 Conventional Commits：`<type>[可选范围][!]: <简短中文说明>`。类型及可选范围使用英文，类型按变更选择 `feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore` 或 `revert`；破坏性变更用 `!` 或正文中的 `BREAKING CHANGE:` 标明并用中文说明影响。例如：`feat(files): 支持资料上传与下载`、`docs: 规范提交说明`。
