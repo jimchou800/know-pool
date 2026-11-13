@@ -32,6 +32,7 @@ public final class Indexes {
     private final JsonMapper json;
     private final DocumentSources documentSources;
     private final ChunkPlans chunkPlans;
+    private final java.util.Map<String,Integer> readers = new java.util.HashMap<>();
     private volatile boolean stopping;
     private final java.util.concurrent.ScheduledExecutorService worker =
             Executors.newSingleThreadScheduledExecutor(r -> {
@@ -89,6 +90,7 @@ public final class Indexes {
     private void next() {
         if (stopping) return;
         try {
+            cleanups();
             rebuilds();
             List<String> ids = data.read(jdbc -> jdbc.sql(
                             "SELECT id FROM tasks WHERE kind='index_file' AND state IN ('queued','running') ORDER BY id LIMIT 1")
@@ -109,6 +111,64 @@ public final class Indexes {
                 .param(id)
                 .query(String.class)
                 .single());
+    }
+
+    private void cleanups() {
+        var pending = data.read(jdbc -> jdbc.sql("SELECT c.task_id,c.targets,c.endpoint FROM index_cleanup c JOIN tasks t ON t.id=c.task_id WHERE t.state IN ('queued','running') ORDER BY c.task_id LIMIT 1")
+                .query((row,n) -> new String[]{row.getString(1),row.getString(2),row.getString(3)}).list());
+        if (pending.isEmpty()) return;
+        String[] item = pending.getFirst();
+        JsonNode targets = json.readTree(item[1]);
+        synchronized (data) {
+            for (JsonNode target : targets) if (readers.getOrDefault(target.path("indexId").asText(),0)>0) return;
+        }
+        String id = item[0];
+        try {
+            var connection = settings.vectorConnection();
+            if (item[2] == null || !item[2].equals(connection.endpoint()))
+                throw new ApiFailure(503,"VECTOR_UNAVAILABLE","清理目标连接已改变，保留待清理资源。",null);
+            data.write(jdbc -> {
+                ObjectNode value = task(jdbc,id);
+                value.put("state","running").put("phase","cleaning");
+                if (value.path("startedAt").isNull()) value.put("startedAt",Instant.now().toString());
+                persist(jdbc,value); return null;
+            });
+            int completed = 0;
+            for (JsonNode target : targets) {
+                if (target.path("completed").asBoolean()) { completed++; continue; }
+                String collection = target.path("collection").asText(), index = target.path("indexId").asText();
+                int previous = target.path("attempts").asInt();
+                if (previous >= 3) throw new ApiFailure(503,"VECTOR_UNAVAILABLE","清理尝试已达到上限。",null);
+                for (int attempt = previous+1; attempt <= 3; attempt++) {
+                    int currentAttempt = attempt;
+                    ((ObjectNode) target).put("attempts",currentAttempt);
+                    data.write(jdbc -> {
+                        jdbc.sql("UPDATE index_cleanup SET targets=? WHERE task_id=?").params(json.writeValueAsString(targets),id).update();
+                        ObjectNode value = task(jdbc,id); value.put("attempt",currentAttempt); persist(jdbc,value); return null;
+                    });
+                    try {
+                        if (vectors.request(connection.endpoint(),connection.secret(),collection,"GET",null) != null) {
+                            String body = json.writeValueAsString(java.util.Map.of("filter", java.util.Map.of("must",List.of(java.util.Map.of("key","index_id","match",java.util.Map.of("value",index))))));
+                            vectors.request(connection.endpoint(),connection.secret(),collection+"/points/delete?wait=true","POST",body);
+                        }
+                        break;
+                    } catch (java.io.IOException failure) {
+                        if (attempt == 3 || failure instanceof VectorCollections.Failure rejected && !rejected.retryable()) throw failure;
+                        retryDelay(attempt);
+                    }
+                }
+                int progress = ++completed;
+                data.write(jdbc -> {
+                    jdbc.sql("DELETE FROM index_chunks WHERE index_id=?").param(index).update();
+                    ((ObjectNode) target).put("completed",true);
+                    jdbc.sql("UPDATE index_cleanup SET targets=? WHERE task_id=?").params(json.writeValueAsString(targets),id).update();
+                    ObjectNode value = task(jdbc,id); value.put("progressCompleted",progress); persist(jdbc,value); return null;
+                });
+            }
+            data.write(jdbc -> { finish(jdbc,task(jdbc,id),"succeeded",null,null,null); return null; });
+        } catch (java.io.IOException | RuntimeException failure) {
+            data.write(jdbc -> { finish(jdbc,task(jdbc,id),"failed","CLEANUP_FAILED","专属索引清理失败，资料仍保持下线；可稍后重试清理。",null); return null; });
+        }
     }
 
     private void rebuilds() {
@@ -202,6 +262,8 @@ public final class Indexes {
         if (!List.of("queued", "running").contains(task.path("state").asText())) return false;
         String kb = task.path("knowledgeBaseId").asText(),
                 file = task.path("fileId").asText();
+        if (jdbc.sql("SELECT COUNT(*) FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?")
+                .params(kb,file).query(Integer.class).single() > 0) return false;
         List<String> configs = jdbc.sql(
                         "SELECT config_version_id FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=? AND task_id=? AND content_version_id=?")
                 .params(
@@ -713,14 +775,16 @@ public final class Indexes {
                         return true;
                     })
                     .list();
-            return new SearchSnapshot(
+            SearchSnapshot value = new SearchSnapshot(
                     config, java.util.Map.copyOf(captured), Instant.now().toString(), bases.collection(kb, effective));
+            for (String index : captured.keySet()) readers.merge(index,1,Integer::sum);
+            return value;
         });
         JsonNode config = snapshot.config();
         List<String> indexes = List.copyOf(snapshot.files().keySet());
         if (indexes.isEmpty()) throw new ApiFailure(422, "NO_EFFECTIVE_INDEX", "请先完成资料处理，再检索生效索引。", null);
-        var connection = settings.vectorConnection();
         try {
+            var connection = settings.vectorConnection();
             float[] vector = embeddings
                     .embed(
                             settings.embeddingSnapshot(
@@ -766,6 +830,10 @@ public final class Indexes {
             if (List.of("MODEL_UNAVAILABLE", "VECTOR_UNAVAILABLE").contains(failure.code()))
                 availability(kb, failure.getMessage());
             throw failure;
+        } finally {
+            synchronized (data) {
+                for (String index : snapshot.files().keySet()) readers.computeIfPresent(index,(key,count) -> count <= 1 ? null : count-1);
+            }
         }
     }
 
@@ -825,6 +893,7 @@ public final class Indexes {
             if (file == null
                     || !file.available()
                     || !states.containsKey(captured.fileId())
+                    || jdbc.sql("SELECT COUNT(*) FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?").params(kb,captured.fileId()).query(Integer.class).single() > 0
                     || !fileSources.contains(captured.fileId()) && !datasetSources.contains(file.datasetId()))
                 throw new ApiFailure(409, "SCOPE_UNAVAILABLE", "资料已不在当前知识库的有效范围中，请重新检索。", null);
             String state = states.get(captured.fileId());

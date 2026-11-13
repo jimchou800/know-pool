@@ -163,10 +163,13 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 path.equals("/api/v1/knowledge-bases") && Set.of("GET", "POST").contains(request.getMethod())
                         || path.matches("/api/v1/knowledge-bases/[^/]+")
                                 && Set.of("GET", "PATCH").contains(request.getMethod())
-                        || path.matches("/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files|tasks)")
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files|tasks|exclusions)")
                                 && request.getMethod().equals("GET")
                         || path.matches("/api/v1/knowledge-bases/[^/]+/sources")
-                                && request.getMethod().equals("POST");
+                                && request.getMethod().equals("POST")
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/sources/[^/]+") && request.getMethod().equals("DELETE")
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/exclusions/[^/]+") && Set.of("PUT","DELETE").contains(request.getMethod())
+                        || path.matches("/api/v1/files/[^/]+/knowledge-bases") && request.getMethod().equals("GET");
         boolean search = path.matches("/api/v1/knowledge-bases/[^/]+/search-test")
                         && request.getMethod().equals("POST")
                 || path.matches("/api/v1/search-requests/[^/]+(?:/evidence/[^/]+)?")

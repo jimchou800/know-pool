@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -113,6 +114,44 @@ public final class KnowledgeBaseController {
 
     private static String identifier(String value) {
         return ModelSettingsService.identifier(value, "knowledgeBaseId");
+    }
+
+    @DeleteMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/sources/{sourceId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeSource(@PathVariable String knowledgeBaseId, @PathVariable String sourceId, HttpServletRequest request) {
+        query(request,Set.of()); empty(request);
+        service.removeSource(identifier(knowledgeBaseId),sourceId);
+    }
+
+    @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/exclusions")
+    public KnowledgeBases.Page exclusions(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
+        return service.exclusions(identifier(knowledgeBaseId),limit(request),request.getParameter("cursor"));
+    }
+
+    @PutMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/exclusions/{fileId}")
+    public JsonNode exclude(@PathVariable String knowledgeBaseId, @PathVariable String fileId, HttpServletRequest request) {
+        query(request,Set.of()); empty(request);
+        return service.exclude(identifier(knowledgeBaseId),fileId);
+    }
+
+    @DeleteMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/exclusions/{fileId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void include(@PathVariable String knowledgeBaseId, @PathVariable String fileId, HttpServletRequest request) {
+        query(request,Set.of()); empty(request);
+        service.include(identifier(knowledgeBaseId),fileId);
+    }
+
+    @GetMapping("/api/v1/files/{fileId}/knowledge-bases")
+    public KnowledgeBases.Page fileKnowledgeBases(@PathVariable String fileId, HttpServletRequest request) {
+        return service.fileKnowledgeBases(fileId,limit(request),request.getParameter("cursor"));
+    }
+
+    private static void empty(HttpServletRequest request) {
+        try {
+            if (request.getInputStream().read() != -1) throw ApiFailure.invalid(null,"此操作不接受请求正文。");
+        } catch (java.io.IOException failure) {
+            throw ApiFailure.invalid(null,"无法读取请求正文。");
+        }
     }
 
     private static void processing(JsonNode input) {

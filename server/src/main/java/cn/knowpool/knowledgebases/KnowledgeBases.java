@@ -506,6 +506,10 @@ public final class KnowledgeBases {
 
     @org.springframework.context.event.EventListener
     public void contentCommitted(FileService.ContentCommitted event) {
+        contentCommitted(event,null);
+    }
+
+    private void contentCommitted(FileService.ContentCommitted event, String targetBase) {
         JdbcClient jdbc = event.jdbc();
         List<String> ids = jdbc.sql(
                         "SELECT DISTINCT s.knowledge_base_id FROM knowledge_base_sources s JOIN knowledge_bases b ON b.id=s.knowledge_base_id WHERE b.visible=1 AND ((s.type='file' AND s.resource_id=?) OR (s.type='dataset' AND s.resource_id=?))")
@@ -513,6 +517,8 @@ public final class KnowledgeBases {
                 .query(String.class)
                 .list();
         for (String kb : ids) {
+            if (targetBase != null && !targetBase.equals(kb)) continue;
+            if (excluded(jdbc,kb,event.fileId())) continue;
             for (String payload : jdbc.sql(
                             "SELECT payload FROM tasks WHERE kind='index_file' AND state IN ('queued','running') AND json_extract(payload,'$.knowledgeBaseId')=? AND json_extract(payload,'$.fileId')=?")
                     .params(kb, event.fileId())
@@ -600,6 +606,7 @@ public final class KnowledgeBases {
         ObjectNode kb = (ObjectNode) get(jdbc, id);
         String config = kb.path("targetConfigVersionId").asText();
         for (FileService.SourceFile file : included) {
+            if (excluded(jdbc,id,file.id())) continue;
             if (jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?")
                             .params(id, file.id())
                             .query(Integer.class)
@@ -667,12 +674,115 @@ public final class KnowledgeBases {
         });
     }
 
+    private boolean excluded(JdbcClient jdbc, String kb, String file) {
+        return jdbc.sql("SELECT COUNT(*) FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?")
+                .params(kb,file).query(Integer.class).single() > 0;
+    }
+
+    private boolean hasSource(JdbcClient jdbc, String kb, FileService.SourceFile file) {
+        return jdbc.sql("SELECT COUNT(*) FROM knowledge_base_sources WHERE knowledge_base_id=? AND ((type='file' AND resource_id=?) OR (type='dataset' AND resource_id=?))")
+                .params(kb,file.id(),file.datasetId()).query(Integer.class).single() > 0;
+    }
+
+    public void removeSource(String kb, String sourceId) {
+        String valid = ModelSettingsService.identifier(sourceId,"sourceId");
+        data.write(jdbc -> {
+            get(jdbc,kb);
+            JsonNode source = jdbc.sql("SELECT payload FROM knowledge_base_sources WHERE id=? AND knowledge_base_id=?")
+                    .params(valid,kb).query(String.class).optional().map(json::readTree)
+                    .orElseThrow(() -> new ApiFailure(404,"NOT_FOUND","关联来源不存在。",null));
+            List<FileService.SourceFile> affected = files.sourceFiles(jdbc,source.path("type").asText(),source.path("resourceId").asText());
+            jdbc.sql("DELETE FROM knowledge_base_sources WHERE id=? AND knowledge_base_id=?").params(valid,kb).update();
+            for (var file : affected) if (!hasSource(jdbc,kb,file)) detach(jdbc,kb,file.id());
+            updateCounts(jdbc,kb);
+            return null;
+        });
+    }
+
+    public JsonNode exclude(String kb, String fileId) {
+        String file = ModelSettingsService.identifier(fileId,"fileId");
+        return data.write(jdbc -> {
+            get(jdbc,kb); files.sourceFiles(jdbc,"file",file);
+            JsonNode exclusion = jdbc.sql("SELECT payload FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?")
+                    .params(kb,file).query(String.class).optional().map(json::readTree).orElse(null);
+            if (exclusion != null) return exclusion;
+            ObjectNode value = json.createObjectNode().put("knowledgeBaseId",kb).put("fileId",file).put("createdAt",Instant.now().toString());
+            jdbc.sql("INSERT INTO knowledge_base_exclusions VALUES(?,?,?)").params(kb,file,json.writeValueAsString(value)).update();
+            detach(jdbc,kb,file); updateCounts(jdbc,kb);
+            return value;
+        });
+    }
+
+    public void include(String kb, String fileId) {
+        String file = ModelSettingsService.identifier(fileId,"fileId");
+        data.write(jdbc -> {
+            get(jdbc,kb);
+            var source = files.sourceFiles(jdbc,"file",file).getFirst();
+            if (jdbc.sql("DELETE FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update() == 0)
+                throw new ApiFailure(404,"NOT_FOUND","排除记录不存在。",null);
+            if (hasSource(jdbc,kb,source)) {
+                var event = new FileService.ContentCommitted(jdbc,file,source.datasetId(),source.contentVersionId());
+                contentCommitted(event,kb);
+            }
+            updateCounts(jdbc,kb);
+            return null;
+        });
+    }
+
+    public Page exclusions(String kb, int limit, String cursor) {
+        return data.read(jdbc -> {
+            get(jdbc,kb);
+            List<JsonNode> rows = jdbc.sql("SELECT payload FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id>? ORDER BY file_id LIMIT ?")
+                    .params(kb,after(cursor),limit+1).query(String.class).list().stream().map(json::readTree).toList();
+            return page(rows,limit,"fileId");
+        });
+    }
+
+    private void detach(JdbcClient jdbc, String kb, String file) {
+        String now = Instant.now().toString();
+        for (String payload : jdbc.sql("SELECT payload FROM tasks WHERE kind='index_file' AND state IN ('queued','running') AND json_extract(payload,'$.knowledgeBaseId')=? AND json_extract(payload,'$.fileId')=?")
+                .params(kb,file).query(String.class).list()) {
+            ObjectNode task = (ObjectNode) json.readTree(payload);
+            task.put("state","cancelled").put("phase","completed").put("finishedAt",now).putNull("failure").putNull("resultResourceId");
+            cn.knowpool.infrastructure.TaskEvents.record(jdbc,json,task);
+            jdbc.sql("UPDATE tasks SET state='cancelled',payload=? WHERE id=?").params(json.writeValueAsString(task),task.path("id").asText()).update();
+        }
+        var targets = json.createArrayNode();
+        jdbc.sql("SELECT r.id,json_extract(t.payload,'$.targetConfigVersionId') FROM index_runs r JOIN tasks t ON t.id=r.task_id WHERE json_extract(t.payload,'$.knowledgeBaseId')=? AND json_extract(t.payload,'$.fileId')=?")
+                .params(kb,file).query((row,n) -> {
+                    targets.addObject().put("indexId",row.getString(1)).put("collection",collection(kb,row.getString(2)));
+                    return true;
+                }).list();
+        if (!targets.isEmpty()) {
+            String id = UUID.randomUUID().toString();
+            ConnectionTests.Task cleanup = new ConnectionTests.Task(id,"cleanup","queued","queued",now,null,null,kb,file,null,null,null,0,0,(long)targets.size(),null,List.of(),null);
+            jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'cleanup','queued',?,'internal','cleanup',?,'')")
+                    .params(id,json.writeValueAsString(cleanup),id).update();
+            jdbc.sql("INSERT INTO index_cleanup VALUES(?,?,?)").params(id,json.writeValueAsString(targets),settings.vectorConnection().endpoint()).update();
+            cn.knowpool.infrastructure.TaskEvents.record(jdbc,json,json.valueToTree(cleanup));
+        }
+        jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
+        jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
+        jdbc.sql("DELETE FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
+    }
+
+    private void updateCounts(JdbcClient jdbc, String kb) {
+        ObjectNode value = (ObjectNode) get(jdbc,kb);
+        int included = jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=?").param(kb).query(Integer.class).single();
+        int searchable = jdbc.sql("SELECT COUNT(*) FROM effective_files WHERE knowledge_base_id=?").param(kb).query(Integer.class).single();
+        value.put("includedFileCount",included).put("searchableFileCount",searchable).put("updatedAt",Instant.now().toString());
+        if (searchable == 0 && value.path("publicationState").asText().equals("published"))
+            value.put("publicationState","offline").put("offlineAt",Instant.now().toString()).put("offlineReason","no_searchable_files");
+        jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(value),kb).update();
+        refreshProcessing(jdbc,kb);
+    }
+
     public Page tasks(String id, int limit, String cursor) {
         return data.read(jdbc -> {
             get(jdbc, id);
             List<JsonNode> rows = jdbc
                     .sql(
-                            "SELECT payload FROM tasks WHERE kind IN ('index_file','rebuild_knowledge_base') AND json_extract(payload,'$.knowledgeBaseId')=? AND id>? ORDER BY id LIMIT ?")
+                            "SELECT payload FROM tasks WHERE kind IN ('index_file','rebuild_knowledge_base','cleanup') AND json_extract(payload,'$.knowledgeBaseId')=? AND id>? ORDER BY id LIMIT ?")
                     .params(id, after(cursor), limit + 1)
                     .query(String.class)
                     .list()
@@ -685,88 +795,58 @@ public final class KnowledgeBases {
 
     public Page files(String id, int limit, String cursor) {
         return data.read(jdbc -> {
-            get(jdbc, id);
-            List<JsonNode> sources = jdbc
-                    .sql("SELECT payload FROM knowledge_base_sources WHERE knowledge_base_id=? ORDER BY id")
-                    .param(id)
-                    .query(String.class)
-                    .list()
-                    .stream()
-                    .map(json::readTree)
-                    .toList();
-            List<JsonNode> rows = jdbc.sql(
-                            "SELECT file_id,content_version_id,config_version_id,task_id FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id>? ORDER BY file_id LIMIT ?")
-                    .params(id, after(cursor), limit + 1)
-                    .query((row, index) -> {
-                        String file = row.getString(1);
-                        ObjectNode value = json.createObjectNode();
-                        String dataset =
-                                files.sourceFiles(jdbc, "file", file).getFirst().datasetId();
-                        var matching = json.createArrayNode();
-                        for (JsonNode source : sources)
-                            if (source.path("type").asText().equals("file")
-                                            && source.path("resourceId")
-                                                    .asText()
-                                                    .equals(file)
-                                    || source.path("type").asText().equals("dataset")
-                                            && source.path("resourceId")
-                                                    .asText()
-                                                    .equals(dataset)) matching.add(source);
-                        value.put("knowledgeBaseId", id)
-                                .put("fileId", file)
-                                .put("excluded", false)
-                                .put("included", true)
-                                .put(
-                                        "latestContentVersionId",
-                                        files.sourceFiles(jdbc, "file", file)
-                                                .getFirst()
-                                                .contentVersionId())
-                                .putNull("effectiveContentVersionId")
-                                .putNull("effectiveIndexVersionId")
-                                .put("targetContentVersionId", row.getString(2))
-                                .put("targetConfigVersionId", row.getString(3))
-                                .put("updateState", "queued")
-                                .put("usingPreviousVersion", false)
-                                .putNull("failure")
-                                .putNull("effectiveConfigVersionId");
-                        value.set("sources", matching);
-                        value.set(
-                                "task",
-                                json.readTree(jdbc.sql("SELECT payload FROM tasks WHERE id=?")
-                                        .param(row.getString(4))
-                                        .query(String.class)
-                                        .single()));
-                        JsonNode task = value.path("task");
-                        String state = task.path("state").asText();
-                        value.put(
-                                "updateState",
-                                state.equals("succeeded")
-                                        ? "ready"
-                                        : state.equals("running")
-                                                ? "processing"
-                                                : state.equals("queued") ? "queued" : "failed");
-                        value.set("failure", task.path("failure"));
-                        jdbc.sql(
-                                        "SELECT content_version_id,config_version_id,index_id FROM effective_files WHERE knowledge_base_id=? AND file_id=?")
-                                .params(id, file)
-                                .query((effective, n) -> {
-                                    value.put("effectiveContentVersionId", effective.getString(1))
-                                            .put("effectiveConfigVersionId", effective.getString(2))
-                                            .put("effectiveIndexVersionId", effective.getString(3))
-                                            .put(
-                                                    "usingPreviousVersion",
-                                                    !effective.getString(1).equals(row.getString(2))
-                                                            || !effective
-                                                                    .getString(2)
-                                                                    .equals(row.getString(3)));
-                                    return true;
-                                })
-                                .list();
-                        return (JsonNode) value;
-                    })
-                    .list();
-            return page(rows, limit, "fileId");
+            get(jdbc,id);
+            var candidates = new java.util.TreeSet<String>();
+            for (String payload : jdbc.sql("SELECT payload FROM knowledge_base_sources WHERE knowledge_base_id=?").param(id).query(String.class).list()) {
+                JsonNode source = json.readTree(payload);
+                for (var file : files.sourceFiles(jdbc,source.path("type").asText(),source.path("resourceId").asText())) candidates.add(file.id());
+            }
+            candidates.addAll(jdbc.sql("SELECT file_id FROM knowledge_base_exclusions WHERE knowledge_base_id=?").param(id).query(String.class).list());
+            String after = after(cursor);
+            List<JsonNode> rows = candidates.stream().filter(file -> file.compareTo(after)>0).limit((long)limit+1)
+                    .map(file -> fileState(jdbc,id,file)).toList();
+            return page(rows,limit,"fileId");
         });
+    }
+
+    public Page fileKnowledgeBases(String fileId, int limit, String cursor) {
+        String file = ModelSettingsService.identifier(fileId,"fileId");
+        return data.read(jdbc -> {
+            var source = files.sourceFiles(jdbc,"file",file).getFirst();
+            List<String> ids = jdbc.sql("SELECT b.id FROM knowledge_bases b WHERE b.visible=1 AND b.id>? AND (EXISTS(SELECT 1 FROM knowledge_base_sources s WHERE s.knowledge_base_id=b.id AND ((s.type='file' AND s.resource_id=?) OR (s.type='dataset' AND s.resource_id=?))) OR EXISTS(SELECT 1 FROM knowledge_base_exclusions e WHERE e.knowledge_base_id=b.id AND e.file_id=?)) ORDER BY b.id LIMIT ?")
+                    .params(after(cursor),file,source.datasetId(),file,limit+1).query(String.class).list();
+            return page(ids.stream().map(id -> fileState(jdbc,id,file)).toList(),limit,"knowledgeBaseId");
+        });
+    }
+
+    private JsonNode fileState(JdbcClient jdbc, String kb, String file) {
+        var sourceFile = files.sourceFiles(jdbc,"file",file).getFirst();
+        var matching = json.createArrayNode();
+        for (String payload : jdbc.sql("SELECT payload FROM knowledge_base_sources WHERE knowledge_base_id=? AND ((type='file' AND resource_id=?) OR (type='dataset' AND resource_id=?)) ORDER BY id")
+                .params(kb,file,sourceFile.datasetId()).query(String.class).list()) matching.add(json.readTree(payload));
+        boolean excluded = excluded(jdbc,kb,file), included = !excluded && !matching.isEmpty();
+        ObjectNode value = json.createObjectNode().put("knowledgeBaseId",kb).put("fileId",file)
+                .put("excluded",excluded).put("included",included).put("latestContentVersionId",sourceFile.contentVersionId())
+                .put("updateState","not_included").put("usingPreviousVersion",false);
+        value.set("sources",matching);
+        for (String field : List.of("effectiveContentVersionId","effectiveIndexVersionId","targetContentVersionId","targetConfigVersionId","failure","effectiveConfigVersionId","task")) value.putNull(field);
+        if (!included) return value;
+        jdbc.sql("SELECT content_version_id,config_version_id,task_id FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?")
+                .params(kb,file).query((row,n) -> {
+                    value.put("targetContentVersionId",row.getString(1)).put("targetConfigVersionId",row.getString(2));
+                    JsonNode task = json.readTree(jdbc.sql("SELECT payload FROM tasks WHERE id=?").param(row.getString(3)).query(String.class).single());
+                    value.set("task",task); value.set("failure",task.path("failure"));
+                    String state = task.path("state").asText();
+                    value.put("updateState",state.equals("succeeded") ? "ready" : state.equals("running") ? "processing" : state.equals("queued") ? "queued" : "failed");
+                    return true;
+                }).list();
+        jdbc.sql("SELECT content_version_id,config_version_id,index_id FROM effective_files WHERE knowledge_base_id=? AND file_id=?")
+                .params(kb,file).query((row,n) -> {
+                    value.put("effectiveContentVersionId",row.getString(1)).put("effectiveConfigVersionId",row.getString(2)).put("effectiveIndexVersionId",row.getString(3))
+                            .put("usingPreviousVersion",!row.getString(1).equals(value.path("targetContentVersionId").asText()) || !row.getString(2).equals(value.path("targetConfigVersionId").asText()));
+                    return true;
+                }).list();
+        return value;
     }
 
     private static String after(String cursor) {

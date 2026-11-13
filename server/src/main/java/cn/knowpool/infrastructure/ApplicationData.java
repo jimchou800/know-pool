@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 8) {
+            if (version > 9) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 8) {
+            if (version > 0 && version < 9) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -208,6 +208,14 @@ public final class ApplicationData implements AutoCloseable {
                     transaction.sql("CREATE TABLE processing_rebuilds(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,config_version_id TEXT NOT NULL,ready INTEGER NOT NULL DEFAULT 0)").update();
                     transaction.sql("CREATE TABLE staged_indexes(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL)").update();
                     transaction.sql("PRAGMA user_version=8").update();
+                    return null;
+                });
+            }
+            if (version < 9) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE knowledge_base_exclusions(knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,file_id))").update();
+                    transaction.sql("CREATE TABLE index_cleanup(task_id TEXT PRIMARY KEY,targets TEXT NOT NULL,endpoint TEXT)").update();
+                    transaction.sql("PRAGMA user_version=9").update();
                     return null;
                 });
             }
