@@ -35,3 +35,9 @@
 协调在根工作区执行 `front/target/toolchain/node/node.exe front/node_modules/vitest/vitest.mjs run src/knowledge-bases/indexing.test.js src/knowledge-bases/task-events.test.js`（工作目录 `front/` 时去掉路径中的 `front/` 前缀），两个测试文件共四项通过。此为首包定点复核，不代替完整领域检查、根验证、真实浏览器或契约报告。任务跟踪与列表刷新、同任务重新跟踪的异步隔离已交前端用公开操作回归核实。
 
 主 `integration` 仍保持第 07 票已验收基线 `ccb2ee6`；第 08 票完整检查、双轴审查及双方验收完成前不合回。用户原有 `AGENTS.md` 修改及未跟踪界面交接文件继续保留。
+
+前端首包完整模块检查 `mvn -pl front verify` 通过，原始日志 `.runtime/08-front-first-verify.log`；17 个测试文件、738 项测试，行覆盖率 98.18%、分支覆盖率 93.56%，格式、静态检查及生产构建通过。此结论仅对应首包快照，后续前端修改须重新检查。
+
+适用映射经两领域逐项复审后冻结，SHA-256 `458ad2c5e897356163c759561e52314a10ae0f36c13a36839ad99be57892c0fd`；累计 40 操作、4325 项原始约束，其中本票适用 3851 项、后续或条件不可达保留 474 项。原始完整操作及约束分母继续保留，不把尚无行为证据的适用项标为通过。新增九项同步响应保留区分只读容量、后续维护暂停及管理异步受理；订阅容量拒绝与受理后失败仍需真实验证。
+
+实际双方签认位于 `docs/agents/api/reviews/scope-08-frontend.json`、`scope-08-backend.json`，均绑定同一正式契约与上述映射摘要，仅确认范围设计。工具包 `c238db8` 经 `048e6c9` 合入，双方签认纳入 `96ee55b`；根原字节摘要、双签范围门禁、22 项工具自检及差异检查通过。尚无本票完整实现报告或运行验收结论。
