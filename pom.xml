@@ -20,6 +20,7 @@
         <pnpm.version>11.6.0</pnpm.version>
         <junit-jupiter.version>5.13.4</junit-jupiter.version>
         <spring-ai.version>2.0.2</spring-ai.version>
+        <commonmark.version>0.32.0</commonmark.version>
     </properties>
     <modules>
         <module>front</module>
@@ -28,6 +29,16 @@
     </modules>
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.commonmark</groupId>
+                <artifactId>commonmark</artifactId>
+                <version>${commonmark.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.commonmark</groupId>
+                <artifactId>commonmark-ext-gfm-tables</artifactId>
+                <version>${commonmark.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>
