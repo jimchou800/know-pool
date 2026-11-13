@@ -39,7 +39,7 @@ const versionCursors = ref([undefined]);
 const versionPage = ref(0);
 const versionNextCursor = ref(null);
 const chosen = ref([]);
-const conflictChoices = ref({});
+const conflictChoices = ref(Object.create(null));
 const chosenGroups = computed(() => {
   const groups = new Map();
   for (const file of chosen.value) {
@@ -294,7 +294,7 @@ async function download() {
 }
 function choose(event) {
   chosen.value = Array.from(event.target.files || []);
-  conflictChoices.value = {};
+  conflictChoices.value = Object.create(null);
   uploadResults.value = [];
   uploadError.value = '';
   notice.value = '';
@@ -386,7 +386,7 @@ watch(
     saving.value = false;
     detailLoading.value = false;
     chosen.value = [];
-    conflictChoices.value = {};
+    conflictChoices.value = Object.create(null);
     uploadResults.value = [];
     uploadError.value = '';
     notice.value = '';

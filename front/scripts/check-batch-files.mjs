@@ -61,10 +61,12 @@ export async function checkBatchFiles(page, tests) {
       mimeType: 'text/plain',
       buffer: Buffer.from([0, 255]),
     },
+    text('__proto__', '不支持的文件类型'),
+    text('constructor', '不支持的文件类型'),
   ]);
   assert.deepEqual(
     changed.items.map((item) => item.outcome),
-    ['replaced', 'unchanged', 'created', 'failed'],
+    ['replaced', 'unchanged', 'created', 'failed', 'failed', 'failed'],
   );
   assert.equal(changed.items[0].file.id, baseline.id);
   assert.notEqual(

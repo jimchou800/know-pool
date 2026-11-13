@@ -438,6 +438,71 @@ async function selectFile(wrapper, name = '安全资料.txt') {
   });
   await wrapper.get('input').trigger('change');
 }
+it.each([1, 2])(
+  '原型属性同名文件按普通名称参与批量选择，正常资料继续：每名%d份',
+  async (copies) => {
+    const files = ['__proto__', 'constructor'].flatMap((name) =>
+      Array.from({ length: copies }, () => new File(['内容'], name)),
+    );
+    const normal = new File(['正常正文'], '正常资料.txt');
+    const batches = [];
+    const request = vi.fn(async (config) => {
+      if (config.method === 'post') {
+        const batch = config.data.getAll('files');
+        batches.push(batch);
+        return {
+          requestId: id,
+          items: batch.map((file, index) => ({
+            index,
+            submittedName: file.name,
+            outcome: file === normal ? 'created' : 'failed',
+            file: file === normal ? record : null,
+            error:
+              file === normal
+                ? null
+                : {
+                    requestId: id,
+                    code: 'UNSUPPORTED_FILE',
+                    message: '文件格式不支持',
+                    fieldErrors: [],
+                    retryable: false,
+                  },
+            indexTaskIds: [],
+          })),
+        };
+      }
+      return config.url.startsWith('/files/')
+        ? record
+        : { items: [], nextCursor: null };
+    });
+    const wrapper = mount(Files, {
+      props: { client: { request }, datasetId: id },
+    });
+    await flushPromises();
+    Object.defineProperty(wrapper.get('input').element, 'files', {
+      value: [...files, normal],
+    });
+    await wrapper.get('input').trigger('change');
+    await wrapper.get('form').trigger('submit');
+    await flushPromises();
+    expect(batches).toEqual([copies === 1 ? [...files, normal] : [normal]]);
+    expect(wrapper.text()).toContain('新增成功');
+    if (copies === 2) {
+      expect(wrapper.findAll('input[type=radio]:checked')).toHaveLength(0);
+      const radios = wrapper.findAll('input[type=radio]');
+      await radios[1].setValue(true);
+      await radios[3].setValue(true);
+      await wrapper.get('form').trigger('submit');
+      await flushPromises();
+      expect(batches[1]).toEqual([files[1], files[3]]);
+    }
+    expect(wrapper.text()).toContain('文件格式不支持');
+    expect(wrapper.get('[aria-label="逐项上传结果"]').text()).toContain(
+      '正常资料.txt',
+    );
+    wrapper.unmount();
+  },
+);
 it('同批NFC与大小写等价名称由用户选一份，未选组不阻断其他完整名', async () => {
   const files = ['é.TXT', 'e\u0301.txt', ' 独立.txt', '独立.txt'].map(
     (name) => new File(['内容'], name),
