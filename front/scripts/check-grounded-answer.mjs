@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { checkConversationHistory } from './check-conversation-history.mjs';
 
 export async function checkGroundedAnswer(
   page,
@@ -228,6 +229,14 @@ export async function checkGroundedAnswer(
     } finally {
       releaseEmbedding();
     }
+    await checkConversationHistory(page, tests, {
+      http,
+      base,
+      headers,
+      knowledgeBaseId,
+      gateEmbedding,
+      releaseEmbedding,
+    });
     tests.push({
       name: '真实首问异步校验引用快照缺口无依据断线恢复与取消',
       passed: true,
