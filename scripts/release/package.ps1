@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$JdkDirectory,
     [string]$ApplicationJar,
     [string]$OutputDirectory

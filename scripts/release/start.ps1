@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$DataDirectory = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'KnowPool/data'),
     [ValidateRange(1, 65535)][int]$Port = 8080
 )
