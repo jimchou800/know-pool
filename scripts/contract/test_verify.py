@@ -178,6 +178,8 @@ class ContractGateTests(unittest.TestCase):
         for field in ('targetConfigVersionId', 'targetContentVersionId', 'task'):
             self.assertNotIn('#/components/schemas/KnowledgeBaseFile/properties/' + field + '/anyOf/1/type',
                              mapping['操作']['listKnowledgeBaseFiles'])
+        self.assertNotIn('#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type',
+                         mapping['操作']['listKnowledgeBaseTasks'])
         for operation in ('removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions',
                           'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases'):
             for pointer in mapping['操作'][operation]:
