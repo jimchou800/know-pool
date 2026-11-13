@@ -15,13 +15,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '06'
+TICKET = '07'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
          'testGenerationModel', 'getEmbeddingModel', 'updateEmbeddingModel', 'testEmbeddingModel',
          'listEmbeddingModelVersions', 'getEmbeddingModelVersion', 'updateEmbeddingVersionCredential',
-         'getConnectionTestResult', 'getVectorConfig', 'updateVectorConfig', 'testVectorConfig', 'getTask')
+         'getConnectionTestResult', 'getVectorConfig', 'updateVectorConfig', 'testVectorConfig', 'getTask',
+         'listKnowledgeBases', 'createKnowledgeBase', 'getKnowledgeBase', 'updateKnowledgeBase',
+         'getProcessingConfig', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources', 'listKnowledgeBaseFiles')
 METHODS = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options'}
 KEYWORDS = {
     'type', 'required', 'additionalProperties', 'enum', 'const', 'format',
@@ -259,7 +261,8 @@ def main():
     parser.add_argument('--browser', type=Path, default=ROOT / 'front/artifacts/contract-browser.json')
     args = parser.parse_args()
     providers = args.provider or [ROOT / 'server/target/contract/provider-evidence.json',
-                                  ROOT / 'server/target/contract/provider-settings-evidence.json']
+                                  ROOT / 'server/target/contract/provider-settings-evidence.json',
+                                  ROOT / 'server/target/contract/provider-knowledge-bases-evidence.json']
     if args.acceptance:
         try:
             print(acceptance(args.acceptance))
@@ -302,7 +305,7 @@ def main():
         report['校验工具'] = {name: importlib.metadata.version(name)
                             for name in ('openapi-spec-validator', 'jsonschema', 'referencing')}
         for role in ('frontend', 'backend'):
-            approval = ROOT / f'docs/agents/api/reviews/contract-06-{role}.md'
+            approval = ROOT / f'docs/agents/api/reviews/contract-{TICKET}-{role}.md'
             if contract_hash not in approval.read_text(encoding='utf-8'):
                 raise ValueError('缺少同一契约的设计签认：' + role)
         mapping, mapping_hash = scope_mapping(contract_hash)
