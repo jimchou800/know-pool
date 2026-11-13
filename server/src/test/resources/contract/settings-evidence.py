@@ -261,9 +261,11 @@ if profile == 'knowledge-bases':
 if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
     selected_operations = {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
                            'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig',
+                           'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'associationUnionExclusionsAndLateTasksStayConsistent': ('真实来源重叠不重复索引、保留单来源不下线、排除优先、无来源排除可见、取消排除无来源不排队、上传新增同步及覆盖后迟到任务不得复活；排除持久化跨重启仍有效。', {'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources', 'listKnowledgeBaseFiles', 'getKnowledgeBase', 'getTask'}),
         'preflightAndRebuildKeepVersionsAtomic': ('预检真实码点、无损正文、硬切降级及完整性经断言；同键配置更新复用父任务、整库成功切换、失败继续检索旧版本，未知及错误类型预检拒绝。', {'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig', 'getTask', 'getKnowledgeBase', 'listKnowledgeBaseTasks', 'getSearchRequest'}),
         'markdownLocationsRemainBoundToOriginalSource': ('真实Markdown标题、源行、段落、表格、代码、实际内容版本和完整证据读取，经固定原文逐项断言。', {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'pdfLocationsKeepCrossPageSourceAndBlankPages': ('真实中文PDF全文提取、跨页句子和空白页保留原始页号，固定副本版本与证据一致。', {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
@@ -302,7 +304,7 @@ for index, item in enumerate(observations):
     name, operation = selected
     is_indexing = profile in ('indexing', 'indexing-events', 'indexing-gaps')
     is_event = is_indexing and name == 'watchTask' and item['status'] == 200
-    if not is_event:
+    if not is_event and item['status'] != 204:
         validate_media(item['contentType'])
     method = item['method'].lower()
     prefix = '#/paths/' + verification.escape(operation['path']) + '/' + method
@@ -325,6 +327,9 @@ for index, item in enumerate(observations):
         response_pointer = prefix + '/responses/' + str(item['status'])
     if is_event:
         found.update(event_constraints(item, prefix))
+    elif item['status'] == 204:
+        if item['response'] is not None or 'content' in response_definition:
+            raise AssertionError('真实204响应必须无正文且契约不能声明响应内容。')
     else:
         response_schema = response_definition['content']['application/json']['schema']
         errors = list(validator(response_schema).iter_errors(item['response']))
