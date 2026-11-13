@@ -26,15 +26,13 @@ const record = {
     originalAvailable: true,
   },
 };
-it('空数据集提供单份文本上传与保存不等于索引提示', async () => {
+it('空数据集提供批量资料上传与保存不等于索引提示', async () => {
   const client = {
     request: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
   };
   const wrapper = mount(Files, { props: { client, datasetId: id } });
   await flushPromises();
-  expect(
-    wrapper.get('input[type=file]').attributes('multiple'),
-  ).toBeUndefined();
+  expect(wrapper.get('input[type=file]').attributes('multiple')).toBeDefined();
   expect(wrapper.text()).toContain('保存资料不代表已完成索引');
   expect(wrapper.text()).toContain('尚无资料');
   expect(findButton(wrapper, '选择文件').exists()).toBe(true);
@@ -179,6 +177,217 @@ it('资料详情读取失败可以重试且不显示旧对象', async () => {
 });
 const findButton = (wrapper, text) =>
   wrapper.findAll('button').find((button) => button.text() === text);
+it.each(['success', 'failure'])(
+  '切换资料隔离迟到重命名与版本响应：%s',
+  async (outcome) => {
+    let finishRename, finishVersions;
+    const secondId = '00000000-0000-4000-8000-000000000002';
+    const second = {
+      ...record,
+      id: secondId,
+      name: '另一份资料.txt',
+      latestVersion: { ...record.latestVersion, fileId: secondId },
+    };
+    const request = vi.fn(async (config) => {
+      if (config.method === 'patch')
+        return new Promise((resolve, reject) => {
+          finishRename = outcome === 'success' ? resolve : reject;
+        });
+      if (config.url.endsWith('/versions'))
+        return new Promise((resolve, reject) => {
+          finishVersions = outcome === 'success' ? resolve : reject;
+        });
+      if (config.url === `/files/${secondId}`) return second;
+      return config.url.startsWith('/files/')
+        ? record
+        : { items: [record, second], nextCursor: null };
+    });
+    const wrapper = mount(Files, {
+      props: { client: { request }, datasetId: id },
+    });
+    await flushPromises();
+    await wrapper.findAll('.file-rows button')[0].trigger('click');
+    await flushPromises();
+    await findButton(wrapper, '查看内容版本').trigger('click');
+    await wrapper.get('[data-action=rename]').trigger('click');
+    await wrapper.get('input[name=file-name]').setValue('迟到名称.txt');
+    await wrapper.get('[aria-label="重命名资料"]').trigger('submit');
+    await wrapper.get('[aria-label="重命名资料"]').trigger('submit');
+    expect(
+      request.mock.calls.filter(([config]) => config.method === 'patch'),
+    ).toHaveLength(1);
+    await wrapper.findAll('.file-rows button')[1].trigger('click');
+    await flushPromises();
+    finishRename(
+      outcome === 'success'
+        ? { ...record, name: '迟到名称.txt' }
+        : new Error('迟到错误'),
+    );
+    finishVersions(
+      outcome === 'success'
+        ? { items: [record.latestVersion], nextCursor: null }
+        : new Error('迟到版本错误'),
+    );
+    await flushPromises();
+    expect(wrapper.get('.file-detail h4').text()).toBe(second.name);
+    expect(wrapper.text()).not.toContain('迟到');
+    expect(wrapper.find('[aria-label="内容版本"]').exists()).toBe(false);
+    wrapper.unmount();
+  },
+);
+it('重命名冲突保留当前资料，成功可跨扩展名且版本上传快照不变', async () => {
+  let conflict = true;
+  const request = vi.fn(async (config) => {
+    if (config.method === 'patch') {
+      if (conflict) throw new Error('名称已存在');
+      return { ...record, name: config.data.name };
+    }
+    return config.url.startsWith('/files/')
+      ? record
+      : { items: [record], nextCursor: null };
+  });
+  const wrapper = mount(Files, {
+    props: { client: { request }, datasetId: id },
+    attachTo: document.body,
+  });
+  await flushPromises();
+  await wrapper.get('.file-rows button').trigger('click');
+  await flushPromises();
+  await wrapper.get('[data-action=rename]').trigger('click');
+  await wrapper.get('input[name=file-name]').setValue(' 改名.pdf ');
+  await wrapper.get('[aria-label="重命名资料"]').trigger('submit');
+  await flushPromises();
+  expect(wrapper.get('.file-detail h4').text()).toBe(record.name);
+  expect(wrapper.text()).toContain('名称已存在');
+  expect(document.activeElement.getAttribute('role')).toBe('alert');
+  conflict = false;
+  await wrapper.get('[aria-label="重命名资料"]').trigger('submit');
+  await flushPromises();
+  expect(wrapper.get('.file-detail h4').text()).toBe('改名.pdf');
+  expect(
+    request.mock.calls.find(([config]) => config.method === 'patch')[0].data,
+  ).toEqual({ name: ' 改名.pdf ' });
+  expect(wrapper.text()).toContain(record.latestVersion.contentHash);
+  expect(wrapper.text()).toContain('text/plain');
+  expect(document.activeElement).toBe(
+    wrapper.get('[data-action=rename]').element,
+  );
+  wrapper.unmount();
+});
+it('版本列表按服务端游标分页，失败保留原页并可重试', async () => {
+  let fail = false;
+  const request = vi.fn(async (config) => {
+    if (config.url.endsWith('/versions')) {
+      if (fail) throw new Error('版本读取失败');
+      return {
+        items: [
+          {
+            ...record.latestVersion,
+            uploadedName: config.params.cursor ? '原始旧名.txt' : record.name,
+            originalAvailable: !config.params.cursor,
+          },
+        ],
+        nextCursor: config.params.cursor ? null : '后续版本',
+      };
+    }
+    return config.url.startsWith('/files/')
+      ? record
+      : { items: [record], nextCursor: null };
+  });
+  const wrapper = mount(Files, {
+    props: { client: { request }, datasetId: id },
+  });
+  await flushPromises();
+  await wrapper.get('.file-rows button').trigger('click');
+  await flushPromises();
+  await findButton(wrapper, '查看内容版本').trigger('click');
+  await flushPromises();
+  expect(wrapper.get('[aria-label="内容版本"]').text()).toContain(
+    '完整副本可用',
+  );
+  fail = true;
+  await findButton(wrapper, '下一页版本').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('版本读取失败');
+  expect(wrapper.get('[aria-label="内容版本"]').text()).toContain('第 1 页');
+  fail = false;
+  await findButton(wrapper, '下一页版本').trigger('click');
+  await flushPromises();
+  expect(wrapper.get('[aria-label="内容版本"]').text()).toContain(
+    '原始旧名.txt',
+  );
+  expect(wrapper.get('[aria-label="内容版本"]').text()).toContain(
+    '完整副本不可用',
+  );
+  expect(
+    request.mock.calls.findLast(([config]) =>
+      config.url.endsWith('/versions'),
+    )[0].params,
+  ).toEqual({ limit: 20, cursor: '后续版本' });
+});
+it('批量四结果独立展示且显式重试只发送失败项', async () => {
+  const files = ['新增.txt', '覆盖.txt', '未变.txt', '失败.docx'].map(
+    (name) => new File(['内容'], name),
+  );
+  const batches = [];
+  const client = {
+    request: vi.fn(async (config) => {
+      if (config.method === 'post') {
+        const batch = config.data.getAll('files');
+        batches.push(batch);
+        return {
+          requestId: id,
+          items: batch.map((file, index) => ({
+            index,
+            submittedName: file.name,
+            outcome:
+              batches.length === 1
+                ? ['created', 'replaced', 'unchanged', 'failed'][index]
+                : 'created',
+            file: batches.length === 1 && index === 3 ? null : record,
+            error:
+              batches.length === 1 && index === 3
+                ? {
+                    requestId: id,
+                    code: 'RESOURCE_LIMIT',
+                    message: '资料超限',
+                    fieldErrors: [],
+                    retryable: true,
+                  }
+                : null,
+            indexTaskIds: [],
+          })),
+        };
+      }
+      return config.url.startsWith('/files/')
+        ? record
+        : { items: [record], nextCursor: null };
+    }),
+  };
+  const wrapper = mount(Files, { props: { client, datasetId: id } });
+  await flushPromises();
+  Object.defineProperty(wrapper.get('input').element, 'files', {
+    value: files,
+  });
+  await wrapper.get('input').trigger('change');
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(batches[0]).toEqual(files);
+  for (const text of [
+    '新增成功',
+    '覆盖成功',
+    '内容未变',
+    '上传失败',
+    '资料超限',
+  ])
+    expect(wrapper.text()).toContain(text);
+  expect(wrapper.findAll('[data-action=retry-upload]')).toHaveLength(1);
+  await wrapper.get('[data-action=retry-upload]').trigger('click');
+  await flushPromises();
+  expect(batches).toEqual([files, [files[3]]]);
+  expect(wrapper.findAll('[data-action=retry-upload]')).toHaveLength(0);
+  wrapper.unmount();
+});
 async function selectFile(wrapper, name = '安全资料.txt') {
   Object.defineProperty(wrapper.get('input').element, 'files', {
     value: [new File(['内容'], name, { type: 'text/plain' })],
@@ -186,7 +395,55 @@ async function selectFile(wrapper, name = '安全资料.txt') {
   });
   await wrapper.get('input').trigger('change');
 }
-it('上传无选择、错误类型、暂停和逐项失败均不会冒报保存', async () => {
+it('同批NFC与大小写等价名称由用户选一份，未选组不阻断其他完整名', async () => {
+  const files = ['é.TXT', 'e\u0301.txt', ' 独立.txt', '独立.txt'].map(
+    (name) => new File(['内容'], name),
+  );
+  const batches = [];
+  const request = vi.fn(async (config) => {
+    if (config.method === 'post') {
+      const batch = config.data.getAll('files');
+      batches.push(batch);
+      return {
+        requestId: id,
+        items: batch.map((file, index) => ({
+          index,
+          submittedName: file.name,
+          outcome: 'created',
+          file: record,
+          error: null,
+          indexTaskIds: [],
+        })),
+      };
+    }
+    return config.url.startsWith('/files/')
+      ? record
+      : { items: [], nextCursor: null };
+  });
+  const wrapper = mount(Files, {
+    props: { client: { request }, datasetId: id },
+  });
+  await flushPromises();
+  Object.defineProperty(wrapper.get('input').element, 'files', {
+    value: files,
+  });
+  await wrapper.get('input').trigger('change');
+  expect(wrapper.findAll('input[type=radio]')).toHaveLength(2);
+  expect(wrapper.findAll('input[type=radio]:checked')).toHaveLength(0);
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(batches).toEqual([[files[2], files[3]]]);
+  await wrapper.findAll('input[type=radio]')[1].setValue(true);
+  expect(wrapper.findAll('input[type=radio]:checked')).toHaveLength(1);
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(batches[1]).toEqual([files[1]]);
+  expect(wrapper.findAll('input[type=radio]')).toHaveLength(0);
+  expect(wrapper.get('[aria-label="逐项上传结果"]').text()).toContain(
+    ' 独立.txt',
+  );
+});
+it('上传无选择、服务端拒绝格式、暂停和逐项失败均不会冒报保存', async () => {
   const request = vi
     .fn()
     .mockResolvedValue({ items: [record], nextCursor: null });
@@ -201,15 +458,16 @@ it('上传无选择、错误类型、暂停和逐项失败均不会冒报保存'
   await selectFile(wrapper, '资料.docx');
   await wrapper.get('form').trigger('submit');
   await flushPromises();
-  expect(request.mock.calls.every(([config]) => config.method === 'get')).toBe(
-    true,
-  );
+  expect(
+    request.mock.calls.filter(([config]) => config.method === 'post'),
+  ).toHaveLength(1);
+  expect(wrapper.text()).not.toContain('资料已保存');
   await selectFile(wrapper);
   await wrapper.setProps({ writable: false });
   await wrapper.get('form').trigger('submit');
-  expect(request.mock.calls.every(([config]) => config.method === 'get')).toBe(
-    true,
-  );
+  expect(
+    request.mock.calls.filter(([config]) => config.method === 'post'),
+  ).toHaveLength(1);
   await wrapper.setProps({ writable: true });
   request.mockImplementation(async (config) =>
     config.method === 'post'

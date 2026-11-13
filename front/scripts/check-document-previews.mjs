@@ -45,7 +45,7 @@ export async function checkDocumentPreviews(page, tests) {
   );
   async function upload(name, mimeType, buffer) {
     await page
-      .getByLabel('选择一份资料', { exact: true })
+      .getByLabel('选择资料（可多选）', { exact: true })
       .setInputFiles({ name, mimeType, buffer });
     const response = page.waitForResponse(
       (item) =>

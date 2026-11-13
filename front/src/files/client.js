@@ -37,7 +37,6 @@ export const validFile = (value) => {
     ])
   )
     return false;
-  const version = value.latestVersion;
   return (
     identifier(value.id) &&
     identifier(value.datasetId) &&
@@ -46,34 +45,36 @@ export const validFile = (value) => {
     date(value.createdAt) &&
     date(value.lastUploadedAt) &&
     date(value.updatedAt) &&
-    exact(version, [
-      'id',
-      'fileId',
-      'uploadedName',
-      'fileType',
-      'mediaType',
-      'sizeBytes',
-      'hashAlgorithm',
-      'contentHash',
-      'uploadedBy',
-      'uploadedAt',
-      'originalAvailable',
-    ]) &&
-    identifier(version.id) &&
-    identifier(version.fileId) &&
-    version.fileId.toLowerCase() === value.id.toLowerCase() &&
-    validName(version.uploadedName) &&
-    Object.hasOwn(media, version.fileType) &&
-    media[version.fileType] === version.mediaType &&
-    count(version.sizeBytes) &&
-    version.hashAlgorithm === 'SHA-256' &&
-    typeof version.contentHash === 'string' &&
-    /^[a-f0-9]{64}$/.test(version.contentHash) &&
-    nullableText(version.uploadedBy) &&
-    date(version.uploadedAt) &&
-    typeof version.originalAvailable === 'boolean'
+    validVersion(value.latestVersion) &&
+    value.latestVersion.fileId.toLowerCase() === value.id.toLowerCase()
   );
 };
+const validVersion = (version) =>
+  exact(version, [
+    'id',
+    'fileId',
+    'uploadedName',
+    'fileType',
+    'mediaType',
+    'sizeBytes',
+    'hashAlgorithm',
+    'contentHash',
+    'uploadedBy',
+    'uploadedAt',
+    'originalAvailable',
+  ]) &&
+  identifier(version.id) &&
+  identifier(version.fileId) &&
+  validName(version.uploadedName) &&
+  Object.hasOwn(media, version.fileType) &&
+  media[version.fileType] === version.mediaType &&
+  count(version.sizeBytes) &&
+  version.hashAlgorithm === 'SHA-256' &&
+  typeof version.contentHash === 'string' &&
+  /^[a-f0-9]{64}$/.test(version.contentHash) &&
+  nullableText(version.uploadedBy) &&
+  date(version.uploadedAt) &&
+  typeof version.originalAvailable === 'boolean';
 const validError = (value) =>
   exact(value, ['requestId', 'code', 'message', 'fieldErrors', 'retryable']) &&
   identifier(value.requestId) &&
@@ -165,6 +166,41 @@ export function createFileClient(session) {
     return { bytes: response.data, mediaType };
   }
   return {
+    async rename(id, name) {
+      const path = filePath(id);
+      if (!validName(name))
+        throw new Error('文件名须为1至255字，不含目录、控制字符、点或双点。');
+      const value = await session.request({
+        method: 'patch',
+        url: `${path}/name`,
+        data: { name },
+      });
+      return verify(
+        value,
+        validFile(value) && value.id.toLowerCase() === id.toLowerCase(),
+      );
+    },
+    async versions(id, cursor) {
+      const path = filePath(id);
+      if (cursor !== undefined && !text(cursor, 1, 2048))
+        throw new Error('分页位置无效，请返回第一页。');
+      const value = await session.request({
+        method: 'get',
+        url: `${path}/versions`,
+        params: { limit: 20, ...(cursor === undefined ? {} : { cursor }) },
+      });
+      return verify(
+        value,
+        exact(value, ['items', 'nextCursor']) &&
+          Array.isArray(value.items) &&
+          value.items.every(
+            (version) =>
+              validVersion(version) &&
+              version.fileId.toLowerCase() === id.toLowerCase(),
+          ) &&
+          (value.nextCursor === null || typeof value.nextCursor === 'string'),
+      );
+    },
     preview: (id) => binary(id, 'preview'),
     download: (id) => binary(id, 'download'),
     async list(datasetId, cursor) {

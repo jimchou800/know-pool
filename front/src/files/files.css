@@ -113,6 +113,36 @@
   flex-wrap: wrap;
 }
 
+.upload-conflict {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.upload-conflict legend,
+.upload-results,
+.file-versions {
+  overflow-wrap: anywhere;
+}
+
+.upload-conflict label {
+  display: block;
+  padding: 8px 0;
+}
+
+.upload-results,
+.file-versions > ul {
+  padding-left: 22px;
+  line-height: 1.8;
+}
+
+.upload-results li + li,
+.file-versions li + li {
+  margin-top: 12px;
+}
+
 .preview-navigation input {
   width: 100px;
 }

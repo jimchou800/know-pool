@@ -19,7 +19,7 @@ export async function checkFiles(page, baseURL, tests) {
   };
   page.on('response', listener);
   await page
-    .getByLabel('选择一份资料')
+    .getByLabel('选择资料（可多选）')
     .setInputFiles({ name, mimeType: 'text/plain', buffer: bytes });
   const uploaded = page.waitForResponse(
     (response) =>
@@ -68,7 +68,7 @@ export async function checkFiles(page, baseURL, tests) {
   const download = await downloading;
   assert.equal(download.suggestedFilename(), name);
   assert.deepEqual(await readFile(await download.path()), bytes);
-  await page.getByLabel('选择一份资料').setInputFiles({
+  await page.getByLabel('选择资料（可多选）').setInputFiles({
     name,
     mimeType: 'text/plain',
     buffer: Buffer.from([0, 255]),

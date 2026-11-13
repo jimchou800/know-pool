@@ -36,6 +36,8 @@ const operations = [
   'getFile',
   'previewLatestFile',
   'downloadLatestFile',
+  'renameFile',
+  'listFileVersions',
 ];
 const prefixes = [
   '#/paths/~1datasets~1{datasetId}~1files/get',
@@ -43,6 +45,8 @@ const prefixes = [
   '#/paths/~1files~1{fileId}/get',
   '#/paths/~1files~1{fileId}~1latest~1preview/get',
   '#/paths/~1files~1{fileId}~1latest~1download/get',
+  '#/paths/~1files~1{fileId}~1name/patch',
+  '#/paths/~1files~1{fileId}~1versions/get',
 ];
 const evidence = [];
 const schema = (
@@ -181,6 +185,125 @@ beforeEach(async () => {
   });
   await session.connect();
   api = createFileClient(session);
+});
+it('重命名实际发送完整名称，不修剪空白或限制扩展名且验证集中元数据', async () => {
+  response = { ...record, name: ' 改名.pdf ' };
+  expect(await api.rename(id, response.name)).toEqual(response);
+  expect(requests[0]).toMatchObject({
+    method: 'patch',
+    url: `/files/${id}/name`,
+    data: JSON.stringify({ name: ' 改名.pdf ' }),
+  });
+  observed(5, '完整名称与稳定身份集中元数据', [
+    ...fileConstraints,
+    ...schema('RenameFileInput', [
+      'name/type',
+      'name/minLength',
+      'name/maxLength',
+      'name/pattern',
+    ]),
+    `${prefixes[5]}/requestBody/required`,
+    `${prefixes[5]}/requestBody/content/application~1json/schema`,
+    `${prefixes[5]}/responses/200`,
+    `${prefixes[5]}/responses/200/content/application~1json/schema`,
+    ...['method', 'path', 'parameters', 'security'].map(
+      (part) => `${prefixes[5]}/${part}`,
+    ),
+    ...['required', 'schema/type', 'schema/format'].map(
+      (part) => `${prefixes[5]}/parameters/0/${part}`,
+    ),
+    ...['required', 'schema/type', 'schema/minLength'].map(
+      (part) => `${prefixes[5]}/parameters/1/${part}`,
+    ),
+  ]);
+});
+it('版本分页消费真实游标请求与版本身份，不把当前名当上传名', async () => {
+  response = { items: [record.latestVersion], nextCursor: '下一页' };
+  expect(await api.versions(id, '上一页')).toEqual(response);
+  expect(requests[0]).toMatchObject({
+    method: 'get',
+    url: `/files/${id}/versions`,
+    params: { limit: 20, cursor: '上一页' },
+  });
+  observed(6, '内容版本全字段与不透明分页游标', [
+    ...fileConstraints.filter((part) =>
+      part.startsWith('#/components/schemas/FileVersion/'),
+    ),
+    ...schema('FileVersionPage', [
+      'items/type',
+      'nextCursor/anyOf',
+      'nextCursor/anyOf/0/type',
+      'nextCursor/anyOf/1/type',
+    ]),
+    `${prefixes[6]}/responses/200`,
+    `${prefixes[6]}/responses/200/content/application~1json/schema`,
+    ...['method', 'path', 'parameters', 'security'].map(
+      (part) => `${prefixes[6]}/${part}`,
+    ),
+    ...['required', 'schema/type', 'schema/format'].map(
+      (part) => `${prefixes[6]}/parameters/0/${part}`,
+    ),
+    '#/components/parameters/Limit/required',
+    ...['type', 'minimum', 'maximum', 'default'].map(
+      (part) => `#/components/parameters/Limit/schema/${part}`,
+    ),
+    '#/components/parameters/Cursor/required',
+    ...['type', 'minLength', 'maxLength'].map(
+      (part) => `#/components/parameters/Cursor/schema/${part}`,
+    ),
+  ]);
+});
+it('重命名名称边界和版本游标在发送前校验，版本响应拒绝跨资料与损坏结构', async () => {
+  for (const name of [
+    '',
+    '.',
+    '..',
+    'a/b',
+    'a\\b',
+    '\u0000',
+    '\n',
+    '\x7f',
+    '𠮷'.repeat(256),
+    null,
+  ])
+    await expect(api.rename(id, name)).rejects.toThrow('文件名');
+  for (const invalid of ['', 3, '错误']) {
+    await expect(api.rename(invalid, '名称')).rejects.toThrow('标识');
+    await expect(api.versions(invalid)).rejects.toThrow('标识');
+  }
+  for (const cursor of ['', 3, '字'.repeat(2049)])
+    await expect(api.versions(id, cursor)).rejects.toThrow('分页位置');
+  expect(requests).toHaveLength(0);
+  for (const value of [
+    null,
+    { items: {} },
+    { items: [], nextCursor: 4 },
+    { items: [], nextCursor: null, extra: true },
+    { items: [null], nextCursor: null },
+    {
+      items: [
+        {
+          ...record.latestVersion,
+          fileId: '00000000-0000-4000-8000-000000000002',
+        },
+      ],
+      nextCursor: null,
+    },
+    {
+      items: [{ ...record.latestVersion, originalAvailable: null }],
+      nextCursor: null,
+    },
+  ]) {
+    response = value;
+    await expect(api.versions(id)).rejects.toThrow('资料响应格式');
+  }
+  response = { ...record, name: '𠮷'.repeat(255) };
+  expect(await api.rename(id, response.name)).toEqual(response);
+  expect(requests.at(-1).headers.get('X-CSRF-Token')).toHaveLength(32);
+  expect(requests.at(-1).withCredentials).toBe(true);
+  response = { items: [], nextCursor: null };
+  expect(await api.versions(id)).toEqual(response);
+  expect(requests.at(-1).params).toEqual({ limit: 20 });
 });
 it('二进制请求的JSON错误仍解析副本不可用与会话状态，不成为下载正文', async () => {
   failure = new Error();
@@ -385,6 +508,7 @@ it.each(malformed.map((value, index) => [index, value]))(
   async (_, value) => {
     response = value;
     await expect(api.get(id)).rejects.toThrow('资料响应格式');
+    await expect(api.rename(id, '新名称.txt')).rejects.toThrow('资料响应格式');
     response = { items: [value], nextCursor: null };
     await expect(api.list(id)).rejects.toThrow('资料响应格式');
   },
@@ -709,6 +833,8 @@ const invoke = (index) =>
     () => api.get(id),
     () => api.preview(id),
     () => api.download(id),
+    () => api.rename(id, '资料.txt'),
+    () => api.versions(id),
   ][index]();
 const statuses = [
   [400, 401, 403, 404, 429, 500, 503],
@@ -716,6 +842,8 @@ const statuses = [
   [400, 401, 403, 404, 429, 500, 503],
   [400, 401, 403, 404, 410, 429, 500, 503],
   [400, 401, 403, 404, 410, 429, 500, 503],
+  [400, 401, 403, 404, 409, 422, 429, 500, 503],
+  [400, 401, 403, 404, 429, 500, 503],
 ];
 it.each(
   statuses.flatMap((values, index) => values.map((status) => [index, status])),
@@ -740,7 +868,7 @@ it.each(
   failure.response = {
     status,
     data:
-      index >= 3
+      index === 3 || index === 4
         ? new TextEncoder().encode(JSON.stringify(detail)).buffer
         : detail,
   };
