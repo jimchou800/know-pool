@@ -140,6 +140,8 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 || path.matches("/api/v1/files/[^/]+/name")
                         && request.getMethod().equals("PATCH")
                 || path.matches("/api/v1/files/[^/]+/versions")
+                        && request.getMethod().equals("GET")
+                || path.matches("/api/v1/files/[^/]+/versions/[^/]+/preview")
                         && request.getMethod().equals("GET");
         boolean settings = path.matches("/api/v1/settings/models/(?:generation|embedding)")
                         && Set.of("GET", "PUT").contains(request.getMethod())

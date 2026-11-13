@@ -109,6 +109,25 @@ public final class FileController {
         return content(fileId, true);
     }
 
+    @GetMapping("/api/v1/files/{fileId}/versions/{contentVersionId}/preview")
+    public ResponseEntity<byte[]> previewVersion(
+            @PathVariable String fileId,
+            @PathVariable String contentVersionId,
+            jakarta.servlet.http.HttpServletRequest request)
+            throws IOException {
+        query(request, java.util.Set.of());
+        FileService.VersionContent stored = files.versionContent(fileId, contentVersionId);
+        FileService.FileView file = stored.file();
+        String media = stored.version().mediaType();
+        return ResponseEntity.ok()
+                .header("Content-Type", media + (media.startsWith("text/") ? ";charset=UTF-8" : ""))
+                .header("Content-Disposition", ContentDisposition.builder("inline").filename(file.name(), StandardCharsets.UTF_8).build().toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", "sandbox; default-src 'none'")
+                .header("Cache-Control", "no-store")
+                .body(stored.bytes());
+    }
+
     private static void query(jakarta.servlet.http.HttpServletRequest request, java.util.Set<String> allowed) {
         request.getParameterMap().forEach((name, values) -> {
             if (!allowed.contains(name) || values.length != 1)

@@ -24,6 +24,8 @@ class IndexChunkingHttpTest {
     private static final java.util.List<java.util.Map<String, Object>> GAP_OBSERVATIONS = new java.util.ArrayList<>();
     private static final java.util.List<java.util.Map<String, String>> GAP_ROUTES = new java.util.ArrayList<>();
     private static boolean gapsPassed;
+    private static boolean documentPassed;
+    private static boolean pdfPassed;
 
     @org.junit.jupiter.api.extension.RegisterExtension
     final org.junit.jupiter.api.extension.TestWatcher completed = new org.junit.jupiter.api.extension.TestWatcher() {
@@ -31,8 +33,105 @@ class IndexChunkingHttpTest {
         public void testSuccessful(org.junit.jupiter.api.extension.ExtensionContext context) {
             if (context.getRequiredTestMethod().getName().equals("publicContractBranchesRemainReachable"))
                 gapsPassed = true;
+            if (context.getRequiredTestMethod().getName().equals("markdownLocationsRemainBoundToOriginalSource")) documentPassed = true;
+            if (context.getRequiredTestMethod().getName().equals("pdfLocationsKeepCrossPageSourceAndBlankPages")) pdfPassed = true;
         }
     };
+
+    @Test
+    @DisplayName("Markdown索引保留真实标题段落表格代码与源行")
+    void markdownLocationsRemainBoundToOriginalSource() throws Exception {
+        HttpServer vector = indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {});
+        Path directory = Files.createTempDirectory(Path.of("target"), "markdown-http-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String dataset = readCreatedDataset(client, "文档定位资料");
+            String source = Files.readString(Path.of("src/test/resources/documents/source-location.md"));
+            uploadText(client, dataset, source, "source.md");
+            JsonNode accepted = JSON.readTree(send(client, "/knowledge-bases", "POST",
+                    "{\"name\":\"文档定位库\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset + "\"]}",
+                    UUID.randomUUID().toString()).body());
+            String kb = await(client, accepted.at("/task/id").asText()).path("resultResourceId").asText();
+            for (JsonNode file : read(client, "/knowledge-bases/" + kb + "/files").path("items")) {
+                JsonNode task = await(client, file.at("/task/id").asText());
+                assertThat(task.path("state").asText()).as(task.toString()).isEqualTo("succeeded");
+            }
+            JsonNode request = search(client, kb);
+            await(client, request.at("/task/id").asText());
+            JsonNode result = read(client, "/search-requests/" + request.path("id").asText());
+            assertThat(result.at("/result/evidence")).anySatisfy(evidence -> {
+                assertThat(evidence.path("text").asText()).contains("第一段😀。");
+                assertThat(evidence.at("/location/format").asText()).isEqualTo("markdown");
+                assertThat(evidence.at("/location/lineStart").asInt()).isEqualTo(3);
+                assertThat(evidence.at("/location/lineEnd").asInt()).isEqualTo(4);
+                assertThat(evidence.at("/location/titlePath/0").asText()).isEqualTo("使用指南");
+                assertThat(evidence.at("/location/paragraphId").isTextual()).isTrue();
+            });
+            assertThat(result.at("/result/evidence")).anySatisfy(evidence -> {
+                assertThat(evidence.at("/location/tableRowStart").asInt(-1)).isEqualTo(0);
+                assertThat(evidence.at("/location/tableRowEnd").asInt(-1)).isEqualTo(1);
+                assertThat(evidence.at("/location/tableColumnEnd").asInt(-1)).isEqualTo(1);
+                assertThat(evidence.at("/location/lineStart").asInt()).isEqualTo(11);
+                assertThat(evidence.at("/location/lineEnd").asInt()).isEqualTo(13);
+            });
+            assertThat(result.at("/result/evidence")).anySatisfy(evidence -> {
+                assertThat(evidence.at("/location/codeLanguage").asText()).isEqualTo("java");
+                assertThat(evidence.at("/location/codeBlockId").isTextual()).isTrue();
+                assertThat(evidence.at("/location/lineStart").asInt()).isEqualTo(15);
+                assertThat(evidence.at("/location/lineEnd").asInt()).isEqualTo(17);
+            });
+            for (JsonNode evidence : result.at("/result/evidence")) {
+                JsonNode complete = read(client, "/search-requests/" + request.path("id").asText() + "/evidence/" + evidence.path("id").asText());
+                assertThat(complete.path("location")).isEqualTo(evidence.path("location"));
+            }
+        } finally { vector.stop(0); }
+    }
+
+    @Test
+    @DisplayName("中文PDF全文证据保留跨页句子与中间空白页实际范围")
+    void pdfLocationsKeepCrossPageSourceAndBlankPages() throws Exception {
+        HttpServer vector = indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {});
+        Path directory = Files.createTempDirectory(Path.of("target"), "pdf-location-http-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            for (String fixture : java.util.List.of("chinese-cross-page.pdf", "chinese-blank-middle-page.pdf")) {
+                String dataset = readCreatedDataset(client, fixture);
+                byte[] bytes = Files.readAllBytes(Path.of("src/test/resources/documents", fixture));
+                String boundary = "pdf-location-boundary";
+                var body = new java.io.ByteArrayOutputStream();
+                body.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"" + fixture + "\"\r\nContent-Type: application/pdf\r\n\r\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                body.write(bytes);
+                body.write(("\r\n--" + boundary + "--\r\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                HttpResponse<String> uploaded = http.send(HttpRequest.newBuilder(URI.create(client.base() + "/datasets/" + dataset + "/files:upload"))
+                        .header("Cookie", client.cookie()).header("X-CSRF-Token", client.token())
+                        .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())).build(), HttpResponse.BodyHandlers.ofString());
+                assertThat(uploaded.statusCode()).isEqualTo(200);
+                assertThat(JSON.readTree(uploaded.body()).at("/items/0/outcome").asText()).isEqualTo("created");
+                JsonNode accepted = JSON.readTree(send(client, "/knowledge-bases", "POST",
+                        "{\"name\":\"" + fixture + "\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset + "\"]}", UUID.randomUUID().toString()).body());
+                String kb = await(client, accepted.at("/task/id").asText()).path("resultResourceId").asText();
+                for (JsonNode file : read(client, "/knowledge-bases/" + kb + "/files").path("items")) {
+                    JsonNode task = await(client, file.at("/task/id").asText());
+                    assertThat(task.path("state").asText()).as(task.toString()).isEqualTo("succeeded");
+                    assertThat(task.path("warnings")).isNotEmpty();
+                }
+                JsonNode request = search(client, kb);
+                await(client, request.at("/task/id").asText());
+                JsonNode result = read(client, "/search-requests/" + request.path("id").asText());
+                JsonNode evidence = result.at("/result/evidence/0");
+                assertThat(evidence.at("/location/format").asText()).isEqualTo("pdf");
+                assertThat(evidence.at("/location/pageStart").asInt()).isEqualTo(1);
+                assertThat(evidence.at("/location/pageEnd").asInt()).isEqualTo(fixture.contains("blank") ? 3 : 2);
+                assertThat(evidence.at("/location/lineStart").isNull()).isTrue();
+                assertThat(evidence.at("/location/tableRowStart").isNull()).isTrue();
+                if (!fixture.contains("blank")) assertThat(evidence.path("text").asText()).contains("这是一句跨页的", "连续中文句子。");
+                read(client, "/search-requests/" + request.path("id").asText() + "/evidence/" + evidence.path("id").asText());
+            }
+        } finally { vector.stop(0); }
+    }
 
     @Test
     @DisplayName("公开排队快照、知识库依赖状态、未知资源及存储故障均保留真实契约证据")
@@ -755,7 +854,7 @@ class IndexChunkingHttpTest {
         String boundary = "knowledge-boundary";
         String body = "--" + boundary
                 + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"" + filename
-                + "\"\r\nContent-Type: text/plain\r\n\r\n"
+                + "\"\r\nContent-Type: " + (filename.endsWith(".md") ? "text/markdown" : "text/plain") + "\r\n\r\n"
                 + text + "\r\n--"
                 + boundary + "--\r\n";
         HttpRequest request = HttpRequest.newBuilder(
@@ -802,7 +901,7 @@ class IndexChunkingHttpTest {
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
         if (java.util.Arrays.stream(Thread.currentThread().getStackTrace())
-                .anyMatch(frame -> frame.getMethodName().equals("publicContractBranchesRemainReachable"))) {
+                .anyMatch(frame -> java.util.Set.of("publicContractBranchesRemainReachable", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(frame.getMethodName()))) {
             java.util.Map<String, Object> item = new java.util.LinkedHashMap<>();
             item.put("path", response.request().uri().getRawPath());
             item.put("method", method);
@@ -814,7 +913,8 @@ class IndexChunkingHttpTest {
             java.util.Map<String, String> parameters = new java.util.LinkedHashMap<>();
             response.request().headers().map().forEach((name, values) -> parameters.put(name, values.getFirst()));
             item.put("parameters", parameters);
-            item.put("behavior", "publicContractBranchesRemainReachable");
+            String behavior = java.util.Arrays.stream(Thread.currentThread().getStackTrace()).map(StackTraceElement::getMethodName).filter(name -> java.util.Set.of("markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(name)).findFirst().orElse("publicContractBranchesRemainReachable");
+            item.put("behavior", behavior);
             GAP_OBSERVATIONS.add(item);
         }
         return response;
@@ -939,7 +1039,7 @@ class IndexChunkingHttpTest {
 
     @org.junit.jupiter.api.AfterAll
     static void gapEvidence() throws Exception {
-        if (!gapsPassed) return;
+        if (!gapsPassed && !documentPassed && !pdfPassed) return;
         GAP_OBSERVATIONS.getFirst().put("routes", GAP_ROUTES);
         Path root = Path.of(System.getProperty("maven.multiModuleProjectDirectory", ".."))
                 .toAbsolutePath()

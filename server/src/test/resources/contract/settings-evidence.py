@@ -260,6 +260,8 @@ if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'markdownLocationsRemainBoundToOriginalSource': ('真实Markdown标题、源行、段落、表格、代码、实际内容版本和完整证据读取，经固定原文逐项断言。', {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
+        'pdfLocationsKeepCrossPageSourceAndBlankPages': ('真实中文PDF全文提取、跨页句子和空白页保留原始页号，固定副本版本与证据一致。', {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'textIndexBecomesEffective': ('真实文本索引、生效版本及管理结果身份与证据读取。',
             {'getTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'managementSearchFailureIsStableAndExpiresOnRestart': ('无索引异步失败、同键原请求、非法输入拒绝与重启410墓碑。',
