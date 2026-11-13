@@ -458,7 +458,6 @@
       "#/components/schemas/SearchResult/properties/additionalQueries/items/type": "管理检索不调用查询预处理，additionalQueries恒为空；非空附加查询子项由后续预处理切片验证，数组类型及上限仍适用。",
       "#/paths/~1search-requests~1{requestId}/get/responses/429": "此操作仅本地分页或读取运行期请求、证据及身份墓碑，不入执行队列、不外发，当前没有独立容量拒绝机制；后续全局资源限额或维护能力建立对应拒绝机制时再验证此状态，不能挪用提交或事件订阅的429。异步任务失败及不存在、失效身份仍须按本操作真实查询验证。",
       "#/paths/~1search-requests~1{requestId}/get/responses/503": "此操作只读本地任务或运行期事实，不调用模型及向量服务，依赖故障由原任务失败表达而非查询503；数据迁移等全局维护暂停能力由后续运行数据切片提供，届时验证对应503。原任务失败、404和适用410仍须真实验证，消费方共享故障处理不豁免。",
-      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "管理检索固定路径指定的当前单库，任务必绑定该库；空库身份仅可能属于其他任务类型，当前非空分支与范围一致性继续验证。",
       "#/components/schemas/Task/properties/fileId/anyOf/0/type": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
       "#/components/schemas/Task/properties/fileId/anyOf/0/format": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
       "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",

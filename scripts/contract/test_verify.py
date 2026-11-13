@@ -220,6 +220,8 @@ class ContractGateTests(unittest.TestCase):
         prefix = '#/paths/~1search-instances~1{instanceId}~1requests/post/responses/'
         for code in ('404', '409', '429'):
             self.assertNotIn(prefix + code, mapping['操作']['submitSearch'])
+        self.assertNotIn('#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type',
+                         mapping['操作']['getSearchRequest'])
         self.assertIn('createSearchInstance', verify.SCOPE)
         self.assertIn('submitSearch', verify.SCOPE)
 
