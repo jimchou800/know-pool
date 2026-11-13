@@ -164,6 +164,29 @@ it('拒绝跨实例跨范围非法字段，查询和范围边界在发送前阻�
       '有效查询',
     );
 });
+it('运行中尚未完成范围检查保持空范围，原请求完成后消费完整实际范围', async () => {
+  const running = {
+    ...result,
+    scope: null,
+    result: null,
+    task: {
+      ...result.task,
+      state: 'running',
+      phase: 'retrieving',
+      finishedAt: null,
+      resultResourceId: null,
+    },
+  };
+  const s = await setup(() => running),
+    api = createSearchClient(s.client);
+  expect((await api.get(id, instanceId, input)).scope).toBeNull();
+  observed('getSearchRequest', s.requests.at(-1));
+  s.reply(result);
+  expect((await api.get(id, instanceId, input)).scope).toEqual(scope);
+  observed('getSearchRequest', s.requests.at(-1));
+  s.reply({ ...result, scope: { ...scope, omitted: [], incomplete: false } });
+  await expect(api.get(id, instanceId, input)).rejects.toThrow('不符合');
+});
 it('普通检索全部公开错误由真实响应处理，不自动发新请求', async () => {
   const s = await setup(() => null),
     api = createSearchClient(s.client);

@@ -179,3 +179,39 @@ it('受理结果不明恢复同键原负载，不暗中改变查询或范围', a
   expect(s.requests.at(-1).data).toBe(first.data);
   w.unmount();
 });
+it('运行中范围尚未完成检查时继续查询原请求，结束后才显示完整范围', async () => {
+  vi.useFakeTimers();
+  const running = {
+    ...result,
+    scope: null,
+    result: null,
+    task: {
+      ...result.task,
+      state: 'running',
+      phase: 'retrieving',
+      finishedAt: null,
+      resultResourceId: null,
+    },
+  };
+  let queries = 0;
+  const { s, w } = await ready((request) => {
+    if (request.method === 'post') return { httpStatus: 202, body: running };
+    queries++;
+    return queries === 1 ? running : result;
+  });
+  await button(w, '开始检索').trigger('click');
+  await flushPromises();
+  expect(w.text()).toContain('正在检索');
+  expect(w.text()).not.toContain('实际检索：');
+  await vi.advanceTimersByTimeAsync(750);
+  await flushPromises();
+  expect(w.text()).not.toContain('响应不符合');
+  await vi.advanceTimersByTimeAsync(750);
+  await flushPromises();
+  expect(w.text()).toContain('检索范围不完整');
+  expect(w.text()).toContain('实际检索：');
+  expect(
+    s.requests.filter((r) => r.url === `/search-requests/${id}`),
+  ).toHaveLength(2);
+  w.unmount();
+});
