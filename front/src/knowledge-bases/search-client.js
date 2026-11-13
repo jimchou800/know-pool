@@ -98,7 +98,7 @@ export function validLocation(value) {
     )
   );
 }
-function validEvidence(value, knowledgeBaseId) {
+export function validEvidence(value, knowledgeBaseId) {
   return (
     exact(value, [
       'id',

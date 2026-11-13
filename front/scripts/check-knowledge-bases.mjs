@@ -6,6 +6,7 @@ import { checkChunkPreflight } from './check-chunk-preflight.mjs';
 import { checkSourceAssociations } from './check-source-associations.mjs';
 import { checkContentSwitch } from './check-content-switch.mjs';
 import { checkPublication } from './check-publication.mjs';
+import { checkMultiSearch } from './check-multi-search.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -243,6 +244,25 @@ export async function checkKnowledgeBases(page, tests) {
       },
       rejectEmbedding: (value) => {
         rejectEmbedding = value;
+      },
+    });
+    await checkMultiSearch(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+      noMatches: (value) => {
+        noMatches = value;
+      },
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
       },
     });
     for (const width of [1280, 1440, 1920]) {
