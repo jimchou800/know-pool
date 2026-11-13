@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { createSearchClient } from './client';
 import { createKnowledgeBaseClient } from '../knowledge-bases/client';
 import EvidenceLocation from '../knowledge-bases/EvidenceLocation.vue';
@@ -10,17 +10,19 @@ import './search.css';
 const props = defineProps({
   client: { type: Object, required: true },
   writable: { type: Boolean, default: true },
+  initialInstance: { type: Object, default: null },
 });
+const emit = defineEmits(['changed']);
 const api = createSearchClient(props.client),
   bases = createKnowledgeBaseClient(props.client);
-const instance = ref(null),
+const instance = ref(props.initialInstance),
   creating = ref(false),
   createError = ref('');
 const choices = ref([]),
   loading = ref(false),
   choiceError = ref('');
-const query = ref(''),
-  selectedIds = ref([]),
+const query = ref(props.initialInstance?.lastSubmittedQuery || ''),
+  selectedIds = ref([...(props.initialInstance?.knowledgeBaseIds || [])]),
   consent = ref(false),
   pending = ref(null),
   submitting = ref(false),
@@ -34,6 +36,12 @@ const evidence = ref(null),
   summary = ref(null);
 const recoveryKey = ref(null),
   submitted = ref(null);
+let restoring = !!props.initialInstance?.currentRequestId;
+const scopeBusy = ref(false),
+  scopeNotice = ref(''),
+  cancelConfirm = ref(false);
+const cancelButton = ref(null),
+  cancelPanel = ref(null);
 const active = computed(
   () =>
     pending.value && ['queued', 'running'].includes(pending.value.task.state),
@@ -107,11 +115,23 @@ function clearEvidence() {
 function accept(value, current) {
   if (current !== sequence) return;
   pending.value = value;
+  emit('changed', {
+    id: instance.value.id,
+    resultState:
+      value.task.state === 'succeeded'
+        ? 'available'
+        : ['queued', 'running'].includes(value.task.state)
+          ? 'running'
+          : value.task.state === 'cancelled'
+            ? 'cancelled'
+            : 'failed',
+  });
   if (['queued', 'running'].includes(value.task.state))
     timer = setTimeout(() => read(current), 750);
 }
 async function submit() {
-  if (submitting.value || !props.writable || !instance.value) return;
+  if (submitting.value || scopeBusy.value || !props.writable || !instance.value)
+    return;
   fields.value = {};
   error.value = '';
   if (!recoveryKey.value) {
@@ -147,8 +167,10 @@ async function submit() {
     );
     if (current !== sequence) return;
     recoveryKey.value = null;
+    restoring = false;
     consent.value = false;
     accept(value, current);
+    emit('changed', { id: instance.value.id, reload: true });
   } catch (failure) {
     if (current !== sequence) return;
     error.value = failure.message;
@@ -167,7 +189,19 @@ async function read(current = sequence) {
   reading.value = true;
   error.value = '';
   try {
-    const value = await api.get(requestId, instance.value.id, submitted.value);
+    const value = restoring
+      ? await api.restore(
+          requestId,
+          instance.value.id,
+          submitted.value.query,
+          submitted.value.knowledgeBaseIds,
+        )
+      : await api.get(requestId, instance.value.id, submitted.value);
+    if (current === sequence && restoring && value.scope)
+      submitted.value = {
+        ...submitted.value,
+        knowledgeBaseIds: [...value.scope.selectedKnowledgeBaseIds],
+      };
     if (current === sequence && pending.value?.id === requestId)
       accept(value, current);
   } catch (failure) {
@@ -212,6 +246,83 @@ async function closeEvidence() {
   await nextTick();
   if (trigger?.isConnected) trigger.focus();
 }
+async function saveScope() {
+  if (scopeBusy.value || !props.writable || recoveryKey.value) return;
+  scopeBusy.value = true;
+  scopeNotice.value = '';
+  const current = sequence;
+  try {
+    const value = await api.scope(instance.value.id, [...selectedIds.value]);
+    if (current === sequence) {
+      scopeNotice.value = '范围已保存，不会自动检索，也不改变本次已提交范围。';
+      emit('changed', value);
+    }
+  } catch (failure) {
+    if (current === sequence) error.value = failure.message;
+  } finally {
+    if (current === sequence) scopeBusy.value = false;
+  }
+}
+async function openCancel() {
+  cancelConfirm.value = true;
+  await nextTick();
+  cancelPanel.value?.focus();
+}
+async function closeCancel() {
+  if (submitting.value) return;
+  cancelConfirm.value = false;
+  await nextTick();
+  (
+    cancelButton.value ||
+    document.getElementById(`search-query-${instance.value.id}`)
+  )?.focus();
+}
+async function cancel() {
+  if (!pending.value || submitting.value || !props.writable) return;
+  const requestId = pending.value.id,
+    current = ++sequence;
+  clearTimeout(timer);
+  clearEvidence();
+  reading.value = false;
+  submitting.value = true;
+  error.value = '';
+  try {
+    const value = await api.cancel(
+      requestId,
+      instance.value.id,
+      submitted.value,
+    );
+    if (current !== sequence) return;
+    accept(value, current);
+    submitting.value = false;
+    await closeCancel();
+  } catch (failure) {
+    if (current === sequence) error.value = failure.message;
+  } finally {
+    if (current === sequence) submitting.value = false;
+  }
+}
+watch(
+  () => props.initialInstance,
+  (value) => {
+    if (value?.id === instance.value?.id) instance.value = value;
+  },
+);
+if (
+  props.initialInstance?.currentRequestId &&
+  props.initialInstance.resultState !== 'rerun_required' &&
+  props.initialInstance.lastSubmittedQuery
+) {
+  submitted.value = {
+    query: props.initialInstance.lastSubmittedQuery,
+    knowledgeBaseIds: [...props.initialInstance.knowledgeBaseIds],
+  };
+  pending.value = {
+    id: props.initialInstance.currentRequestId,
+    task: { state: 'queued' },
+  };
+  read();
+}
 onBeforeUnmount(() => {
   ++sequence;
   ++choiceSequence;
@@ -222,8 +333,11 @@ loadChoices();
 </script>
 
 <template>
-  <section class="datasets-page search-page" aria-labelledby="search-title">
-    <header class="datasets-heading">
+  <section
+    class="datasets-page search-page"
+    :aria-labelledby="initialInstance ? undefined : 'search-title'"
+  >
+    <header v-if="!initialInstance" class="datasets-heading">
       <div>
         <p class="welcome-kicker">知识服务</p>
         <h1 id="search-title">知识检索</h1>
@@ -231,8 +345,8 @@ loadChoices();
       </div>
     </header>
     <p v-if="!writable" role="status">当前写入已暂停，仍可查看本次结果。</p>
-    <div class="datasets-layout">
-      <aside class="dataset-list" aria-label="检索实例">
+    <div :class="initialInstance ? 'search-managed-window' : 'datasets-layout'">
+      <aside v-if="!initialInstance" class="dataset-list" aria-label="检索实例">
         <div class="dataset-list-heading">
           <h2>检索实例</h2>
           <button
@@ -256,6 +370,12 @@ loadChoices();
         <p v-if="!instance">请先新建检索实例。</p>
         <template v-else>
           <h2>{{ instance.name }}</h2>
+          <p
+            v-if="instance.resultState === 'rerun_required' && !pending"
+            role="status"
+          >
+            已恢复最近提交的查询与知识库范围，结果需手动重新检索；不会自动调用模型。
+          </p>
           <form
             class="dataset-form knowledge-form"
             novalidate
@@ -275,15 +395,15 @@ loadChoices();
             </div>
             <fieldset :disabled="submitting || !!recoveryKey || !writable">
               <legend>本次检索条件</legend>
-              <label for="search-query">检索内容</label
+              <label :for="`search-query-${instance.id}`">检索内容</label
               ><textarea
-                id="search-query"
+                :id="`search-query-${instance.id}`"
                 v-model="query"
                 rows="4"
                 :aria-invalid="!!fields['/query']"
-                aria-describedby="search-query-error"
+                :aria-describedby="`search-query-error-${instance.id}`"
               />
-              <p id="search-query-error" class="field-error">
+              <p :id="`search-query-error-${instance.id}`" class="field-error">
                 {{ fields['/query'] }}
               </p>
               <p>仅已发布知识库可选择；提交后重新校验当前范围，不自动扩围。</p>
@@ -326,6 +446,15 @@ loadChoices();
                 }}）</label
               >
               <p class="field-error">{{ fields['/knowledgeBaseIds'] }}</p>
+              <button
+                v-if="initialInstance"
+                type="button"
+                :disabled="scopeBusy"
+                @click="saveScope"
+              >
+                保存知识库范围
+              </button>
+              <p v-if="scopeNotice" role="status">{{ scopeNotice }}</p>
               <label class="knowledge-check"
                 ><input
                   v-model="consent"
@@ -357,6 +486,29 @@ loadChoices();
             class="knowledge-section"
           >
             <h3>{{ states[pending.task.state] }}</h3>
+            <button
+              v-if="active"
+              ref="cancelButton"
+              :disabled="submitting || !writable"
+              @click="openCancel"
+            >
+              取消本次检索
+            </button>
+            <section
+              v-if="cancelConfirm"
+              ref="cancelPanel"
+              tabindex="-1"
+              role="region"
+              aria-label="确认取消检索"
+              @keydown.esc="closeCancel"
+            >
+              <p>取消原请求，不恢复旧结果；外部调用可能已计费。</p>
+              <button :disabled="submitting || !writable" @click="cancel">
+                确认取消检索</button
+              ><button :disabled="submitting" @click="closeCancel">
+                继续本次检索
+              </button>
+            </section>
             <p>请求标识：{{ pending.id }}</p>
             <button v-if="error" :disabled="reading" @click="read()">
               查询原检索请求

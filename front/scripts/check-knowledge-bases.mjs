@@ -7,6 +7,7 @@ import { checkSourceAssociations } from './check-source-associations.mjs';
 import { checkContentSwitch } from './check-content-switch.mjs';
 import { checkPublication } from './check-publication.mjs';
 import { checkMultiSearch } from './check-multi-search.mjs';
+import { checkSearchInstances } from './check-search-instances.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -255,6 +256,21 @@ export async function checkKnowledgeBases(page, tests) {
       noMatches: (value) => {
         noMatches = value;
       },
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+    });
+    await checkSearchInstances(page, tests, {
+      http,
+      base,
+      headers,
+      knowledgeBaseId: resource,
       gateEmbedding: () => {
         embeddingGate = new Promise((resolve) => {
           releaseEmbedding = resolve;
