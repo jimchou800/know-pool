@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 5) {
+            if (version > 6) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 5) {
+            if (version > 0 && version < 6) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -146,6 +146,19 @@ public final class ApplicationData implements AutoCloseable {
                                     "CREATE TABLE knowledge_base_files (knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id), file_id TEXT NOT NULL, content_version_id TEXT NOT NULL, config_version_id TEXT NOT NULL, task_id TEXT NOT NULL REFERENCES tasks(id), PRIMARY KEY(knowledge_base_id,file_id))")
                             .update();
                     transaction.sql("PRAGMA user_version=5").update();
+                    return null;
+                });
+            }
+            if (version < 6) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE index_runs (task_id TEXT PRIMARY KEY REFERENCES tasks(id),id TEXT NOT NULL UNIQUE,phase TEXT NOT NULL)").update();
+                    transaction.sql("CREATE TABLE index_chunks (id TEXT PRIMARY KEY,index_id TEXT NOT NULL REFERENCES index_runs(id),ordinal INTEGER NOT NULL,text TEXT NOT NULL,location TEXT NOT NULL,vector TEXT,write_attempts INTEGER NOT NULL DEFAULT 0,embed_attempts INTEGER NOT NULL DEFAULT 0,written INTEGER NOT NULL DEFAULT 0)").update();
+                    transaction.sql("CREATE TABLE effective_files (knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,file_id))").update();
+                    transaction.sql("CREATE TABLE index_switches (id TEXT PRIMARY KEY,task_id TEXT NOT NULL UNIQUE,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,previous_content_id TEXT,content_id TEXT NOT NULL,previous_index_id TEXT,index_id TEXT NOT NULL,config_id TEXT NOT NULL,switched_at TEXT NOT NULL)").update();
+                    transaction.sql("CREATE TABLE task_events (task_id TEXT PRIMARY KEY,sequence INTEGER NOT NULL,payload TEXT NOT NULL)").update();
+                    transaction.sql("CREATE TABLE search_identities (id TEXT PRIMARY KEY)").update();
+                    transaction.sql("CREATE TABLE search_evidence_identities (id TEXT PRIMARY KEY,request_id TEXT NOT NULL REFERENCES search_identities(id))").update();
+                    transaction.sql("PRAGMA user_version=6").update();
                     return null;
                 });
             }
