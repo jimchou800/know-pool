@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '20'
+TICKET = '21'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
@@ -39,7 +39,8 @@ SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset'
          'listConversationTurns', 'submitQuestion', 'deleteConversation',
          'getProcessingConfigVersion', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles',
          'getDatasetDeleteImpact', 'deleteDataset', 'getFileDeleteImpact', 'deleteFile',
-         'getKnowledgeBaseDeleteImpact', 'deleteKnowledgeBase', 'listTasks', 'retryCleanupTask')
+         'getKnowledgeBaseDeleteImpact', 'deleteKnowledgeBase', 'listTasks', 'retryCleanupTask',
+         'migrationPreflight', 'submitMigration', 'getMaintenanceTask', 'retryMaintenanceTask')
 BUSINESS_OPERATIONS = {
     'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
     'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion', 'deleteDataset', 'deleteFile', 'deleteKnowledgeBase'},

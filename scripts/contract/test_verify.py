@@ -92,9 +92,9 @@ class ContractGateTests(unittest.TestCase):
     def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
         """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
         operations = verify.inventory(self.document)
-        self.assertEqual(verify.TICKET, '20')
-        self.assertEqual(len(verify.SCOPE), 85)
-        self.assertEqual(len(set(verify.SCOPE)), 85)
+        self.assertEqual(verify.TICKET, '21')
+        self.assertEqual(len(verify.SCOPE), 89)
+        self.assertEqual(len(set(verify.SCOPE)), 89)
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix
