@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, onBeforeUnmount, nextTick } from 'vue';
 import { createManagementSearchClient } from './search-client';
+import EvidenceLocation from './EvidenceLocation.vue';
+import EvidencePreview from './EvidencePreview.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -16,6 +18,7 @@ const query = ref(''),
   evidenceError = ref(''),
   evidenceBusy = ref(false),
   fields = ref({}),
+  evidencePanel = ref(null),
   summary = ref(null);
 const active = computed(
   () =>
@@ -63,6 +66,8 @@ async function submit() {
   const current = ++sequence;
   selected.value = null;
   ++evidenceSequence;
+  evidenceBusy.value = false;
+  evidenceError.value = '';
   busy.value = true;
   try {
     const value = await api.submit(props.knowledgeBaseId, payload, key);
@@ -131,19 +136,28 @@ async function openEvidence(item, event) {
     )
       throw new Error('原文依据与本次检索版本不一致，请重新读取。');
     selected.value = value;
+    await nextTick();
+    if (current === evidenceSequence) evidencePanel.value?.focus();
   } catch (failure) {
-    if (current === evidenceSequence)
+    if (current === evidenceSequence) {
       evidenceError.value = errorMessage(failure);
+      if (failure.code === 'RESULT_EXPIRED') {
+        clearTimeout(timer);
+        pending.value = null;
+        selected.value = null;
+      }
+    }
   } finally {
     if (current === evidenceSequence) evidenceBusy.value = false;
   }
 }
 async function closeEvidence() {
-  ++evidenceSequence;
+  const current = ++evidenceSequence;
   selected.value = null;
   evidenceError.value = '';
+  evidenceBusy.value = false;
   await nextTick();
-  trigger?.focus();
+  if (current === evidenceSequence && trigger?.isConnected) trigger.focus();
 }
 onBeforeUnmount(() => {
   ++sequence;
@@ -231,6 +245,7 @@ onBeforeUnmount(() => {
               }}<span v-if="item.usingPreviousVersion">，仍使用旧生效版本</span>
             </p>
             <pre class="source-text">{{ item.text }}</pre>
+            <EvidenceLocation :location="item.location" />
             <button
               :disabled="evidenceBusy"
               @click="openEvidence(item, $event)"
@@ -245,6 +260,8 @@ onBeforeUnmount(() => {
     <p v-if="evidenceError" role="alert">{{ evidenceError }}</p>
     <section
       v-if="selected"
+      ref="evidencePanel"
+      tabindex="-1"
       role="region"
       aria-label="原文依据"
       class="knowledge-section"
@@ -257,17 +274,13 @@ onBeforeUnmount(() => {
           selected.indexVersionId
         }}；配置版本：{{ selected.configVersionId }}
       </p>
-      <p v-if="selected.location.format === 'pdf'">
-        第{{ selected.location.pageStart }}至{{ selected.location.pageEnd }}页
-      </p>
-      <p v-else>
-        第{{ selected.location.lineStart }}至{{ selected.location.lineEnd }}行
-      </p>
+      <EvidenceLocation :location="selected.location" />
       <p v-if="!selected.originalAvailable">
         完整原文件不可用，当前展示本次检索的完整切片证据快照。
       </p>
       <p v-else>当前展示本次检索的完整切片证据快照。</p>
       <pre class="source-text">{{ selected.text }}</pre>
+      <EvidencePreview :key="`${selected.id}-${selected.contentVersionId}`" :client="client" :evidence="selected" />
     </section>
   </section>
 </template>

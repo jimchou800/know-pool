@@ -1,6 +1,33 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import PdfPreview from './PdfPreview.vue';
+it('初始证据页从实际起始页渲染，越界不显示第一页', async () => {
+  HTMLCanvasElement.prototype.getContext = vi.fn(() => ({}));
+  const wrapper = mount(PdfPreview, {
+    props: { bytes: new ArrayBuffer(1), initialPage: 2 },
+  });
+  await flushPromises();
+  expect(wrapper.get('input').element.value).toBe('2');
+  expect(wrapper.text()).toContain('第 2 页');
+  wrapper.unmount();
+  const invalid = mount(PdfPreview, {
+    props: { bytes: new ArrayBuffer(1), initialPage: 3 },
+  });
+  await flushPromises();
+  expect(invalid.get('[role=alert]').text()).toContain('1至2');
+  expect(invalid.get('canvas').element.width).toBe(0);
+  invalid.unmount();
+});
+it('证据末页越界不显示不完整原文且不承诺历史下载', async () => {
+  const wrapper = mount(PdfPreview, {
+    props: { bytes: new ArrayBuffer(1), initialPage: 1, endPage: 3, downloadAvailable: false },
+  });
+  await flushPromises();
+  expect(wrapper.get('[role=alert]').text()).toContain('1至2');
+  expect(wrapper.text()).not.toContain('下载原文件');
+  expect(wrapper.get('canvas').element.width).toBe(0);
+  wrapper.unmount();
+});
 const state = vi.hoisted(() => ({
   destroy: vi.fn(),
   cancel: vi.fn(),

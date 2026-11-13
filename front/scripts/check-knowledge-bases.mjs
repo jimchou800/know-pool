@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import { checkDocumentIndex } from './check-document-index.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -610,6 +611,13 @@ export async function checkKnowledgeBases(page, tests) {
       0,
     );
     rejectEmbedding = false;
+    await checkDocumentIndex(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+    });
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.locator('.formal-main').evaluate((node) => {
