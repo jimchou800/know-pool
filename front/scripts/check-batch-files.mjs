@@ -154,15 +154,45 @@ export async function checkBatchFiles(page, tests) {
     Buffer.from('覆盖正文'),
   );
 
+  let latest;
   for (let index = 0; index < 21; index++) {
     const result = await submit(text('批量分页.txt', `分页正文${index}`));
     assert.equal(result.items[0].outcome, index === 0 ? 'created' : 'replaced');
     assert.deepEqual(result.items[0].indexTaskIds, []);
+    latest = result.items[0].file.latestVersion;
   }
+  const firstVersions = page.waitForResponse(
+    (response) =>
+      response.url().includes('/versions?') &&
+      !response.url().includes('cursor='),
+  );
   await page.getByRole('button', { name: '查看内容版本', exact: true }).click();
+  const firstVersionPage = await (await firstVersions).json();
+  assert.equal(firstVersionPage.items[0].id, latest.id);
+  assert.equal(
+    firstVersionPage.items[0].originalAvailable,
+    latest.originalAvailable,
+  );
   const history = page.getByRole('region', { name: '内容版本', exact: true });
   await history.locator('li').nth(19).waitFor();
   assert.equal(await history.locator('li').count(), 20);
+  async function verifyAvailability(items) {
+    for (const item of items) {
+      const row = history
+        .locator('li')
+        .filter({ has: page.getByText(item.id, { exact: true }) });
+      const availability = row
+        .locator('dl > div')
+        .filter({ has: page.getByText('原副本', { exact: true }) })
+        .locator('dd');
+      assert.equal(
+        await availability.textContent(),
+        item.originalAvailable ? '完整副本可用' : '完整副本不可用',
+        `版本${item.id}响应与界面副本状态不一致`,
+      );
+    }
+  }
+  await verifyAvailability(firstVersionPage.items);
   const versionRequest = page.waitForResponse(
     (response) =>
       response.url().includes('/versions?') &&
@@ -174,6 +204,7 @@ export async function checkBatchFiles(page, tests) {
   assert.equal(await history.locator('li').count(), 1);
   await page.getByRole('button', { name: '上一页版本', exact: true }).click();
   await history.locator('li').nth(19).waitFor();
+  await verifyAvailability(firstVersionPage.items);
   for (const width of [1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
     assert.equal(
@@ -212,6 +243,7 @@ export async function checkBatchFiles(page, tests) {
       'NFC大小写重名不默认选择，其他组先上传，用户选定第二份后仅保存其正文',
       '名称冲突409保留原资料，跨扩展名改名不改变内容媒体和上传快照；预览及原字节下载仍正确',
       '真实后端21内容版本经20条游标分页，三桌面宽度无溢出并保留截图，无关联不伪造索引任务',
+      '最新上传与版本首项同标识的副本可用性一致，首屏及翻页返回后逐行核对真实响应与界面文案',
     ],
   });
 }

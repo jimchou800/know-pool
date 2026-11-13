@@ -317,6 +317,48 @@ it('重命名冲突保留当前资料，成功可跨扩展名且版本上传快�
   );
   wrapper.unmount();
 });
+it.each([true, false])(
+  '相同内容版本的副本状态在详情和版本列表精确一致：%s',
+  async (available) => {
+    const file = {
+      ...record,
+      latestVersion: { ...record.latestVersion, originalAvailable: available },
+    };
+    const request = vi.fn(async (config) => {
+      if (config.url.endsWith('/versions'))
+        return { items: [file.latestVersion], nextCursor: null };
+      return config.url.startsWith('/files/')
+        ? file
+        : { items: [file], nextCursor: null };
+    });
+    const wrapper = mount(Files, {
+      props: { client: { request }, datasetId: id },
+    });
+    await flushPromises();
+    await wrapper.get('.file-rows button').trigger('click');
+    await flushPromises();
+    await findButton(wrapper, '查看内容版本').trigger('click');
+    await flushPromises();
+    const originalStatus = (description) =>
+      description
+        .findAll('div')
+        .find((row) => row.get('dt').text() === '原副本')
+        .get('dd')
+        .text();
+    expect(originalStatus(wrapper.get('.file-detail > dl'))).toBe(
+      available ? '可用' : '不可用',
+    );
+    const history = wrapper.get('[aria-label="内容版本"] li');
+    expect(history.text()).toContain(file.latestVersion.id);
+    expect(originalStatus(history.get('dl'))).toBe(
+      available ? '完整副本可用' : '完整副本不可用',
+    );
+    expect(
+      wrapper.get('[data-action=preview]').attributes('disabled') !== undefined,
+    ).toBe(!available);
+    wrapper.unmount();
+  },
+);
 it('版本列表按服务端游标分页，失败保留原页并可重试', async () => {
   let fail = false;
   const request = vi.fn(async (config) => {
