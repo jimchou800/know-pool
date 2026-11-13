@@ -318,7 +318,9 @@
       "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。"
+      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/availabilityReason/anyOf/0/type": "07仅公开成功初始化知识库，可用性原因恒为null；独立运行期可用性检查由后续切片实现，必填及null分支仍适用。",
+      "#/components/schemas/KnowledgeBase/properties/lastCheckedAt/anyOf/1/type": "公开实体必须先完成集合初始化核验，已保存核验时间；半初始化实体按404隐藏，未核验空值不作为成功响应。"
     },
     "createKnowledgeBase": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
@@ -331,7 +333,9 @@
       "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
       "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/type": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
       "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/format": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
-      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。"
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "07此操作返回的任务已持久绑定对应知识库及配置，索引意图另绑定文件和内容版本；这些标识非空，通用任务查询仍验证其他类型的空值。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type": "07此操作返回的任务已持久绑定对应知识库及配置，索引意图另绑定文件和内容版本；这些标识非空，通用任务查询仍验证其他类型的空值。"
     },
     "getKnowledgeBase": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
@@ -348,7 +352,9 @@
       "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。"
+      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/availabilityReason/anyOf/0/type": "07仅公开成功初始化知识库，可用性原因恒为null；独立运行期可用性检查由后续切片实现，必填及null分支仍适用。",
+      "#/components/schemas/KnowledgeBase/properties/lastCheckedAt/anyOf/1/type": "公开实体必须先完成集合初始化核验，已保存核验时间；半初始化实体按404隐藏，未核验空值不作为成功响应。"
     },
     "updateKnowledgeBase": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
@@ -365,7 +371,10 @@
       "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。"
+      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/availabilityReason/anyOf/0/type": "07仅公开成功初始化知识库，可用性原因恒为null；独立运行期可用性检查由后续切片实现，必填及null分支仍适用。",
+      "#/components/schemas/KnowledgeBase/properties/lastCheckedAt/anyOf/1/type": "公开实体必须先完成集合初始化核验，已保存核验时间；半初始化实体按404隐藏，未核验空值不作为成功响应。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}/patch/responses/422": "07仅修改名称说明或添加当前有效来源，没有额外配置状态前置；非法字段400、资源缺失404、名称或重复来源冲突409仍必须验证。422保留给后续全局维护或配置前置，不制造无业务依据的拒绝。"
     },
     "getProcessingConfig": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
@@ -375,7 +384,8 @@
     "addKnowledgeBaseSource": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1sources/post/responses/429": "当前同步本地读写没有排队容量分支；创建任务的真实队列429仍适用。",
-      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1sources/post/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。"
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1sources/post/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1sources/post/responses/422": "07仅修改名称说明或添加当前有效来源，没有额外配置状态前置；非法字段400、资源缺失404、名称或重复来源冲突409仍必须验证。422保留给后续全局维护或配置前置，不制造无业务依据的拒绝。"
     },
     "listKnowledgeBaseSources": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
@@ -391,7 +401,52 @@
       "#/components/schemas/KnowledgeBaseFile/properties/effectiveIndexVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBaseFile/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBaseFile/properties/effectiveConfigVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBaseFile/properties/effectiveConfigVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。"
+      "#/components/schemas/KnowledgeBaseFile/properties/effectiveConfigVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/1/type": "07此操作返回的任务已持久绑定对应知识库及配置，索引意图另绑定文件和内容版本；这些标识非空，通用任务查询仍验证其他类型的空值。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "07此操作返回的任务已持久绑定对应知识库及配置，索引意图另绑定文件和内容版本；这些标识非空，通用任务查询仍验证其他类型的空值。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type": "07此操作返回的任务已持久绑定对应知识库及配置，索引意图另绑定文件和内容版本；这些标识非空，通用任务查询仍验证其他类型的空值。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/1/type": "07此操作返回的任务已持久绑定对应知识库及配置，索引意图另绑定文件和内容版本；这些标识非空，通用任务查询仍验证其他类型的空值。",
+      "#/components/schemas/Task/properties/warnings/items/type": "07创建及仅排队索引任务尚不调用模型，警示数组为空；非空子项留给后续执行或模型任务，数组类型仍验证。",
+      "#/components/schemas/KnowledgeBaseFile/properties/targetConfigVersionId/anyOf/1/type": "07纳入有效来源时同事务建立唯一持久排队意图，任务及目标内容和配置版本均非空；撤销、排除和后续处理状态由后续切片验证。",
+      "#/components/schemas/KnowledgeBaseFile/properties/targetContentVersionId/anyOf/1/type": "07纳入有效来源时同事务建立唯一持久排队意图，任务及目标内容和配置版本均非空；撤销、排除和后续处理状态由后续切片验证。",
+      "#/components/schemas/KnowledgeBaseFile/properties/task/anyOf/1/type": "07纳入有效来源时同事务建立唯一持久排队意图，任务及目标内容和配置版本均非空；撤销、排除和后续处理状态由后续切片验证。",
+      "#/components/schemas/Task/allOf/0/then": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/1/then": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/1/then/properties/finishedAt/format": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/1/then/properties/finishedAt/pattern": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/1/then/properties/finishedAt/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/1/then/properties/phase/const": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/else": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/else/properties/resultResourceId/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/if": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/if/properties/state/const": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/if/required": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/then": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/then/properties/knowledgeBaseId/format": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/then/properties/knowledgeBaseId/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/then/properties/resultResourceId/format": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/allOf/2/then/then/properties/resultResourceId/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/finishedAt/anyOf/0/format": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/finishedAt/anyOf/0/pattern": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/finishedAt/anyOf/0/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/maximum": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/minimum": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/format": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/startedAt/anyOf/0/format": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/startedAt/anyOf/0/pattern": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/Task/properties/startedAt/anyOf/0/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/TaskFailure/additionalProperties": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/TaskFailure/properties/code/enum": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/TaskFailure/properties/code/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/TaskFailure/properties/message/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/TaskFailure/properties/retryable/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/TaskFailure/required": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。",
+      "#/components/schemas/TaskFailure/type": "07文件仅返回index_file排队意图，尚未执行，不存在开始结束时间、重试来源、成功资源或已知总量，也不触发失败、终态或创建任务条件；后续索引执行切片验证这些分支。"
     }
   },
   "当前安全行为": [
