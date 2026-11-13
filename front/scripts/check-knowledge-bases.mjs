@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { checkDocumentIndex } from './check-document-index.mjs';
 import { checkChunkPreflight } from './check-chunk-preflight.mjs';
+import { checkSourceAssociations } from './check-source-associations.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -620,6 +621,13 @@ export async function checkKnowledgeBases(page, tests) {
       knowledgeBaseId: resource,
     });
     await checkChunkPreflight(page, tests);
+    await checkSourceAssociations(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+    });
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.locator('.formal-main').evaluate((node) => {

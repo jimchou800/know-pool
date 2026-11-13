@@ -9,6 +9,7 @@ import {
 } from 'vue';
 import { createFileClient } from './client';
 import { decodePreviewText } from './preview-text';
+import FileKnowledgeBases from './FileKnowledgeBases.vue';
 import './files.css';
 
 const props = defineProps({
@@ -588,6 +589,11 @@ onBeforeUnmount(() => {
           </dd>
         </div>
       </dl>
+      <FileKnowledgeBases
+        :key="selected.id"
+        :client="client"
+        :file-id="selected.id"
+      />
       <button :disabled="versionLoading" @click="loadVersions()">
         查看内容版本
       </button>
