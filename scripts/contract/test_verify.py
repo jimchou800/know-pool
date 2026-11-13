@@ -185,6 +185,17 @@ class ContractGateTests(unittest.TestCase):
             for pointer in mapping['操作'][operation]:
                 self.assertIn(pointer.rsplit('/', 1)[-1], {'409', '422', '429', '503'})
 
+    def test_task_cancellation_requires_real_conflict_and_success_evidence(self):
+        """取消冲突与终态结果不能用共享错误声明豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-12.json').read_bytes())
+        prefix = '#/paths/~1tasks~1{taskId}~1cancel/post/responses/'
+        self.assertEqual(set(mapping['操作']['cancelTask']), {prefix + code for code in ('422', '429', '503')})
+        self.assertNotIn(prefix + '409', mapping['操作']['cancelTask'])
+        self.assertNotIn(prefix + '200', mapping['操作']['cancelTask'])
+        for operation in ('listIndexSwitches', 'downloadVersionFile'):
+            self.assertTrue(all(pointer.rsplit('/', 1)[-1] in {'429', '503'}
+                                for pointer in mapping['操作'][operation]))
+
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])
