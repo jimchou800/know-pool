@@ -489,6 +489,8 @@ public final class KnowledgeBases {
                         }).list();
                 if (kind.equals("knowledge_base")) jdbc.sql("SELECT collection_name,endpoint FROM owned_vector_collections WHERE knowledge_base_id=?")
                         .param(kb).query((row,n) -> { targets.addObject().put("type","collection").put("collection",row.getString(1)).put("endpoint",row.getString(2));return true; }).list();
+                if (kind.equals("knowledge_base")) jdbc.sql("SELECT DISTINCT h.collection_name FROM processing_config_history h WHERE h.knowledge_base_id=? AND NOT EXISTS(SELECT 1 FROM owned_vector_collections c WHERE c.knowledge_base_id=h.knowledge_base_id AND c.collection_name=h.collection_name)")
+                        .param(kb).query((row,n) -> { targets.addObject().put("type","unknown_collection").put("collection",row.getString(1));return true; }).list();
             }
             return null;
         });return targets;

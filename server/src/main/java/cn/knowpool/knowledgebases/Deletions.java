@@ -150,12 +150,14 @@ public final class Deletions {
         if (endpoint==null || !endpoint.equals(connection.endpoint()) || type.equals("collection") && !target.path("endpoint").asText().equals(endpoint)) throw new ApiFailure(503,"CLEANUP_FAILED","向量连接与明确归属目标不一致，未清理远端资源。",null);
         String collection=target.path("collection").asText();JsonNode exists=vectors.request(endpoint,connection.secret(),collection,"GET",null);
         if (exists!=null) {
+            if (type.equals("unknown_collection")) throw new ApiFailure(503,"CLEANUP_FAILED","历史集合缺少明确归属记录，已保留待核查，未按名称删除。",null);
             if (type.equals("collection")) {
                 JsonNode result=vectors.request(endpoint,connection.secret(),collection,"DELETE",null);
                 if (!result.path("result").isBoolean() || !result.path("result").asBoolean() || vectors.request(endpoint,connection.secret(),collection,"GET",null)!=null) throw new java.io.IOException("集合删除未核验。");
             } else {
                 String body=json.writeValueAsString(java.util.Map.of("filter",java.util.Map.of("must",List.of(java.util.Map.of("key","index_id","match",java.util.Map.of("value",target.path("indexId").asText()))))));
-                vectors.request(endpoint,connection.secret(),collection+"/points/delete?wait=true","POST",body);
+                JsonNode result=vectors.request(endpoint,connection.secret(),collection+"/points/delete?wait=true","POST",body);
+                if (result==null || !result.at("/result/status").asText().equals("completed")) throw new java.io.IOException("向量删除未确认完成。");
             }
         }
         if (type.equals("index")) data.write(jdbc -> { jdbc.sql("DELETE FROM index_chunks WHERE index_id=?").param(target.path("indexId").asText()).update();return null; });
