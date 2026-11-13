@@ -60,8 +60,11 @@ export async function checkChunkPreflight(page, tests) {
     JSON.parse(accepted.request().postData()).chunking.overlapCodePoints,
     0,
   );
-  const taskId = (await accepted.json()).task.id;
+  const acceptedTask = (await accepted.json()).task;
+  const taskId = acceptedTask.id;
+  const configVersionId = acceptedTask.targetConfigVersionId;
   assert.ok(taskId);
+  assert.ok(configVersionId);
   const terminal = await page.waitForResponse(async (response) => {
     if (
       response.request().method() !== 'GET' ||
@@ -87,6 +90,30 @@ export async function checkChunkPreflight(page, tests) {
         .innerText()
     ).includes('固定长度'),
   );
+  await tasks
+    .getByRole('button', { name: '刷新处理任务', exact: true })
+    .click();
+  const newPreflight = tasks
+    .locator('.knowledge-files > li')
+    .filter({ hasText: configVersionId })
+    .filter({
+      has: page.getByRole('button', { name: '查看切片预检', exact: true }),
+    })
+    .first()
+    .getByRole('button', { name: '查看切片预检', exact: true });
+  await newPreflight.waitFor();
+  await newPreflight.click();
+  const updatedReport = tasks.getByRole('region', {
+    name: '切片完整性预检',
+    exact: true,
+  });
+  await updatedReport
+    .getByText('内容完整性检查通过', { exact: true })
+    .waitFor();
+  assert.ok((await updatedReport.innerText()).includes(configVersionId));
+  await updatedReport
+    .getByRole('button', { name: '关闭切片预检', exact: true })
+    .click();
   tests.push({
     name: '真实切片预检与配置修改整库重建',
     passed: true,
