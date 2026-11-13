@@ -166,7 +166,7 @@ class TaskEventsHttpTest {
         stub.setExecutor(stubExecutor);
         stub.createContext("/", exchange -> {
             try {
-                release.await(20, TimeUnit.SECONDS);
+                release.await();
                 byte[] body = "{\"status\":\"ok\",\"result\":{}}".getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(200, body.length);
@@ -179,6 +179,7 @@ class TaskEventsHttpTest {
         });
         stub.start();
         List<InputStream> bodies = new ArrayList<>();
+        java.net.Socket disconnected = new java.net.Socket();
         Path directory = Files.createTempDirectory(Path.of("target"), "task-events-capacity-")
                 .toAbsolutePath();
         try (var app = SpringApplication.run(
@@ -216,6 +217,23 @@ class TaskEventsHttpTest {
             String initialFrame = null;
             HttpResponse<InputStream> initialResponse = null;
             for (int index = 0; index < 64; index++) {
+                if (index == 63) {
+                    URI address = URI.create(path);
+                    disconnected.connect(new InetSocketAddress(address.getHost(), address.getPort()));
+                    disconnected.setSoTimeout(5000);
+                    disconnected.setSoLinger(true, 0);
+                    disconnected
+                            .getOutputStream()
+                            .write(("GET " + address.getRawPath()
+                                            + " HTTP/1.1\r\nHost: " + address.getRawAuthority()
+                                            + "\r\nCookie: " + cookie + "\r\nAccept: text/event-stream\r\n\r\n")
+                                    .getBytes(StandardCharsets.US_ASCII));
+                    var headers = new BufferedReader(
+                            new InputStreamReader(disconnected.getInputStream(), StandardCharsets.UTF_8));
+                    assertThat(headers.readLine()).contains("200");
+                    for (String line; (line = headers.readLine()) != null && !line.isEmpty(); ) {}
+                    continue;
+                }
                 var response = open(path, cookie);
                 assertThat(response.statusCode()).isEqualTo(200);
                 bodies.add(response.body());
@@ -243,7 +261,9 @@ class TaskEventsHttpTest {
                     })
                     .get(8, TimeUnit.SECONDS);
             assertThat(heartbeat).startsWith(":").doesNotContain("data:", "id:", "event:");
-            bodies.get(63).close();
+            // 独立连接复位确保服务端收到真实断流，不依赖共享客户端取消正文订阅的时机。
+            long disconnectedAt = System.nanoTime();
+            disconnected.close();
             boolean reopened = false;
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
             while (System.nanoTime() < deadline) {
@@ -259,6 +279,8 @@ class TaskEventsHttpTest {
                 Thread.sleep(100);
             }
             assertThat(reopened).as("断开的订阅应释放容量").isTrue();
+            System.out.println("断流至容量释放耗时毫秒：" + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - disconnectedAt));
+            assertThat(release.getCount()).as("容量须在替身仍阻塞且任务未终态时释放").isEqualTo(1);
             release.countDown();
             long initialSequence = initial.path("sequence").asLong();
             String terminal = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
@@ -295,6 +317,7 @@ class TaskEventsHttpTest {
                     .isEqualTo("succeeded");
         } finally {
             release.countDown();
+            disconnected.close();
             for (InputStream body : bodies) body.close();
             stub.stop(0);
             stubExecutor.shutdownNow();
