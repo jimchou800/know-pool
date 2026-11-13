@@ -1112,7 +1112,20 @@
       "#/components/schemas/Task/allOf/3/then/else/properties/resultResourceId/type": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
       "#/components/schemas/Task/allOf/3/then": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
       "#/components/schemas/Task/allOf/3/then/then": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
-      "#/components/schemas/Task/allOf/3/then/else": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。"
+      "#/components/schemas/Task/allOf/3/then/else": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/1/type": "本次清理计划具有明确目标总量，零目标也返回整数零，未知总量空值不由本操作产生；整数与边界仍须真实验证。"
     },
     "getFileDeleteImpact": {
       "#/paths/~1files~1{fileId}~1delete-impact/get/responses/429": "本机资源影响、逻辑删除与任务意图受理，无同步外部依赖或独立容量队列；确认负载唯一，无其他合法负载冲突；清理故障通过持久任务表达。全局集合无指定资源404，单资源不存在及清理类型状态冲突409仍须真实验证，消费方共享错误不豁免。",
@@ -1141,7 +1154,19 @@
       "#/components/schemas/Task/allOf/3/then/else/properties/resultResourceId/type": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
       "#/components/schemas/Task/allOf/3/then": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
       "#/components/schemas/Task/allOf/3/then/then": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
-      "#/components/schemas/Task/allOf/3/then/else": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。"
+      "#/components/schemas/Task/allOf/3/then/else": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/1/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/1/type": "本次清理计划具有明确目标总量，零目标也返回整数零，未知总量空值不由本操作产生；整数与边界仍须真实验证。"
     },
     "getKnowledgeBaseDeleteImpact": {
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1delete-impact/get/responses/429": "本机资源影响、逻辑删除与任务意图受理，无同步外部依赖或独立容量队列；确认负载唯一，无其他合法负载冲突；清理故障通过持久任务表达。全局集合无指定资源404，单资源不存在及清理类型状态冲突409仍须真实验证，消费方共享错误不豁免。",
@@ -1170,7 +1195,19 @@
       "#/components/schemas/Task/allOf/3/then/else/properties/resultResourceId/type": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
       "#/components/schemas/Task/allOf/3/then": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
       "#/components/schemas/Task/allOf/3/then/then": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
-      "#/components/schemas/Task/allOf/3/then/else": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。"
+      "#/components/schemas/Task/allOf/3/then/else": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/1/type": "本次清理计划具有明确目标总量，零目标也返回整数零，未知总量空值不由本操作产生；整数与边界仍须真实验证。"
     },
     "listTasks": {
       "#/paths/~1tasks/get/responses/404": "本机资源影响、逻辑删除与任务意图受理，无同步外部依赖或独立容量队列；确认负载唯一，无其他合法负载冲突；清理故障通过持久任务表达。全局集合无指定资源404，单资源不存在及清理类型状态冲突409仍须真实验证，消费方共享错误不豁免。",
@@ -1199,7 +1236,15 @@
       "#/components/schemas/Task/allOf/3/then/else/properties/resultResourceId/type": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
       "#/components/schemas/Task/allOf/3/then": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
       "#/components/schemas/Task/allOf/3/then/then": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
-      "#/components/schemas/Task/allOf/3/then/else": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。"
+      "#/components/schemas/Task/allOf/3/then/else": "本操作返回cleanup任务，不伪造知识库创建或索引检索任务专有条件；清理成功、失败、重试来源与实际进度均须真实验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/1/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/type": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/resultResourceId/anyOf/0/format": "本操作清理任务目标按删除资源种类固定，不伪造索引内容或处理配置；完整结构、实际空值与非空资源身份仍须真实验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/1/type": "本次清理计划具有明确目标总量，零目标也返回整数零，未知总量空值不由本操作产生；整数与边界仍须真实验证。"
     }
   },
   "当前安全行为": [
