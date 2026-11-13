@@ -57,7 +57,7 @@ function validInstance(v) {
     ].includes(v.resultState)
   );
 }
-function validScope(v, selected, complete = true) {
+export function validScope(v, selected, complete = true) {
   if (
     !exact(v, [
       'selectedKnowledgeBaseIds',

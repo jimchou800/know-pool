@@ -7,6 +7,7 @@ import Datasets from '../datasets/Datasets.vue';
 import Settings from '../settings/Settings.vue';
 import KnowledgeBases from '../knowledge-bases/KnowledgeBases.vue';
 import Search from '../search/SearchInstances.vue';
+import Answers from '../answers/Answers.vue';
 
 const props = defineProps({
   client: { type: Object, default: () => createSystemClient() },
@@ -195,6 +196,11 @@ onMounted(connect);
         />
         <Search
           v-else-if="route.path === '/search' && status && !loading"
+          :client="client"
+          :writable="status.writeState === 'ready'"
+        />
+        <Answers
+          v-else-if="route.path === '/answers' && status && !loading"
           :client="client"
           :writable="status.writeState === 'ready'"
         />
