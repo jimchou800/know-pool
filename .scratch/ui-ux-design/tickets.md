@@ -15,7 +15,7 @@
 | [05：批量上传、同名覆盖和资料重命名](issues/05-batch-upload.md) | 技术 03 | [技术 05](../technical-design/issues/05-batch-upload.md) | 已完成 |
 | [06：显式配置模型与向量连接](issues/06-model-settings.md) | 技术 01 | [技术 06](../technical-design/issues/06-model-settings.md) | 已完成 |
 | [07：创建空知识库并关联资料](issues/07-knowledge-base.md) | 技术 03、技术 06 | [技术 07](../technical-design/issues/07-knowledge-base.md) | 已完成 |
-| [08：查看纯文本索引并执行管理检索](issues/08-text-index.md) | 技术 07 | [技术 08](../technical-design/issues/08-text-index.md) | 未开始 |
+| [08：查看纯文本索引并执行管理检索](issues/08-text-index.md) | 技术 07 | [技术 08](../technical-design/issues/08-text-index.md) | 进行中 |
 | [09：核对文档索引结果的原文位置](issues/09-document-index.md) | 技术 04、技术 08 | [技术 09](../technical-design/issues/09-document-index.md) | 未开始 |
 | [10：配置切片并查看完整性预检](issues/10-chunk-preview.md) | 技术 09 | [技术 10](../technical-design/issues/10-chunk-preview.md) | 未开始 |
 | [11：管理数据集同步、多来源和单文件排除](issues/11-associations.md) | 技术 08 | [技术 11](../technical-design/issues/11-associations.md) | 未开始 |
