@@ -164,7 +164,7 @@ it('拒绝跨实例跨范围非法字段，查询和范围边界在发送前阻�
       '有效查询',
     );
 });
-it('运行中尚未完成范围检查保持空范围，原请求完成后消费完整实际范围', async () => {
+it('开始检查前范围为空，运行取消失败保留已检查子集，成功必须完整范围', async () => {
   const running = {
     ...result,
     scope: null,
@@ -181,6 +181,40 @@ it('运行中尚未完成范围检查保持空范围，原请求完成后消费�
     api = createSearchClient(s.client);
   expect((await api.get(id, instanceId, input)).scope).toBeNull();
   observed('getSearchRequest', s.requests.at(-1));
+  const partial = { ...scope, omitted: [], incomplete: false };
+  for (const state of ['running', 'cancelled', 'failed', 'interrupted']) {
+    const terminal = state !== 'running';
+    const value = {
+      ...running,
+      scope: partial,
+      task: {
+        ...running.task,
+        state,
+        phase: terminal ? 'completed' : 'retrieving',
+        finishedAt: terminal ? time : null,
+        failure: ['failed', 'interrupted'].includes(state)
+          ? { code: 'TASK_INTERRUPTED', message: '检查中断', retryable: false }
+          : null,
+      },
+    };
+    s.reply(value);
+    expect((await api.get(id, instanceId, input)).scope).toEqual(partial);
+    observed('getSearchRequest', s.requests.at(-1));
+  }
+  for (const invalid of [
+    { ...partial, usedKnowledgeBaseIds: [instanceId] },
+    {
+      ...partial,
+      omitted: [
+        { knowledgeBaseId: id, reason: 'unavailable', message: '重复范围' },
+      ],
+      incomplete: true,
+    },
+    { ...partial, incomplete: true },
+  ]) {
+    s.reply({ ...running, scope: invalid });
+    await expect(api.get(id, instanceId, input)).rejects.toThrow('不符合');
+  }
   s.reply(result);
   expect((await api.get(id, instanceId, input)).scope).toEqual(scope);
   observed('getSearchRequest', s.requests.at(-1));

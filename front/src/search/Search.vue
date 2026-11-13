@@ -376,6 +376,9 @@ loadChoices();
               {{ warning }}
             </p>
             <template v-if="pending.scope">
+              <p v-if="active">
+                当前展示已完成的范围检查；尚未检查的知识库不计入实际检索或遗漏。
+              </p>
               <p v-if="pending.scope.incomplete" role="status">
                 检索范围不完整，以下结果仅来自实际可用知识库。
               </p>

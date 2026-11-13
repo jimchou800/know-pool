@@ -179,7 +179,7 @@ it('受理结果不明恢复同键原负载，不暗中改变查询或范围', a
   expect(s.requests.at(-1).data).toBe(first.data);
   w.unmount();
 });
-it('运行中范围尚未完成检查时继续查询原请求，结束后才显示完整范围', async () => {
+it('范围检查从空值到已核子集持续查询，成功后显示完整范围', async () => {
   vi.useFakeTimers();
   const running = {
     ...result,
@@ -197,7 +197,12 @@ it('运行中范围尚未完成检查时继续查询原请求，结束后才显�
   const { s, w } = await ready((request) => {
     if (request.method === 'post') return { httpStatus: 202, body: running };
     queries++;
-    return queries === 1 ? running : result;
+    return queries === 1
+      ? {
+          ...running,
+          scope: { ...result.scope, omitted: [], incomplete: false },
+        }
+      : result;
   });
   await button(w, '开始检索').trigger('click');
   await flushPromises();
@@ -206,6 +211,8 @@ it('运行中范围尚未完成检查时继续查询原请求，结束后才显�
   await vi.advanceTimersByTimeAsync(750);
   await flushPromises();
   expect(w.text()).not.toContain('响应不符合');
+  expect(w.text()).toContain('尚未检查的知识库不计入实际检索或遗漏');
+  expect(w.text()).toContain('实际检索：');
   await vi.advanceTimersByTimeAsync(750);
   await flushPromises();
   expect(w.text()).toContain('检索范围不完整');
@@ -213,5 +220,21 @@ it('运行中范围尚未完成检查时继续查询原请求，结束后才显�
   expect(
     s.requests.filter((r) => r.url === `/search-requests/${id}`),
   ).toHaveLength(2);
+  w.unmount();
+});
+it('取消后保留已核实际范围，不把尚未检查的库伪造为遗漏', async () => {
+  const value = {
+    ...result,
+    result: null,
+    scope: { ...result.scope, omitted: [], incomplete: false },
+    task: { ...result.task, state: 'cancelled', resultResourceId: null },
+  };
+  const { w } = await ready(() => ({ httpStatus: 202, body: value }));
+  await button(w, '开始检索').trigger('click');
+  await flushPromises();
+  expect(w.text()).toContain('检索已取消');
+  expect(w.text()).toContain('实际检索：空知识库');
+  expect(w.text()).not.toContain('遗漏：');
+  expect(w.text()).not.toContain('响应不符合');
   w.unmount();
 });

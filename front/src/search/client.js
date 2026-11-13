@@ -57,7 +57,7 @@ function validInstance(v) {
     ].includes(v.resultState)
   );
 }
-function validScope(v, selected) {
+function validScope(v, selected, complete = true) {
   if (
     !exact(v, [
       'selectedKnowledgeBaseIds',
@@ -89,7 +89,8 @@ function validScope(v, selected) {
         typeof item.message === 'string',
     ) &&
     new Set(omitted).size === omitted.length &&
-    omitted.length + v.usedKnowledgeBaseIds.length === selected.length &&
+    (!complete ||
+      omitted.length + v.usedKnowledgeBaseIds.length === selected.length) &&
     v.incomplete === omitted.length > 0
   );
 }
@@ -100,7 +101,9 @@ function validRequest(v, instanceId, submitted) {
     v.instanceId !== instanceId ||
     !validTask(v.task, 'search') ||
     v.task.knowledgeBaseId !== null ||
-    !nullable(v.scope, (s) => validScope(s, submitted.knowledgeBaseIds))
+    !nullable(v.scope, (s) =>
+      validScope(s, submitted.knowledgeBaseIds, v.task.state === 'succeeded'),
+    )
   )
     return false;
   if (v.task.state !== 'succeeded') return v.result === null;
