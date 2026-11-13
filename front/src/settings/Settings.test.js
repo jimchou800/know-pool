@@ -539,3 +539,21 @@ it('另一配置成功保存也撤销当前旧测试标记，历史当前凭据�
   expect(form('embedding').text()).toContain('配置未完整');
   expect(form('embedding').text()).toContain('未设置');
 });
+
+it('预算错误与输入通过可访问说明关联，失败后焦点落到具体预算字段', async () => {
+  const { form } = await page((config) =>
+    config.method === 'put'
+      ? reject('/contextWindowTokens', '上下文预算须为安全正整数')
+      : undefined,
+  );
+  const generation = form('generation');
+  await generation.get('form').trigger('submit');
+  await flushPromises();
+  const input = generation.get('[name="contextWindowTokens"]');
+  expect(document.activeElement).toBe(input.element);
+  expect(input.attributes('aria-invalid')).toBe('true');
+  const description = generation.get(
+    '#' + input.attributes('aria-describedby'),
+  );
+  expect(description.text()).toBe('上下文预算须为安全正整数');
+});
