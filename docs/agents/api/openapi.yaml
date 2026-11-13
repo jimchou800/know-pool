@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "个人知识管理应用唯一接口契约",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "description": "正式接口设计开发基线，批准证据由前后端在契约外分别记录同一字节摘要。设计完整不代表业务代码、自动校验或真实模型效果已实现。所有对象默认拒绝未知字段；服务端重校验关联、排除、发布、版本及取消资格。"
   },
   "servers": [
@@ -3492,8 +3492,10 @@
             "required": false,
             "schema": {
               "type": "string",
-              "description": "",
-              "maxLength": 100
+              "description": "本任务 UUID、冒号和1至9007199254740991的十进制正整数序号；不得有前导零。格式非法、数值超出安全整数或任务不符返回400。",
+              "maxLength": 100,
+              "minLength": 38,
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}:[1-9][0-9]{0,15}$(?![\\s\\S])"
             }
           }
         ],
@@ -3549,7 +3551,7 @@
               }
             }
           },
-          "id": "任务标识:递增序号",
+          "id": "任务标识:递增序号；序号为1至9007199254740991的安全正整数，与任务真实快照变化原子提交；订阅、重连、心跳及终态重发本身不增加序号。",
           "lastEventIdHeader": "Last-Event-ID",
           "terminalStates": [
             "succeeded",
@@ -3557,8 +3559,9 @@
             "cancelled",
             "interrupted"
           ],
-          "reconnect": "终态可重新发送终态通知；不保证回放所有阶段。断线首先查询原任务，重连不得重跑；心跳使用注释帧。"
-        }
+          "reconnect": "断线首先查询原任务，重连不得重跑；合法旧或未来恢复序号只发送当前快照，不保证回放所有阶段。终态可重新发送同一终态事件及相同序号，发送后关闭。心跳使用注释帧，不含业务正文。"
+        },
+        "description": "先校验本机会话、来源、任务及恢复头，再打开事件流；Cookie 鉴权，令牌不得进入 URL。Last-Event-ID 合法旧序号或未来序号均只发送当前任务快照，不承诺中间阶段回放。未知任务返回404；非法恢复格式、超出安全整数或错误任务身份返回400。订阅和重连不新建任务或重复外部调用。"
       }
     },
     "/knowledge-bases/{knowledgeBaseId}/search-test": {
@@ -3656,7 +3659,7 @@
             }
           }
         },
-        "description": "knowledgeBaseIds 必须恰好仅含路径 knowledgeBaseId，否则400；只测当前生效索引，不写实例或历史；遵循原文、排除和依赖保护。"
+        "description": "knowledgeBaseIds 必须恰好仅含路径 knowledgeBaseId，否则400；结构或标识非法返回400，路径知识库不存在返回404。幂等冲突、容量和维护暂停等未受理错误按正式响应处理；有效请求受理返回202，不能将受理冒充检索完成。执行前检查当前生效索引，无有效索引时任务异步 failed、failure.code=NO_EFFECTIVE_INDEX；模型或向量依赖故障分别以对应失败表达，不能返回 no_matches。只测当前单库生效索引，不写实例或历史；遵循原文、排除、有效关联、文件及版本保护。管理请求与结果的 instanceId 恒为空，SearchRequest.id、SearchResult.requestId 与成功任务 resultResourceId 相等，Task.id 与 SearchResult.taskId 相等，所选范围及证据知识库均为路径单库。不调用回答生成、回答校验或查询预处理；成功结果 preprocessingState=not_used、additionalQueries=[]。检索只由本次显式受理触发，同键恢复查询不重复外发。"
       }
     },
     "/search-instances": {
@@ -4260,7 +4263,8 @@
           {
             "localSession": []
           }
-        ]
+        ],
+        "description": "只读取运行期原检索请求，不重新调用模型。已知请求身份在结果失效或进程重启后返回410 RESULT_EXPIRED；从未存在的标识返回404 NOT_FOUND。持久身份墓碑不保存查询、结果或正文，不恢复检索历史。"
       }
     },
     "/search-requests/{requestId}/cancel": {
@@ -4411,7 +4415,8 @@
           {
             "localSession": []
           }
-        ]
+        ],
+        "description": "证据必须属于路径请求。活跃请求中未知或属于其他请求的证据返回404 NOT_FOUND；未知请求返回404；已知请求失效或进程重启后返回410 RESULT_EXPIRED。完整切片和定位只在运行期结果中保存，持久墓碑只保存身份归属，不保存查询或证据正文。查询不触发模型或重跑检索。"
       }
     },
     "/conversations": {
@@ -9200,7 +9205,7 @@
                 "type": "null"
               }
             ],
-            "description": "知识库创建任务成功时为已完成初始化的知识库标识，必须与 knowledgeBaseId 相同且均非空；该类型其他状态必须为空。其他任务按其类型定义，可空。"
+            "description": "知识库创建任务成功时为已完成初始化的知识库标识，必须与 knowledgeBaseId 相同且均非空；search 成功时为所属 SearchRequest.id；index_file 成功时为实际生效的索引处理版本标识。这三类任务的其他状态必须为空。其他任务按其类型定义，可空。跨对象标识相等由实际行为校验。"
           }
         },
         "required": [
@@ -9306,6 +9311,48 @@
                     "format": "uuid"
                   },
                   "knowledgeBaseId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "resultResourceId": {
+                    "type": "null"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "search",
+                    "index_file"
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "succeeded"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "resultResourceId": {
                     "type": "string",
                     "format": "uuid"
                   }
@@ -9954,7 +10001,7 @@
           "updateState",
           "capturedAt"
         ],
-        "description": "问答专属快照随会话保留；检索快照只到结果失效或进程结束。当前名称可空，历史名称不回写。"
+        "description": "问答专属快照随会话保留；检索快照只到结果失效或进程结束。当前名称可空，历史名称不回写。 运行期检索证据必须绑定所属请求；持久墓碑只保留身份和归属，不保存正文，不构成永久检索历史。"
       },
       "SearchSubmit": {
         "type": "object",
@@ -10205,7 +10252,7 @@
           "additionalQueries",
           "warnings"
         ],
-        "description": "无可用范围必须任务失败；服务故障不能返回 no_matches；融合排名不冒充跨模型置信百分比。"
+        "description": "无可用范围必须任务失败；服务故障不能返回 no_matches；融合排名不冒充跨模型置信百分比。 管理单库测试的 instanceId 恒为空，requestId 与所属 SearchRequest.id 及成功任务 resultResourceId 相等，taskId 与所属任务 id 相等；范围及证据只含路径单库。管理测试不做生成预处理，preprocessingState=not_used 且 additionalQueries 为空数组。"
       },
       "SearchRequest": {
         "type": "object",
@@ -10260,7 +10307,7 @@
           "result",
           "scope"
         ],
-        "description": "仅成功终态提供结果；失败提供 task.failure；进程重启失效返回 410；实例持久化但结果不持久化。",
+        "description": "仅成功终态提供结果；失败提供 task.failure；进程重启失效返回 410；实例持久化但结果不持久化。 管理检索中 instanceId 恒为空；成功时本对象 id、result.requestId、task.resultResourceId 相等，task.id 与 result.taskId 相等。持久身份墓碑仅保留请求及证据身份与归属，不保存查询、结果或证据正文；已知身份失效返回410 RESULT_EXPIRED，从未存在返回404 NOT_FOUND，重启不恢复结果或自动收费重跑。",
         "allOf": [
           {
             "if": {
@@ -10699,7 +10746,7 @@
           "phase",
           "occurredAt"
         ],
-        "description": "只通知阶段与终态，不含问题、证据或答案正文；终态后关闭；重连先查原任务，不创建新任务。",
+        "description": "只通知阶段与终态，不含问题、证据或答案正文；终态后关闭；重连先查原任务，不创建新任务。 序号与任务真实状态、阶段或进度快照变化原子提交；订阅、重连、心跳及终态重发本身不增加序号。帧标识必须与 taskId 和 sequence 一致，终态事件重发保持序号并关闭。",
         "allOf": [
           {
             "if": {

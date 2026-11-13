@@ -11,6 +11,8 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
 
+import provider_security
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,6 +56,8 @@ def main():
                 raise TimeoutError('测试应用启动超时，详见 ' + str(directory.relative_to(ROOT)))
             result = subprocess.run([node_command, 'scripts/check-live.mjs', base_url],
                                     cwd=ROOT / 'front', timeout=120, check=False)
+            if result.returncode == 0:
+                provider_security.generate(base_url)
             return result.returncode
         finally:
             if process.poll() is None:
@@ -68,6 +72,6 @@ def main():
 if __name__ == '__main__':
     try:
         sys.exit(main())
-    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         print('真实联调未通过：' + str(error))
         sys.exit(1)

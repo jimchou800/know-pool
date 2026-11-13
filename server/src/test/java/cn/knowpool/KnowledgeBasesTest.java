@@ -137,6 +137,692 @@ class KnowledgeBasesTest {
     }
 
     @Test
+    @DisplayName("空库索引任务历史通过真实公开接口分页读取")
+    void emptyIndexTaskHistory() throws Exception {
+        HttpServer vector = vector();
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "index-history-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = configure(client, vector.getAddress().getPort());
+            JsonNode accepted = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases",
+                            "POST",
+                            "{\"name\":\"索引历史\",\"processing\":" + processing + "}",
+                            UUID.randomUUID().toString())
+                    .body());
+            String kb = await(client, accepted.at("/task/id").asText())
+                    .path("resultResourceId")
+                    .asText();
+            HttpResponse<String> response =
+                    send(client, "/knowledge-bases/" + kb + "/tasks?limit=1", "GET", null, null);
+            assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+            assertThat(JSON.readTree(response.body()).path("items").isEmpty()).isTrue();
+            assertThat(JSON.readTree(response.body()).path("nextCursor").isNull())
+                    .isTrue();
+        } finally {
+            vector.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("关联纯文本后真实嵌入并提交生效版本")
+    void textIndexBecomesEffective() throws Exception {
+        var embeddingFailure = new java.util.concurrent.atomic.AtomicBoolean();
+        var failedCalls = new java.util.concurrent.atomic.AtomicInteger();
+        var vectorFailure = new java.util.concurrent.atomic.AtomicBoolean();
+        var vectorFailedCalls = new java.util.concurrent.atomic.AtomicInteger();
+        HttpServer vector = indexedVector(embeddingFailure, failedCalls, vectorFailure, vectorFailedCalls);
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "text-index-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = configure(client, vector.getAddress().getPort()).replace("固定模型", "text-embedding-v4");
+            send(
+                    client,
+                    "/settings/models/embedding",
+                    "PUT",
+                    "{\"endpoint\":\"http://127.0.0.1:" + vector.getAddress().getPort()
+                            + "/v1\",\"model\":\"text-embedding-v4\",\"contextWindowTokens\":null,\"maxOutputTokens\":null,\"credential\":{\"action\":\"replace\",\"value\":\"fixed-test-key\"}}",
+                    null);
+            JsonNode saved = read(client, "/settings/models/embedding");
+            processing = processing.replace(
+                    JSON.readTree(processing)
+                            .at("/embedding/modelConfigVersionId")
+                            .asText(),
+                    saved.path("versionId").asText());
+            String dataset = JSON.readTree(send(client, "/datasets", "POST", "{\"name\":\"索引来源\"}", null)
+                            .body())
+                    .path("id")
+                    .asText();
+            upload(client, dataset);
+            JsonNode accepted = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases",
+                            "POST",
+                            "{\"name\":\"文本索引\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                    + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            String kb = await(client, accepted.at("/task/id").asText())
+                    .path("resultResourceId")
+                    .asText();
+            JsonNode item = read(client, "/knowledge-bases/" + kb + "/files")
+                    .path("items")
+                    .get(0);
+            JsonNode task = await(client, item.at("/task/id").asText());
+            assertThat(task.path("state").asText()).as(task.toString()).isEqualTo("succeeded");
+            JsonNode effective = read(client, "/knowledge-bases/" + kb + "/files")
+                    .path("items")
+                    .get(0);
+            assertThat(effective.path("effectiveIndexVersionId").asText())
+                    .isEqualTo(task.path("resultResourceId").asText());
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("searchableFileCount")
+                            .asInt())
+                    .isEqualTo(1);
+            String searchKey = UUID.randomUUID().toString();
+            HttpResponse<String> search = send(
+                    client,
+                    "/knowledge-bases/" + kb + "/search-test",
+                    "POST",
+                    "{\"query\":\"固定资料\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                    searchKey);
+            assertThat(search.statusCode()).as(search.body()).isEqualTo(202);
+            JsonNode request = JSON.readTree(search.body());
+            await(client, request.at("/task/id").asText());
+            JsonNode result =
+                    read(client, "/search-requests/" + request.path("id").asText());
+            assertThat(result.at("/result/outcome").asText())
+                    .as(result.toString())
+                    .isEqualTo("matches");
+            HttpResponse<String> replayed = send(
+                    client,
+                    "/knowledge-bases/" + kb + "/search-test",
+                    "POST",
+                    "{\"query\":\"固定资料\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                    searchKey);
+            assertThat(replayed.statusCode()).as(replayed.body()).isEqualTo(202);
+            assertThat(JSON.readTree(replayed.body())).isEqualTo(result);
+            JsonNode evidence = result.at("/result/evidence/0");
+            assertThat(evidence.path("text").asText()).isEqualTo("固定资料");
+            assertThat(evidence.path("knowledgeBaseId").asText()).isEqualTo(kb);
+            assertThat(evidence.path("fileId").asText())
+                    .isEqualTo(item.path("fileId").asText());
+            assertThat(evidence.path("contentVersionId").asText())
+                    .isEqualTo(task.path("targetContentVersionId").asText());
+            assertThat(evidence.path("configVersionId").asText())
+                    .isEqualTo(task.path("targetConfigVersionId").asText());
+            assertThat(evidence.path("indexVersionId").asText())
+                    .isEqualTo(task.path("resultResourceId").asText());
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("publicationState")
+                            .asText())
+                    .isEqualTo("unpublished");
+            assertThat(read(
+                                    client,
+                                    "/search-requests/" + request.path("id").asText() + "/evidence/"
+                                            + evidence.path("id").asText())
+                            .path("text")
+                            .asText())
+                    .isEqualTo("固定资料");
+            var queryUnavailable = new java.util.concurrent.atomic.AtomicBoolean();
+            vector.createContext("/collections/kp_" + kb.replace("-", "") + "/points/query", exchange -> {
+                exchange.getRequestBody().readAllBytes();
+                byte[] body = (queryUnavailable.get() ? "{}" : "{\"status\":\"ok\",\"result\":{\"points\":[]}}")
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(queryUnavailable.get() ? 503 : 200, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            });
+            JsonNode emptyRequest = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases/" + kb + "/search-test",
+                            "POST",
+                            "{\"query\":\"无命中查询\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            assertThat(await(client, emptyRequest.at("/task/id").asText())
+                            .path("state")
+                            .asText())
+                    .isEqualTo("succeeded");
+            JsonNode emptyResult =
+                    read(client, "/search-requests/" + emptyRequest.path("id").asText());
+            assertThat(emptyResult.at("/result/outcome").asText()).isEqualTo("no_matches");
+            assertThat(emptyResult.at("/result/evidence").isEmpty()).isTrue();
+            assertThat(send(
+                                    client,
+                                    "/search-requests/"
+                                            + emptyRequest.path("id").asText() + "/evidence/"
+                                            + evidence.path("id").asText(),
+                                    "GET",
+                                    null,
+                                    null)
+                            .statusCode())
+                    .isEqualTo(404);
+            JsonNode replacement = uploadText(client, dataset, "替换资料");
+            assertThat(replacement.at("/items/0/indexTaskIds").size()).isEqualTo(1);
+            JsonNode newTask =
+                    await(client, replacement.at("/items/0/indexTaskIds/0").asText());
+            assertThat(newTask.path("state").asText()).isEqualTo("succeeded");
+            assertThat(newTask.path("targetContentVersionId").asText())
+                    .isNotEqualTo(task.path("targetContentVersionId").asText());
+            assertThat(read(client, "/search-requests/" + request.path("id").asText())
+                            .at("/result/evidence/0"))
+                    .isEqualTo(evidence);
+            assertThat(read(
+                            client,
+                            "/search-requests/" + request.path("id").asText() + "/evidence/"
+                                    + evidence.path("id").asText()))
+                    .isEqualTo(evidence);
+            embeddingFailure.set(true);
+            JsonNode failedUpload = uploadText(client, dataset, "失败更新保留旧索引");
+            JsonNode failedTask =
+                    await(client, failedUpload.at("/items/0/indexTaskIds/0").asText());
+            assertThat(failedTask.path("state").asText()).isEqualTo("failed");
+            assertThat(failedTask.at("/failure/code").asText()).isEqualTo("MODEL_UNAVAILABLE");
+            assertThat(failedCalls.get()).isEqualTo(3);
+            JsonNode retained =
+                    read(client, "/knowledge-bases/" + kb + "/files").at("/items/0");
+            assertThat(retained.path("effectiveIndexVersionId").asText())
+                    .isEqualTo(newTask.path("resultResourceId").asText());
+            assertThat(retained.path("usingPreviousVersion").asBoolean()).isTrue();
+            JsonNode modelRequest = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases/" + kb + "/search-test",
+                            "POST",
+                            "{\"query\":\"模型故障查询\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            assertThat(await(client, modelRequest.at("/task/id").asText())
+                            .at("/failure/code")
+                            .asText())
+                    .isEqualTo("MODEL_UNAVAILABLE");
+            assertThat(failedCalls.get()).isEqualTo(4);
+            assertThat(read(
+                                    client,
+                                    "/search-requests/"
+                                            + modelRequest.path("id").asText())
+                            .path("result")
+                            .isNull())
+                    .isTrue();
+            embeddingFailure.set(false);
+            queryUnavailable.set(true);
+            JsonNode vectorRequest = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases/" + kb + "/search-test",
+                            "POST",
+                            "{\"query\":\"向量故障查询\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            assertThat(await(client, vectorRequest.at("/task/id").asText())
+                            .at("/failure/code")
+                            .asText())
+                    .isEqualTo("VECTOR_UNAVAILABLE");
+            assertThat(read(
+                                    client,
+                                    "/search-requests/"
+                                            + vectorRequest.path("id").asText())
+                            .at("/scope/omitted/0/reason")
+                            .asText())
+                    .isEqualTo("unavailable");
+            vectorFailure.set(true);
+            JsonNode vectorUpload = uploadText(client, dataset, "向量失败保留旧索引");
+            JsonNode vectorTask =
+                    await(client, vectorUpload.at("/items/0/indexTaskIds/0").asText());
+            assertThat(vectorTask.at("/failure/code").asText()).isEqualTo("VECTOR_UNAVAILABLE");
+            assertThat(vectorFailedCalls.get()).isEqualTo(3);
+            var taskIds = new java.util.HashSet<String>();
+            String cursor = null;
+            do {
+                JsonNode page = read(
+                        client,
+                        "/knowledge-bases/" + kb + "/tasks?limit=1" + (cursor == null ? "" : "&cursor=" + cursor));
+                assertThat(page.path("items").size()).isEqualTo(1);
+                JsonNode listed = page.at("/items/0");
+                assertThat(listed.path("kind").asText()).isEqualTo("index_file");
+                assertThat(listed.path("knowledgeBaseId").asText()).isEqualTo(kb);
+                assertThat(taskIds.add(listed.path("id").asText())).isTrue();
+                cursor = page.path("nextCursor").isNull()
+                        ? null
+                        : page.path("nextCursor").asText();
+            } while (cursor != null);
+            assertThat(taskIds)
+                    .containsExactlyInAnyOrder(
+                            task.path("id").asText(),
+                            newTask.path("id").asText(),
+                            failedTask.path("id").asText(),
+                            vectorTask.path("id").asText());
+            assertThat(read(client, "/knowledge-bases/" + kb + "/files")
+                            .at("/items/0/effectiveIndexVersionId")
+                            .asText())
+                    .isEqualTo(newTask.path("resultResourceId").asText());
+        } finally {
+            vector.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("管理检索无索引失败保持幂等身份并在重启后明确失效")
+    void managementSearchFailureIsStableAndExpiresOnRestart() throws Exception {
+        HttpServer vector = vector();
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "search-expiry-").toAbsolutePath();
+        String requestId;
+        try {
+            try (ConfigurableApplicationContext app = start(directory)) {
+                Client client = client(app);
+                String processing = configure(client, vector.getAddress().getPort());
+                JsonNode accepted = JSON.readTree(send(
+                                client,
+                                "/knowledge-bases",
+                                "POST",
+                                "{\"name\":\"无索引管理库\",\"processing\":" + processing + "}",
+                                UUID.randomUUID().toString())
+                        .body());
+                String kb = await(client, accepted.at("/task/id").asText())
+                        .path("resultResourceId")
+                        .asText();
+                String path = "/knowledge-bases/" + kb + "/search-test";
+                String input = "{\"query\":\"固定查询\",\"knowledgeBaseIds\":[\"" + kb + "\"]}";
+                String key = UUID.randomUUID().toString();
+                HttpResponse<String> response = send(client, path, "POST", input, key);
+                assertThat(response.statusCode()).as(response.body()).isEqualTo(202);
+                JsonNode request = JSON.readTree(response.body());
+                requestId = request.path("id").asText();
+                JsonNode task = await(client, request.at("/task/id").asText());
+                assertThat(task.path("state").asText()).isEqualTo("failed");
+                assertThat(task.at("/failure/code").asText()).isEqualTo("NO_EFFECTIVE_INDEX");
+                JsonNode result = read(client, "/search-requests/" + requestId);
+                assertThat(result.path("result").isNull()).isTrue();
+                assertThat(result.at("/scope/omitted/0/reason").asText()).isEqualTo("no_effective_index");
+                assertThat(JSON.readTree(send(client, path, "POST", input, key).body())
+                                .path("id")
+                                .asText())
+                        .isEqualTo(requestId);
+                assertThat(send(client, path, "POST", input.replace("固定查询", "不同查询"), key)
+                                .statusCode())
+                        .isEqualTo(409);
+                for (String invalid : new String[] {
+                    "null",
+                    "{}",
+                    "{\"query\":\"固定\"}",
+                    "{\"query\":false,\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                    "{\"query\":\" \",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                    "{\"query\":\"固定\",\"knowledgeBaseIds\":[]}",
+                    "{\"query\":\"固定\",\"knowledgeBaseIds\":[\"" + UUID.randomUUID() + "\"]}",
+                    "{\"query\":\"固定\",\"knowledgeBaseIds\":[false]}"
+                }) {
+                    assertThat(send(
+                                            client,
+                                            path,
+                                            "POST",
+                                            invalid,
+                                            UUID.randomUUID().toString())
+                                    .statusCode())
+                            .as(invalid)
+                            .isEqualTo(400);
+                }
+                assertThat(send(client, path, "POST", input, "invalid").statusCode())
+                        .isEqualTo(400);
+                assertThat(send(
+                                        client,
+                                        path + "?unexpected=1",
+                                        "POST",
+                                        input,
+                                        UUID.randomUUID().toString())
+                                .statusCode())
+                        .isEqualTo(400);
+                assertThat(send(
+                                        client,
+                                        "/search-requests/" + requestId + "/evidence/" + UUID.randomUUID(),
+                                        "GET",
+                                        null,
+                                        null)
+                                .statusCode())
+                        .isEqualTo(404);
+                assertThat(send(client, "/search-requests/invalid", "GET", null, null)
+                                .statusCode())
+                        .isEqualTo(400);
+                assertThat(send(client, "/search-requests/" + UUID.randomUUID(), "GET", null, null)
+                                .statusCode())
+                        .isEqualTo(404);
+            }
+            try (ConfigurableApplicationContext app = start(directory)) {
+                Client client = client(app);
+                HttpResponse<String> expired = send(client, "/search-requests/" + requestId, "GET", null, null);
+                assertThat(expired.statusCode()).as(expired.body()).isEqualTo(410);
+                assertThat(JSON.readTree(expired.body()).path("code").asText()).isEqualTo("RESULT_EXPIRED");
+                assertThat(send(
+                                        client,
+                                        "/search-requests/" + requestId + "/evidence/" + UUID.randomUUID(),
+                                        "GET",
+                                        null,
+                                        null)
+                                .statusCode())
+                        .isEqualTo(410);
+            }
+        } finally {
+            vector.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("管理检索队列有界且重启中断在途请求而不恢复结果")
+    void managementQueueAndRestartAreSafe() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var embeddingCalls = new java.util.concurrent.atomic.AtomicInteger();
+        HttpServer vector = indexedVector(
+                new java.util.concurrent.atomic.AtomicBoolean(),
+                new java.util.concurrent.atomic.AtomicInteger(),
+                new java.util.concurrent.atomic.AtomicBoolean(),
+                new java.util.concurrent.atomic.AtomicInteger(),
+                entered,
+                release,
+                path -> {
+                    if (path.equals("/v1/embeddings")) embeddingCalls.incrementAndGet();
+                });
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "search-recovery-").toAbsolutePath();
+        String requestId;
+        String taskId;
+        try {
+            try (ConfigurableApplicationContext app = start(directory)) {
+                Client client = client(app);
+                String processing =
+                        configure(client, vector.getAddress().getPort()).replace("固定模型", "text-embedding-v4");
+                send(
+                        client,
+                        "/settings/models/embedding",
+                        "PUT",
+                        "{\"endpoint\":\"http://127.0.0.1:"
+                                + vector.getAddress().getPort()
+                                + "/v1\",\"model\":\"text-embedding-v4\",\"contextWindowTokens\":null,\"maxOutputTokens\":null,\"credential\":{\"action\":\"replace\",\"value\":\"fixed-test-key\"}}",
+                        null);
+                processing = processing.replace(
+                        JSON.readTree(processing)
+                                .at("/embedding/modelConfigVersionId")
+                                .asText(),
+                        read(client, "/settings/models/embedding")
+                                .path("versionId")
+                                .asText());
+                String dataset = JSON.readTree(send(client, "/datasets", "POST", "{\"name\":\"恢复来源\"}", null)
+                                .body())
+                        .path("id")
+                        .asText();
+                upload(client, dataset);
+                JsonNode accepted = JSON.readTree(send(
+                                client,
+                                "/knowledge-bases",
+                                "POST",
+                                "{\"name\":\"恢复管理库\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                        + "\"]}",
+                                UUID.randomUUID().toString())
+                        .body());
+                String kb = await(client, accepted.at("/task/id").asText())
+                        .path("resultResourceId")
+                        .asText();
+                assertThat(await(
+                                        client,
+                                        read(client, "/knowledge-bases/" + kb + "/files")
+                                                .at("/items/0/task/id")
+                                                .asText())
+                                .path("state")
+                                .asText())
+                        .isEqualTo("succeeded");
+                String path = "/knowledge-bases/" + kb + "/search-test";
+                String input = "{\"query\":\"固定查询\",\"knowledgeBaseIds\":[\"" + kb + "\"]}";
+                String key = UUID.randomUUID().toString();
+                JsonNode first =
+                        JSON.readTree(send(client, path, "POST", input, key).body());
+                requestId = first.path("id").asText();
+                taskId = first.at("/task/id").asText();
+                assertThat(entered.await(3, java.util.concurrent.TimeUnit.SECONDS))
+                        .isTrue();
+                for (int i = 1; i < 17; i++)
+                    assertThat(send(
+                                            client,
+                                            path,
+                                            "POST",
+                                            input,
+                                            UUID.randomUUID().toString())
+                                    .statusCode())
+                            .isEqualTo(202);
+                assertThat(send(client, path, "POST", input, UUID.randomUUID().toString())
+                                .statusCode())
+                        .isEqualTo(429);
+                assertThat(JSON.readTree(send(client, path, "POST", input, key).body())
+                                .path("id")
+                                .asText())
+                        .isEqualTo(requestId);
+                assertThat(embeddingCalls.get()).isEqualTo(2);
+            }
+            release.countDown();
+            try (ConfigurableApplicationContext app = start(directory)) {
+                Client client = client(app);
+                JsonNode task = read(client, "/tasks/" + taskId);
+                assertThat(task.path("state").asText()).isEqualTo("interrupted");
+                assertThat(task.at("/failure/code").asText()).isEqualTo("TASK_INTERRUPTED");
+                assertThat(task.path("resultResourceId").isNull()).isTrue();
+                assertThat(embeddingCalls.get()).isEqualTo(2);
+                assertThat(send(client, "/search-requests/" + requestId, "GET", null, null)
+                                .statusCode())
+                        .isEqualTo(410);
+            }
+        } finally {
+            release.countDown();
+            vector.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("持久嵌入向量在重启后继续幂等写入而不再次调用模型")
+    void persistedEmbeddingResumesWithoutModelCall() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var embeddingCalls = new java.util.concurrent.atomic.AtomicInteger();
+        var block = new java.util.concurrent.atomic.AtomicBoolean(true);
+        HttpServer vector = indexedVector(
+                new java.util.concurrent.atomic.AtomicBoolean(),
+                new java.util.concurrent.atomic.AtomicInteger(),
+                new java.util.concurrent.atomic.AtomicBoolean(),
+                new java.util.concurrent.atomic.AtomicInteger(),
+                null,
+                null,
+                path -> {
+                    if (path.equals("/v1/embeddings")) embeddingCalls.incrementAndGet();
+                    if (path.endsWith("/points") && block.get()) {
+                        entered.countDown();
+                        try {
+                            release.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                });
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "index-recovery-").toAbsolutePath();
+        String taskId;
+        String kb;
+        try {
+            try (ConfigurableApplicationContext app = start(directory)) {
+                Client client = client(app);
+                String processing =
+                        configure(client, vector.getAddress().getPort()).replace("固定模型", "text-embedding-v4");
+                send(
+                        client,
+                        "/settings/models/embedding",
+                        "PUT",
+                        "{\"endpoint\":\"http://127.0.0.1:"
+                                + vector.getAddress().getPort()
+                                + "/v1\",\"model\":\"text-embedding-v4\",\"contextWindowTokens\":null,\"maxOutputTokens\":null,\"credential\":{\"action\":\"replace\",\"value\":\"fixed-test-key\"}}",
+                        null);
+                processing = processing.replace(
+                        JSON.readTree(processing)
+                                .at("/embedding/modelConfigVersionId")
+                                .asText(),
+                        read(client, "/settings/models/embedding")
+                                .path("versionId")
+                                .asText());
+                String dataset = JSON.readTree(send(client, "/datasets", "POST", "{\"name\":\"恢复索引来源\"}", null)
+                                .body())
+                        .path("id")
+                        .asText();
+                upload(client, dataset);
+                JsonNode accepted = JSON.readTree(send(
+                                client,
+                                "/knowledge-bases",
+                                "POST",
+                                "{\"name\":\"恢复索引库\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                        + "\"]}",
+                                UUID.randomUUID().toString())
+                        .body());
+                kb = await(client, accepted.at("/task/id").asText())
+                        .path("resultResourceId")
+                        .asText();
+                taskId = read(client, "/knowledge-bases/" + kb + "/files")
+                        .at("/items/0/task/id")
+                        .asText();
+                assertThat(entered.await(3, java.util.concurrent.TimeUnit.SECONDS))
+                        .isTrue();
+                assertThat(embeddingCalls.get()).isEqualTo(1);
+                assertThat(read(client, "/tasks/" + taskId).path("state").asText())
+                        .isEqualTo("running");
+            }
+            block.set(false);
+            release.countDown();
+            try (ConfigurableApplicationContext app = start(directory)) {
+                Client client = client(app);
+                JsonNode task = await(client, taskId);
+                assertThat(task.path("state").asText()).as(task.toString()).isEqualTo("succeeded");
+                assertThat(embeddingCalls.get()).isEqualTo(1);
+                assertThat(read(client, "/knowledge-bases/" + kb + "/files")
+                                .at("/items/0/effectiveIndexVersionId")
+                                .asText())
+                        .isEqualTo(task.path("resultResourceId").asText());
+            }
+        } finally {
+            release.countDown();
+            vector.stop(0);
+        }
+    }
+
+    private HttpServer indexedVector() throws Exception {
+        return indexedVector(
+                new java.util.concurrent.atomic.AtomicBoolean(), new java.util.concurrent.atomic.AtomicInteger(),
+                new java.util.concurrent.atomic.AtomicBoolean(), new java.util.concurrent.atomic.AtomicInteger());
+    }
+
+    private HttpServer indexedVector(
+            java.util.concurrent.atomic.AtomicBoolean embeddingFailure,
+            java.util.concurrent.atomic.AtomicInteger failedCalls,
+            java.util.concurrent.atomic.AtomicBoolean vectorFailure,
+            java.util.concurrent.atomic.AtomicInteger vectorFailedCalls)
+            throws Exception {
+        return indexedVector(embeddingFailure, failedCalls, vectorFailure, vectorFailedCalls, null, null);
+    }
+
+    private HttpServer indexedVector(
+            java.util.concurrent.atomic.AtomicBoolean embeddingFailure,
+            java.util.concurrent.atomic.AtomicInteger failedCalls,
+            java.util.concurrent.atomic.AtomicBoolean vectorFailure,
+            java.util.concurrent.atomic.AtomicInteger vectorFailedCalls,
+            java.util.concurrent.CountDownLatch entered,
+            java.util.concurrent.CountDownLatch release)
+            throws Exception {
+        return indexedVector(
+                embeddingFailure, failedCalls, vectorFailure, vectorFailedCalls, entered, release, path -> {});
+    }
+
+    private HttpServer indexedVector(
+            java.util.concurrent.atomic.AtomicBoolean embeddingFailure,
+            java.util.concurrent.atomic.AtomicInteger failedCalls,
+            java.util.concurrent.atomic.AtomicBoolean vectorFailure,
+            java.util.concurrent.atomic.AtomicInteger vectorFailedCalls,
+            java.util.concurrent.CountDownLatch entered,
+            java.util.concurrent.CountDownLatch release,
+            java.util.function.Consumer<String> beforeRequest)
+            throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.Set<String> collections = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        java.util.Map<String, JsonNode> points = new java.util.concurrent.ConcurrentHashMap<>();
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            beforeRequest.accept(path);
+            JsonNode body = exchange.getRequestBody().available() == 0
+                    ? JSON.createObjectNode()
+                    : JSON.readTree(exchange.getRequestBody().readAllBytes());
+            String response;
+            int status = 200;
+            if (path.equals("/v1/embeddings")) {
+                if (embeddingFailure.get()) {
+                    failedCalls.incrementAndGet();
+                    byte[] error =
+                            "{\"error\":{\"message\":\"固定临时故障\"}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(503, error.length);
+                    exchange.getResponseBody().write(error);
+                    exchange.close();
+                    return;
+                }
+                response =
+                        "{\"object\":\"list\",\"data\":[{\"object\":\"embedding\",\"index\":0,\"embedding\":[1,0,0]}],\"model\":\"text-embedding-v4\",\"usage\":{\"prompt_tokens\":4,\"total_tokens\":4}}";
+            } else if (path.endsWith("/points") && exchange.getRequestMethod().equals("PUT")) {
+                if (vectorFailure.get()) {
+                    vectorFailedCalls.incrementAndGet();
+                    byte[] error = "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(503, error.length);
+                    exchange.getResponseBody().write(error);
+                    exchange.close();
+                    return;
+                }
+                for (JsonNode point : body.path("points"))
+                    points.put(point.path("id").asText(), point);
+                response = "{\"status\":\"ok\",\"result\":{\"status\":\"completed\"}}";
+            } else if (path.endsWith("/points") && exchange.getRequestMethod().equals("POST")) {
+                var result = JSON.createArrayNode();
+                for (JsonNode id : body.path("ids"))
+                    if (points.containsKey(id.asText())) result.add(points.get(id.asText()));
+                response = JSON.writeValueAsString(java.util.Map.of("status", "ok", "result", result));
+            } else if (path.endsWith("/points/query")) {
+                if (entered != null) {
+                    entered.countDown();
+                    try {
+                        release.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                var result = JSON.createArrayNode();
+                for (JsonNode point : points.values())
+                    result.add(((tools.jackson.databind.node.ObjectNode) point.deepCopy()).put("score", 0.9));
+                response = JSON.writeValueAsString(
+                        java.util.Map.of("status", "ok", "result", java.util.Map.of("points", result)));
+            } else if (exchange.getRequestMethod().equals("PUT")) {
+                collections.add(path);
+                response = "{\"status\":\"ok\",\"result\":true}";
+            } else if (collections.contains(path)) {
+                response =
+                        "{\"status\":\"ok\",\"result\":{\"config\":{\"params\":{\"vectors\":{\"size\":3,\"distance\":\"Cosine\"}}}}}";
+            } else {
+                status = 404;
+                response = "{}";
+            }
+            byte[] bytes = response.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        return server;
+    }
+
+    @Test
     @DisplayName("初始数据集与单文件来源保留并集且排队任务跨重启唯一")
     void sourcesKeepUniqueQueuedIntent() throws Exception {
         HttpServer vector = vector();
@@ -171,7 +857,7 @@ class KnowledgeBasesTest {
                         .get("items")
                         .get(0);
                 queued = initial.at("/task/id").asText();
-                assertThat(initial.at("/task/state").asText()).isEqualTo("queued");
+                assertThat(initial.at("/task/kind").asText()).isEqualTo("index_file");
                 assertThat(send(
                                         client,
                                         "/knowledge-bases/" + id + "/sources",
@@ -230,8 +916,7 @@ class KnowledgeBasesTest {
                         read(client, "/knowledge-bases/" + id + "/files").path("items"))
                     taskIds.add(item.at("/task/id").asText());
                 assertThat(taskIds).contains(queued);
-                assertThat(read(client, "/tasks/" + queued).path("state").asText())
-                        .isEqualTo("queued");
+                assertThat(read(client, "/tasks/" + queued).path("id").asText()).isEqualTo(queued);
             }
         } finally {
             vector.stop(0);
@@ -374,9 +1059,14 @@ class KnowledgeBasesTest {
     }
 
     private String upload(Client client, String dataset) throws Exception {
+        return uploadText(client, dataset, "固定资料").at("/items/0/file/id").asText();
+    }
+
+    private JsonNode uploadText(Client client, String dataset, String text) throws Exception {
         String boundary = "knowledge-boundary";
         String body = "--" + boundary
-                + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"source.txt\"\r\nContent-Type: text/plain\r\n\r\n固定资料\r\n--"
+                + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"source.txt\"\r\nContent-Type: text/plain\r\n\r\n"
+                + text + "\r\n--"
                 + boundary + "--\r\n";
         HttpRequest request = HttpRequest.newBuilder(
                         URI.create(client.base() + "/datasets/" + dataset + "/files:upload"))
@@ -387,7 +1077,8 @@ class KnowledgeBasesTest {
                 .build();
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
-        return JSON.readTree(response.body()).at("/items/0/file/id").asText();
+        observed(response, null);
+        return JSON.readTree(response.body());
     }
 
     @Test
@@ -830,7 +1521,18 @@ class KnowledgeBasesTest {
                         "{\"type\":\"file\",\"resourceId\":\"" + id + "\"}"
                     },
                     new String[] {"GET", "/knowledge-bases/" + id + "/files", null},
-                    new String[] {"GET", "/tasks/" + task, null});
+                    new String[] {"GET", "/tasks/" + task, null},
+                    new String[] {"GET", "/tasks/" + task + "/events", null},
+                    new String[] {"GET", "/knowledge-bases/" + id + "/tasks", null},
+                    new String[] {
+                        "POST",
+                        "/knowledge-bases/" + id + "/search-test",
+                        "{\"query\":\"安全查询\",\"knowledgeBaseIds\":[\"" + id + "\"]}"
+                    },
+                    new String[] {"GET", "/search-requests/" + UUID.randomUUID(), null},
+                    new String[] {
+                        "GET", "/search-requests/" + UUID.randomUUID() + "/evidence/" + UUID.randomUUID(), null
+                    });
             for (String[] operation : operations) {
                 HttpRequest.Builder unsafe = HttpRequest.newBuilder(URI.create(client.base() + operation[1]))
                         .header("Cookie", client.cookie())
@@ -873,7 +1575,10 @@ class KnowledgeBasesTest {
                         .isEqualTo(400);
             }
             for (String path : java.util.List.of(
-                    "/knowledge-bases", "/knowledge-bases/" + id + "/sources", "/knowledge-bases/" + id + "/files"))
+                    "/knowledge-bases",
+                    "/knowledge-bases/" + id + "/sources",
+                    "/knowledge-bases/" + id + "/files",
+                    "/knowledge-bases/" + id + "/tasks"))
                 for (String query : java.util.List.of(
                         "?limit=0", "?limit=101", "?limit=no", "?limit=1&limit=2", "?cursor=invalid", "?cursor="))
                     assertThat(send(client, path + query, "GET", null, null).statusCode())
@@ -903,7 +1608,7 @@ class KnowledgeBasesTest {
                     java.sql.Statement statement = db.createStatement()) {
                 statement.execute("ALTER TABLE knowledge_bases RENAME TO blocked_knowledge_bases");
                 for (String[] operation : operations)
-                    if (!operation[1].startsWith("/tasks/"))
+                    if (!operation[1].startsWith("/tasks/") && !operation[1].startsWith("/search-requests/"))
                         assertThat(send(
                                                 client,
                                                 operation[1],
@@ -978,22 +1683,33 @@ class KnowledgeBasesTest {
         OBSERVATIONS.getFirst().put("routes", ROUTES);
         for (java.util.Map<String, Object> item : OBSERVATIONS)
             if (!PASSED.contains((String) item.get("behavior"))) item.put("behavior", "");
+            else if (item.get("behavior").equals("textIndexBecomesEffective"))
+                item.put(
+                        "behaviorChecks",
+                        java.util.List.of("currentIndexVersions", "managementPublication", "indexRetriesAreBounded"));
+            else if (item.get("behavior").equals("managementQueueAndRestartAreSafe"))
+                item.put("behaviorChecks", java.util.List.of("queryDoesNotRepeatCalls"));
+            else if (item.get("behavior").equals("persistedEmbeddingResumesWithoutModelCall"))
+                item.put("behaviorChecks", java.util.List.of("persistedEmbeddingNoRepeat"));
         Path root = Path.of(System.getProperty("maven.multiModuleProjectDirectory", ".."))
                 .toAbsolutePath()
                 .normalize();
-        Process process = new ProcessBuilder(
-                        "python",
-                        "server/src/test/resources/contract/settings-evidence.py",
-                        root.toString(),
-                        "knowledge-bases")
-                .directory(root.toFile())
-                .redirectError(ProcessBuilder.Redirect.INHERIT)
-                .start();
-        try (var output = process.getOutputStream()) {
-            output.write(JSON.writeValueAsBytes(OBSERVATIONS));
+        for (String profile : java.util.List.of("knowledge-bases", "indexing")) {
+            Process process = new ProcessBuilder(
+                            "python",
+                            "server/src/test/resources/contract/settings-evidence.py",
+                            root.toString(),
+                            profile)
+                    .directory(root.toFile())
+                    .redirectError(ProcessBuilder.Redirect.INHERIT)
+                    .start();
+            try (var output = process.getOutputStream()) {
+                output.write(JSON.writeValueAsBytes(OBSERVATIONS));
+            }
+            String result =
+                    new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(process.waitFor()).as(result).isZero();
         }
-        String result = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        assertThat(process.waitFor()).as(result).isZero();
     }
 
     private record Client(String base, String cookie, String token) {}

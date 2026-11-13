@@ -121,7 +121,17 @@ public final class ConnectionProbe {
         }
     }
 
-    private static final class Transport implements com.openai.core.http.HttpClient {
+    static final class Transport implements com.openai.core.http.HttpClient {
+        private final java.util.function.Consumer<byte[]> validateResponse;
+
+        Transport() {
+            this(body -> {});
+        }
+
+        Transport(java.util.function.Consumer<byte[]> validateResponse) {
+            this.validateResponse = validateResponse;
+        }
+
         private final OkHttpClient http = new OkHttpClient.Builder()
                 .retryOnConnectionFailure(false)
                 .followRedirects(false)
@@ -148,6 +158,7 @@ public final class ConnectionProbe {
                         RequestBody.create(bytes.toByteArray(), MediaType.get("application/json")));
                 try (Response response = http.newCall(outgoing.build()).execute()) {
                     byte[] body = bounded(response);
+                    if (response.isSuccessful()) validateResponse.accept(body);
                     Headers headers = Headers.builder()
                             .putAll(response.headers().toMultimap())
                             .build();

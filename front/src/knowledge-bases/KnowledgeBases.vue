@@ -5,6 +5,8 @@ import { createKnowledgeBaseClient } from './client';
 import { createSettingsClient } from '../settings/client';
 import { createDatasetClient, trimName } from '../datasets/client';
 import { createFileClient } from '../files/client';
+import IndexTasks from './IndexTasks.vue';
+import ManagementSearch from './ManagementSearch.vue';
 import '../datasets/datasets.css';
 import './knowledge-bases.css';
 
@@ -1175,6 +1177,18 @@ loadPage(0);
                 更多文件
               </button>
             </section>
+            <IndexTasks
+              :key="selected.id"
+              :client="client"
+              :knowledge-base-id="selected.id"
+              @completed="loadDetail"
+            />
+            <ManagementSearch
+              :key="`search-${selected.id}`"
+              :client="client"
+              :knowledge-base-id="selected.id"
+              :writable="writable"
+            />
           </template>
           <p v-else-if="!detailLoading && !detailError" class="dataset-empty">
             从左侧选择知识库，查看配置与来源。

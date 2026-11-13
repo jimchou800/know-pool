@@ -39,7 +39,7 @@ const validStatus = (value) =>
   value.schemaVersion >= 1 &&
   Array.isArray(value.warnings) &&
   value.warnings.every((warning) => typeof warning === 'string');
-const errorCodes = [
+export const errorCodes = [
   'INVALID_REQUEST',
   'SESSION_EXPIRED',
   'CSRF_REJECTED',

@@ -145,6 +145,7 @@ public final class KnowledgeBases {
                                 validKey,
                                 fingerprint)
                         .update();
+                cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(task));
                 jdbc.sql(
                                 "INSERT INTO knowledge_base_creations(task_id,knowledge_base_id,collection_name,endpoint,ownership,phase,datasets) VALUES(?,?,?,?,'none','reserved',?)")
                         .params(
@@ -355,6 +356,27 @@ public final class KnowledgeBases {
                 .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "知识库不存在。", null));
     }
 
+    public void refreshProcessing(JdbcClient jdbc, String id) {
+        ObjectNode value = (ObjectNode) get(jdbc, id);
+        String state = jdbc.sql(
+                        """
+                SELECT CASE
+                  WHEN SUM(t.state='running')>0 THEN 'running'
+                  WHEN SUM(t.state='queued')>0 THEN 'queued'
+                  WHEN SUM(t.state IN ('failed','interrupted'))>0 THEN 'failed'
+                  ELSE 'idle' END
+                FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id
+                WHERE f.knowledge_base_id=?
+                """)
+                .param(id)
+                .query(String.class)
+                .single();
+        value.put("processingState", state);
+        jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
+                .params(json.writeValueAsString(value), id)
+                .update();
+    }
+
     public JsonNode config(String id) {
         return data.read(jdbc -> {
             get(jdbc, id);
@@ -403,6 +425,76 @@ public final class KnowledgeBases {
             get(jdbc, id);
             return addSource(jdbc, id, type, resource);
         });
+    }
+
+    @org.springframework.context.event.EventListener
+    public void contentCommitted(FileService.ContentCommitted event) {
+        JdbcClient jdbc = event.jdbc();
+        List<String> ids = jdbc.sql(
+                        "SELECT DISTINCT s.knowledge_base_id FROM knowledge_base_sources s JOIN knowledge_bases b ON b.id=s.knowledge_base_id WHERE b.visible=1 AND ((s.type='file' AND s.resource_id=?) OR (s.type='dataset' AND s.resource_id=?))")
+                .params(event.fileId(), event.datasetId())
+                .query(String.class)
+                .list();
+        for (String kb : ids) {
+            for (String payload : jdbc.sql(
+                            "SELECT payload FROM tasks WHERE kind='index_file' AND state IN ('queued','running') AND json_extract(payload,'$.knowledgeBaseId')=? AND json_extract(payload,'$.fileId')=?")
+                    .params(kb, event.fileId())
+                    .query(String.class)
+                    .list()) {
+                ObjectNode old = (ObjectNode) json.readTree(payload);
+                old.put("state", "cancelled")
+                        .put("phase", "completed")
+                        .put("finishedAt", Instant.now().toString());
+                old.putNull("failure").putNull("resultResourceId");
+                cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, old);
+                jdbc.sql("UPDATE tasks SET state='cancelled',payload=? WHERE id=?")
+                        .params(json.writeValueAsString(old), old.path("id").asText())
+                        .update();
+            }
+            String config = get(jdbc, kb).path("targetConfigVersionId").asText(),
+                    taskId = UUID.randomUUID().toString();
+            ConnectionTests.Task task = new ConnectionTests.Task(
+                    taskId,
+                    "index_file",
+                    "queued",
+                    "queued",
+                    Instant.now().toString(),
+                    null,
+                    null,
+                    kb,
+                    event.fileId(),
+                    event.contentVersionId(),
+                    config,
+                    null,
+                    0,
+                    0,
+                    null,
+                    null,
+                    List.of(),
+                    null);
+            jdbc.sql(
+                            "INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'index_file','queued',?,'internal','index_file',?,'')")
+                    .params(taskId, json.writeValueAsString(task), taskId)
+                    .update();
+            cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(task));
+            jdbc.sql(
+                            "INSERT INTO knowledge_base_files VALUES(?,?,?,?,?) ON CONFLICT(knowledge_base_id,file_id) DO UPDATE SET content_version_id=excluded.content_version_id,config_version_id=excluded.config_version_id,task_id=excluded.task_id")
+                    .params(kb, event.fileId(), event.contentVersionId(), config, taskId)
+                    .update();
+            ObjectNode value = (ObjectNode) get(jdbc, kb);
+            value.put("processingState", "queued")
+                    .put(
+                            "includedFileCount",
+                            jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=?")
+                                    .param(kb)
+                                    .query(Integer.class)
+                                    .single());
+            jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
+                    .params(json.writeValueAsString(value), kb)
+                    .update();
+            refreshProcessing(jdbc, kb);
+            event.addTaskId(taskId);
+        }
     }
 
     private JsonNode addSource(JdbcClient jdbc, String id, String type, String resource) {
@@ -460,6 +552,7 @@ public final class KnowledgeBases {
                             "INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'index_file','queued',?,'internal','index_file',?,'')")
                     .params(taskId, json.writeValueAsString(task), taskId)
                     .update();
+            cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(task));
             jdbc.sql(
                             "INSERT INTO knowledge_base_files(knowledge_base_id,file_id,content_version_id,config_version_id,task_id) VALUES(?,?,?,?,?)")
                     .params(id, file.id(), file.contentVersionId(), config, taskId)
@@ -475,6 +568,7 @@ public final class KnowledgeBases {
         jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
                 .params(json.writeValueAsString(kb), id)
                 .update();
+        refreshProcessing(jdbc, id);
         return source;
     }
 
@@ -493,6 +587,22 @@ public final class KnowledgeBases {
                             .toList(),
                     limit,
                     "id");
+        });
+    }
+
+    public Page tasks(String id, int limit, String cursor) {
+        return data.read(jdbc -> {
+            get(jdbc, id);
+            List<JsonNode> rows = jdbc
+                    .sql(
+                            "SELECT payload FROM tasks WHERE kind IN ('index_file','rebuild_knowledge_base') AND json_extract(payload,'$.knowledgeBaseId')=? AND id>? ORDER BY id LIMIT ?")
+                    .params(id, after(cursor), limit + 1)
+                    .query(String.class)
+                    .list()
+                    .stream()
+                    .map(json::readTree)
+                    .toList();
+            return page(rows, limit, "id");
         });
     }
 
@@ -549,6 +659,32 @@ public final class KnowledgeBases {
                                         .param(row.getString(4))
                                         .query(String.class)
                                         .single()));
+                        JsonNode task = value.path("task");
+                        String state = task.path("state").asText();
+                        value.put(
+                                "updateState",
+                                state.equals("succeeded")
+                                        ? "ready"
+                                        : state.equals("running")
+                                                ? "processing"
+                                                : state.equals("queued") ? "queued" : "failed");
+                        value.set("failure", task.path("failure"));
+                        jdbc.sql(
+                                        "SELECT content_version_id,config_version_id,index_id FROM effective_files WHERE knowledge_base_id=? AND file_id=?")
+                                .params(id, file)
+                                .query((effective, n) -> {
+                                    value.put("effectiveContentVersionId", effective.getString(1))
+                                            .put("effectiveConfigVersionId", effective.getString(2))
+                                            .put("effectiveIndexVersionId", effective.getString(3))
+                                            .put(
+                                                    "usingPreviousVersion",
+                                                    !effective.getString(1).equals(row.getString(2))
+                                                            || !effective
+                                                                    .getString(2)
+                                                                    .equals(row.getString(3)));
+                                    return true;
+                                })
+                                .list();
                         return (JsonNode) value;
                     })
                     .list();
@@ -633,6 +769,7 @@ public final class KnowledgeBases {
                 task.failure(),
                 task.warnings(),
                 task.resultResourceId());
+        cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(updated));
         jdbc.sql("UPDATE tasks SET state=?,payload=? WHERE id=?")
                 .params(task.state(), json.writeValueAsString(updated), task.id())
                 .update();

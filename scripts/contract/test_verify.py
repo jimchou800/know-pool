@@ -65,9 +65,9 @@ class ContractGateTests(unittest.TestCase):
 
     def test_scope_preserves_constraints_and_requires_both_approvals(self):
         """适用映射保留原约束并要求双方批准。"""
-        mapping = json.loads((verify.ROOT / f'scripts/contract/scope-{verify.TICKET}.json').read_text(encoding='utf-8'))
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-07.json').read_text(encoding='utf-8'))
         operations = verify.inventory(self.document)
-        self.assertEqual(set(mapping['操作']), set(verify.SCOPE))
+        self.assertEqual(set(mapping['操作']), set(verify.SCOPE[:35]))
         for operation, conditions in mapping['操作'].items():
             self.assertTrue(set(conditions).issubset(operations[operation]['constraints']))
         self.assertEqual(len(mapping['当前安全行为']), 7)
@@ -80,9 +80,7 @@ class ContractGateTests(unittest.TestCase):
     def test_knowledge_base_scope_keeps_live_resource_and_task_branches(self):
         """创建成功资源与实际任务分支不得沿用连接测试豁免。"""
         mapping = json.loads((verify.ROOT / 'scripts/contract/scope-07.json').read_bytes())
-        self.assertEqual(verify.TICKET, '07')
-        self.assertEqual(len(verify.SCOPE), 35)
-        self.assertTrue(set(verify.SCOPE[27:]).issubset(mapping['操作']))
+        self.assertTrue(set(verify.SCOPE[27:35]).issubset(mapping['操作']))
         for field in ('knowledgeBaseId', 'resultResourceId', 'fileId', 'targetContentVersionId'):
             self.assertNotIn('#/components/schemas/Task/properties/' + field + '/anyOf/0/type',
                              mapping['操作']['getTask'])
@@ -91,6 +89,68 @@ class ContractGateTests(unittest.TestCase):
         self.assertIn('#/components/schemas/Task/allOf/2/then',
                       mapping['操作']['testVectorConfig'])
 
+    def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
+        """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
+        operations = verify.inventory(self.document)
+        self.assertEqual(verify.TICKET, '08')
+        self.assertEqual(len(verify.SCOPE), 40)
+        self.assertEqual(len(set(verify.SCOPE)), 40)
+        prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
+        for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
+            pointer = prefix + suffix
+            self.assertIn(pointer, operations['watchTask']['constraints'])
+            self.assertEqual(verify.coverage({'tests': []}, 'watchTask', pointer), [])
+        rules = {
+            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'},
+            'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase'},
+            'cost': {'getTask', 'testKnowledgeBaseSearch'},
+            'sse': {'watchTask', 'getTask'},
+        }
+        for rule, expected in rules.items():
+            pointer = '#/x-business-constraints/' + rule
+            self.assertEqual({name for name, operation in operations.items()
+                              if pointer in operation['constraints']}, expected)
+
+    def test_indexing_security_requires_cookie_event_stream(self):
+        """当前安全基线包含事件流，不能再把全局安全规则列作后续保留。"""
+        self.assertEqual(len(verify.SECURITY_BEHAVIORS), 8)
+        self.assertIn('SSE', verify.SECURITY_BEHAVIORS[-1])
+        self.assertIn('Cookie', verify.SECURITY_BEHAVIORS[-1])
+        mapping = {'操作': {operation: {} for operation in verify.SCOPE},
+                   '当前安全行为': list(verify.SECURITY_BEHAVIORS)}
+        verify.check_scope(mapping, verify.inventory(self.document))
+        mapping['操作']['getTask']['#/x-business-constraints/security'] = '后续SSE'
+        with self.assertRaisesRegex(ValueError, '安全'):
+            verify.check_scope(mapping, verify.inventory(self.document))
+        del mapping['操作']['getTask']['#/x-business-constraints/security']
+        mapping['当前安全行为'].pop()
+        with self.assertRaisesRegex(ValueError, '安全'):
+            verify.check_scope(mapping, verify.inventory(self.document))
+
+    def test_indexing_scope_keeps_reachable_publication_and_result_branches(self):
+        """索引执行后已可达的版本、进度、失败及结果分支不得沿用旧豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-08.json').read_bytes())
+        operations = verify.inventory(self.document)
+        verify.check_scope(mapping, operations)
+        for identifier, conditions in mapping['操作'].items():
+            for pointer in conditions:
+                self.assertFalse('/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/' in pointer)
+                self.assertFalse('/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/' in pointer)
+                self.assertFalse('/KnowledgeBase/properties/availabilityReason/anyOf/0/' in pointer)
+            for rule, identifiers in verify.BUSINESS_OPERATIONS.items():
+                if identifier in identifiers:
+                    self.assertNotIn('#/x-business-constraints/' + rule, conditions)
+        for identifier in ('getTask', 'listKnowledgeBaseFiles', 'listKnowledgeBaseTasks',
+                           'testKnowledgeBaseSearch', 'getSearchRequest'):
+            for pointer in mapping['操作'][identifier]:
+                self.assertFalse(pointer.startswith('#/components/schemas/Task/allOf/3/then'))
+                if identifier in ('getTask', 'listKnowledgeBaseFiles', 'listKnowledgeBaseTasks'):
+                    self.assertFalse('/Task/properties/progressTotal/anyOf/0/' in pointer)
+        self.assertFalse(any('/UploadItem/properties/indexTaskIds/items/' in pointer
+                             for pointer in mapping['操作']['uploadFiles']))
+        self.assertFalse(any('/x-sse/' in pointer for pointer in mapping['操作']['watchTask']))
+        self.assertNotIn('#/paths/~1tasks~1{taskId}~1events/get/responses/429',
+                         mapping['操作']['watchTask'])
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])

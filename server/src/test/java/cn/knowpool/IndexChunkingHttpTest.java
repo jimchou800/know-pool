@@ -1,0 +1,963 @@
+package cn.knowpool;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.UUID;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.SpringApplication;
+import org.springframework.context.ConfigurableApplicationContext;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+class IndexChunkingHttpTest {
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    private final HttpClient http = HttpClient.newHttpClient();
+    private static final java.util.List<java.util.Map<String, Object>> GAP_OBSERVATIONS = new java.util.ArrayList<>();
+    private static final java.util.List<java.util.Map<String, String>> GAP_ROUTES = new java.util.ArrayList<>();
+    private static boolean gapsPassed;
+
+    @org.junit.jupiter.api.extension.RegisterExtension
+    final org.junit.jupiter.api.extension.TestWatcher completed = new org.junit.jupiter.api.extension.TestWatcher() {
+        @Override
+        public void testSuccessful(org.junit.jupiter.api.extension.ExtensionContext context) {
+            if (context.getRequiredTestMethod().getName().equals("publicContractBranchesRemainReachable"))
+                gapsPassed = true;
+        }
+    };
+
+    @Test
+    @DisplayName("公开排队快照、知识库依赖状态、未知资源及存储故障均保留真实契约证据")
+    void publicContractBranchesRemainReachable() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var blocked = new java.util.concurrent.atomic.AtomicBoolean(false);
+        HttpServer vector = indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {
+            if (blocked.get()) {
+                entered.countDown();
+                try {
+                    if (!release.await(15, java.util.concurrent.TimeUnit.SECONDS))
+                        throw new AssertionError("受控模型等待超时。");
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError("受控模型等待被中断。", failure);
+                }
+            }
+        });
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "contract-gaps-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String kb = createIndexedBase(client, processing, "契约可达分支", "完整原文依据。");
+            JsonNode current = read(client, "/knowledge-bases/" + kb);
+            assertThat(current.path("effectiveConfigVersionId").isTextual()).isTrue();
+            assertThat(current.path("effectiveIndexVersionId").isTextual()).isTrue();
+            read(client, "/knowledge-bases");
+            assertThat(send(client, "/knowledge-bases/" + kb, "PATCH", "{\"description\":\"已生效\"}", null)
+                            .statusCode())
+                    .isEqualTo(200);
+            blocked.set(true);
+            JsonNode first = search(client, kb);
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            JsonNode queued = search(client, kb);
+            JsonNode snapshot =
+                    read(client, "/search-requests/" + queued.path("id").asText());
+            assertThat(snapshot.at("/task/state").asText()).isEqualTo("queued");
+            for (String pointer : java.util.List.of("/scope", "/task/startedAt", "/task/finishedAt"))
+                assertThat(snapshot.at(pointer).isNull()).as(pointer).isTrue();
+            String dataset = readCreatedDataset(client, "排队索引资料");
+            uploadText(client, dataset, "第二份排队资料。");
+            uploadText(client, dataset, "第三份排队资料。", "third.txt");
+            JsonNode creation = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases",
+                            "POST",
+                            "{\"name\":\"排队索引库\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                    + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            String queuedKb = await(client, creation.at("/task/id").asText())
+                    .path("resultResourceId")
+                    .asText();
+            JsonNode tasks = read(client, "/knowledge-bases/" + queuedKb + "/tasks");
+            assertThat(tasks.path("items")).anySatisfy(task -> {
+                assertThat(task.path("state").asText()).isEqualTo("queued");
+                assertThat(task.path("startedAt").isNull()).isTrue();
+                assertThat(task.path("finishedAt").isNull()).isTrue();
+                assertThat(task.path("progressTotal").isNull()).isTrue();
+            });
+            blocked.set(false);
+            release.countDown();
+            await(client, first.at("/task/id").asText());
+            await(client, queued.at("/task/id").asText());
+            for (JsonNode task : tasks.path("items"))
+                await(client, task.path("id").asText());
+            String absent = UUID.randomUUID().toString();
+            assertThat(send(client, "/knowledge-bases/" + absent + "/tasks", "GET", null, null)
+                            .statusCode())
+                    .isEqualTo(404);
+            assertThat(send(
+                                    client,
+                                    "/knowledge-bases/" + absent + "/search-test",
+                                    "POST",
+                                    "{\"query\":\"未知库\",\"knowledgeBaseIds\":[\"" + absent + "\"]}",
+                                    UUID.randomUUID().toString())
+                            .statusCode())
+                    .isEqualTo(404);
+            var invalid = send(
+                    client, "/search-requests/" + first.path("id").asText() + "/evidence/invalid", "GET", null, null);
+            assertThat(invalid.statusCode()).isEqualTo(400);
+            assertThat(JSON.readTree(invalid.body()).path("fieldErrors")).isNotEmpty();
+            vector.stop(0);
+            JsonNode failed = search(client, kb);
+            assertThat(await(client, failed.at("/task/id").asText())
+                            .path("state")
+                            .asText())
+                    .isEqualTo("failed");
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("availabilityReason")
+                            .isTextual())
+                    .isTrue();
+            read(client, "/knowledge-bases");
+            var renamed = send(client, "/knowledge-bases/" + kb, "PATCH", "{\"description\":\"依赖故障仍保留生效版本\"}", null);
+            assertThat(renamed.statusCode()).isEqualTo(200);
+            assertThat(JSON.readTree(renamed.body()).path("availabilityReason").isTextual())
+                    .isTrue();
+            try (var database = java.sql.DriverManager.getConnection(
+                            "jdbc:sqlite:" + directory.resolve("application.sqlite"));
+                    var statement = database.createStatement()) {
+                statement.execute("ALTER TABLE search_identities RENAME TO blocked_search_identities");
+                statement.execute("ALTER TABLE task_events RENAME TO blocked_task_events");
+                try {
+                    for (String path : java.util.List.of(
+                            "/search-requests/" + absent,
+                            "/search-requests/" + absent + "/evidence/" + UUID.randomUUID(),
+                            "/tasks/" + first.at("/task/id").asText() + "/events"))
+                        assertThat(send(client, path, "GET", null, null).statusCode())
+                                .as(path)
+                                .isEqualTo(500);
+                } finally {
+                    statement.execute("ALTER TABLE blocked_search_identities RENAME TO search_identities");
+                    statement.execute("ALTER TABLE blocked_task_events RENAME TO task_events");
+                }
+            }
+            assertThat(send(client, "/search-requests/" + absent, "GET", null, null)
+                            .statusCode())
+                    .isEqualTo(404);
+        } finally {
+            release.countDown();
+            vector.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("真实上传切片保留缩写小数引用和换行，不切断完整句")
+    void sentencesRemainIntact() throws Exception {
+        String first = "首".repeat(1800) + "。";
+        String second = "Dr. Smith measured 3.14, e.g. a reference “引用\n续行” " + "b".repeat(240) + ".";
+        assertThat(index(first + second, 0, "{}", "[]")).containsExactly(first, second);
+    }
+
+    @Test
+    @DisplayName("重叠只复用完整句，并在下一句需要空间时取消")
+    void overlapKeepsCompleteSentences() throws Exception {
+        String first = "前".repeat(1500) + "。";
+        String second = "中".repeat(100) + "。";
+        String third = "后".repeat(500) + "。";
+        assertThat(index(first + second + third, 200, "{}", "[]")).containsExactly(first + second, second + third);
+        String large = "尾".repeat(1950) + "。";
+        assertThat(index(first + second + large, 200, "{}", "[]")).containsExactly(first + second, large);
+    }
+
+    @Test
+    @DisplayName("超长句按分隔符降级，补充平面字符按码点硬切且正文无丢失")
+    void longSentencesKeepEveryCodePoint() throws Exception {
+        String first = "甲".repeat(1900) + "，";
+        String second = "乙".repeat(300);
+        assertThat(index(first + second, 0, "{}", "[]")).containsExactly(first, second);
+        String text = "😀甲".repeat(1300);
+        java.util.List<String> chunks = index(text, 0, "{}", "[]");
+        assertThat(chunks).hasSize(2);
+        assertThat(chunks.getFirst()).isEqualTo("😀甲".repeat(1000));
+        assertThat(chunks.getLast()).isEqualTo("😀甲".repeat(300));
+        assertThat(String.join("", chunks)).isEqualTo(text);
+        assertThat(chunks).allSatisfy(chunk -> assertThat(chunk.codePointCount(0, chunk.length()))
+                .isLessThanOrEqualTo(2000));
+    }
+
+    @Test
+    @DisplayName("句末引用保留在原句，列表编号和首字母缩写不冒充句末")
+    void quotationAndListBoundariesRemainTraceable() throws Exception {
+        String first = "前".repeat(1948) + "。”";
+        String second = "\n1. Dr. A. Smith in the U.S. measured 3.14, e.g. “引用\n续行” " + "后".repeat(200) + "！";
+        assertThat(index(first + second, 0, "{}", "[]")).containsExactly(first, second);
+    }
+
+    @Test
+    @DisplayName("嵌入输入仅加入选定自定义文本字段，未选中字段不外发")
+    void onlySelectedMetadataEntersEmbedding() throws Exception {
+        assertThat(index("固定正文", 0, "{\"user_label\":\"选中内容\",\"user_private\":\"未选内容\"}", "[\"user_label\"]"))
+                .containsExactly("固定正文\nuser_label: 选中内容");
+    }
+
+    @Test
+    @DisplayName("正文与选中元信息共同超过模型预算时拒绝外发和生效")
+    void metadataBudgetPreventsDispatch() throws Exception {
+        assertThat(index(
+                        "正".repeat(1000),
+                        0,
+                        "{\"user_label\":\"" + "元".repeat(2000) + "\"}",
+                        "[\"user_label\"]",
+                        "failed"))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("首次嵌入外发期间覆盖上传，旧任务取消且迟到响应不能发布")
+    void replacedVersionCannotPublishLateEmbedding() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var first = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var inputs = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        HttpServer vector = indexedVector(inputs, () -> {
+            if (first.compareAndSet(true, false)) {
+                entered.countDown();
+                try {
+                    assertThat(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                            .isTrue();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError("受控嵌入等待被中断。", interrupted);
+                }
+            }
+        });
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "late-embedding-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String dataset = JSON.readTree(send(client, "/datasets", "POST", "{\"name\":\"首次版本保护\"}", null)
+                            .body())
+                    .path("id")
+                    .asText();
+            uploadText(client, dataset, "旧正文迟到返回");
+            JsonNode accepted = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases",
+                            "POST",
+                            "{\"name\":\"首次索引保护\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                    + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            String kb = await(client, accepted.at("/task/id").asText())
+                    .path("resultResourceId")
+                    .asText();
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            JsonNode initial = read(client, "/knowledge-bases/" + kb + "/files").at("/items/0");
+            String oldTask = initial.at("/task/id").asText();
+            assertThat(initial.path("effectiveIndexVersionId").isNull()).isTrue();
+            JsonNode replacement = uploadText(client, dataset, "新正文唯一生效");
+            JsonNode cancelled = await(client, oldTask);
+            assertThat(cancelled.path("state").asText()).isEqualTo("cancelled");
+            assertThat(cancelled.path("resultResourceId").isNull()).isTrue();
+            release.countDown();
+            JsonNode completed =
+                    await(client, replacement.at("/items/0/indexTaskIds/0").asText());
+            assertThat(completed.path("state").asText())
+                    .as(completed.toString())
+                    .isEqualTo("succeeded");
+            JsonNode current = read(client, "/knowledge-bases/" + kb + "/files").at("/items/0");
+            assertThat(current.path("effectiveIndexVersionId").asText())
+                    .isEqualTo(completed.path("resultResourceId").asText());
+            assertThat(current.path("effectiveContentVersionId").asText())
+                    .isEqualTo(completed.path("targetContentVersionId").asText());
+            assertThat(read(client, "/tasks/" + oldTask).path("state").asText()).isEqualTo("cancelled");
+            JsonNode search = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases/" + kb + "/search-test",
+                            "POST",
+                            "{\"query\":\"新正文\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            assertThat(await(client, search.at("/task/id").asText())
+                            .path("state")
+                            .asText())
+                    .isEqualTo("succeeded");
+            JsonNode result =
+                    read(client, "/search-requests/" + search.path("id").asText());
+            assertThat(result.at("/result/evidence").size()).isEqualTo(1);
+            assertThat(result.at("/result/evidence/0/text").asText()).isEqualTo("新正文唯一生效");
+            assertThat(result.at("/result/evidence/0/contentVersionId").asText())
+                    .isEqualTo(completed.path("targetContentVersionId").asText());
+        } finally {
+            release.countDown();
+            vector.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("检索外发期间切换生效版本，当前请求仍返回捕获版本的完整证据")
+    void searchRetainsCapturedVersionDuringSwitch() throws Exception {
+        checkSearchSnapshot(false);
+    }
+
+    @Test
+    @DisplayName("覆盖更新尚在运行时旧索引证据使用契约updating状态且知识库聚合保持运行")
+    void updatingEvidenceUsesContractState() throws Exception {
+        checkSearchSnapshot(true);
+    }
+
+    private void checkSearchSnapshot(boolean updating) throws Exception {
+        var updatingEntered = new java.util.concurrent.CountDownLatch(1);
+        var updatingRelease = new java.util.concurrent.CountDownLatch(1);
+        var embeddingCalls = new java.util.concurrent.atomic.AtomicInteger();
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var first = new java.util.concurrent.atomic.AtomicBoolean(true);
+        HttpServer vector = indexedVector(
+                new java.util.concurrent.CopyOnWriteArrayList<>(),
+                () -> {
+                    if (updating && embeddingCalls.incrementAndGet() == 3) {
+                        updatingEntered.countDown();
+                        try {
+                            assertThat(updatingRelease.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                                    .isTrue();
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError("受控更新等待被中断。", interrupted);
+                        }
+                    }
+                },
+                () -> {
+                    if (first.compareAndSet(true, false)) {
+                        entered.countDown();
+                        try {
+                            assertThat(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                                    .isTrue();
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError("受控检索等待被中断。", interrupted);
+                        }
+                    }
+                });
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "search-snapshot-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String dataset = JSON.readTree(send(client, "/datasets", "POST", "{\"name\":\"检索版本快照\"}", null)
+                            .body())
+                    .path("id")
+                    .asText();
+            uploadText(client, dataset, "原生效正文");
+            JsonNode accepted = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases",
+                            "POST",
+                            "{\"name\":\"读取版本保护\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                    + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            String kb = await(client, accepted.at("/task/id").asText())
+                    .path("resultResourceId")
+                    .asText();
+            JsonNode oldTask = await(
+                    client,
+                    read(client, "/knowledge-bases/" + kb + "/files")
+                            .at("/items/0/task/id")
+                            .asText());
+            assertThat(oldTask.path("state").asText()).isEqualTo("succeeded");
+            JsonNode search = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases/" + kb + "/search-test",
+                            "POST",
+                            "{\"query\":\"版本快照\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            JsonNode replacement = uploadText(client, dataset, "后续生效正文");
+            String replacementTask = replacement.at("/items/0/indexTaskIds/0").asText();
+            if (updating)
+                assertThat(updatingEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                        .isTrue();
+            JsonNode newTask = updating ? read(client, "/tasks/" + replacementTask) : await(client, replacementTask);
+            assertThat(newTask.path("state").asText())
+                    .as(newTask.toString())
+                    .isEqualTo(updating ? "running" : "succeeded");
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo(updating ? "running" : "idle");
+            assertThat(read(client, "/knowledge-bases")
+                            .at("/items/0/processingState")
+                            .asText())
+                    .isEqualTo(updating ? "running" : "idle");
+            assertThat(newTask.path("targetContentVersionId").asText())
+                    .isNotEqualTo(oldTask.path("targetContentVersionId").asText());
+            release.countDown();
+            assertThat(await(client, search.at("/task/id").asText())
+                            .path("state")
+                            .asText())
+                    .isEqualTo("succeeded");
+            JsonNode result =
+                    read(client, "/search-requests/" + search.path("id").asText());
+            assertThat(result.at("/result/outcome").asText())
+                    .as(result.toString())
+                    .isEqualTo("matches");
+            assertThat(result.at("/result/evidence").size()).isEqualTo(1);
+            assertThat(result.at("/result/evidence/0/text").asText()).isEqualTo("原生效正文");
+            assertThat(result.at("/result/evidence/0/contentVersionId").asText())
+                    .isEqualTo(oldTask.path("targetContentVersionId").asText());
+            assertThat(result.at("/result/evidence/0/indexVersionId").asText())
+                    .isEqualTo(oldTask.path("resultResourceId").asText());
+            assertThat(result.at("/result/evidence/0/updateState").asText()).isEqualTo(updating ? "updating" : "ready");
+            assertThat(result.at("/result/evidence/0/usingPreviousVersion").asBoolean())
+                    .isTrue();
+            updatingRelease.countDown();
+            assertThat(await(client, replacementTask).path("state").asText()).isEqualTo("succeeded");
+        } finally {
+            release.countDown();
+            updatingRelease.countDown();
+            vector.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("供应商原始用量小数和整数溢出均不得产生生效索引")
+    void malformedUsageCannotPublish() throws Exception {
+        for (String usage :
+                java.util.List.of("4.5", "4294967300", "-1", "null", "\"4\"", "9007199254740992", "100", "missing")) {
+            assertThat(index("固定正文", 0, "{}", "[]", "failed", usage, "INTEGRITY_FAILED"))
+                    .hasSize(1);
+        }
+    }
+
+    @Test
+    @DisplayName("索引成功持久保存独立实际用量字节上界和计量器版本")
+    void successfulIndexRecordsMeasuredUsage() throws Exception {
+        assertThat(index("😀甲e\u0301\t正文", 0, "{}", "[]")).containsExactly("😀甲e\u0301\t正文");
+    }
+
+    @Test
+    @DisplayName("完整输入恰好字节预算可运行，超一字节拒绝外发，零实际用量合法")
+    void exactInputBudgetAndZeroUsage() throws Exception {
+        String text = "正".repeat(2000);
+        String metadata = "元".repeat(726) + "a";
+        assertThat(index(text, 0, "{\"user_label\":\"" + metadata + "\"}", "[\"user_label\"]"))
+                .containsExactly(text + "\nuser_label: " + metadata);
+        assertThat(index(text, 0, "{\"user_label\":\"" + metadata + "b\"}", "[\"user_label\"]", "failed"))
+                .isEmpty();
+        assertThat(index("固定正文", 0, "{}", "[]", "succeeded", "0", "")).containsExactly("固定正文");
+    }
+
+    @Test
+    @DisplayName("多文件一项成功但另一项仍运行时知识库列表与详情保持运行状态")
+    void multipleFilesKeepAggregateRunning() throws Exception {
+        var firstEntered = new java.util.concurrent.CountDownLatch(1);
+        var firstRelease = new java.util.concurrent.CountDownLatch(1);
+        var secondEntered = new java.util.concurrent.CountDownLatch(1);
+        var secondRelease = new java.util.concurrent.CountDownLatch(1);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        HttpServer vector = indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {
+            int call = calls.incrementAndGet();
+            (call == 1 ? firstEntered : secondEntered).countDown();
+            try {
+                assertThat((call == 1 ? firstRelease : secondRelease).await(5, java.util.concurrent.TimeUnit.SECONDS))
+                        .isTrue();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("受控多文件等待被中断。", interrupted);
+            }
+        });
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "aggregate-http-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String dataset = readCreatedDataset(client, "多文件聚合");
+            uploadText(client, dataset, "甲资料");
+            uploadText(client, dataset, "乙资料", "second.txt");
+            JsonNode accepted = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases",
+                            "POST",
+                            "{\"name\":\"多文件聚合\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                    + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            String kb = await(client, accepted.at("/task/id").asText())
+                    .path("resultResourceId")
+                    .asText();
+            assertThat(firstEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    .isTrue();
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo("running");
+            firstRelease.countDown();
+            assertThat(secondEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    .isTrue();
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("searchableFileCount")
+                            .asInt())
+                    .isEqualTo(1);
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo("running");
+            assertThat(read(client, "/knowledge-bases")
+                            .at("/items/0/processingState")
+                            .asText())
+                    .isEqualTo("running");
+            secondRelease.countDown();
+            for (JsonNode file :
+                    read(client, "/knowledge-bases/" + kb + "/files").path("items"))
+                assertThat(await(client, file.at("/task/id").asText())
+                                .path("state")
+                                .asText())
+                        .isEqualTo("succeeded");
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo("idle");
+        } finally {
+            firstRelease.countDown();
+            secondRelease.countDown();
+            vector.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("批量命中按召回顺序去重并排除越库切片，超候选上限失败")
+    void retrievedCandidatesAreBoundedOrderedAndScoped() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var foreign = new java.util.concurrent.atomic.AtomicReference<JsonNode>();
+        var orderedIds = new java.util.ArrayList<String>();
+        HttpServer vector =
+                indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {}, () -> {}, "4", hits -> {
+                    int call = calls.incrementAndGet();
+                    if (call == 1) foreign.set(hits.get(0).deepCopy());
+                    else if (call == 2) {
+                        var reversed = new java.util.ArrayList<JsonNode>();
+                        hits.forEach(reversed::add);
+                        java.util.Collections.reverse(reversed);
+                        hits.removeAll();
+                        for (JsonNode hit : reversed) {
+                            hits.add(hit);
+                            orderedIds.add(hit.path("id").asText());
+                        }
+                        hits.add(reversed.getFirst());
+                        hits.add(foreign.get());
+                        hits.add(JSON.createObjectNode()
+                                .put("id", UUID.randomUUID().toString())
+                                .put("score", 0.9));
+                    } else {
+                        JsonNode hit = hits.get(0).deepCopy();
+                        hits.removeAll();
+                        for (int i = 0; i < 11; i++) hits.add(hit);
+                    }
+                });
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "retrieval-batch-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String other = createIndexedBase(client, processing, "另一知识库", "越库资料");
+            JsonNode foreignRequest = search(client, other);
+            assertThat(await(client, foreignRequest.at("/task/id").asText())
+                            .path("state")
+                            .asText())
+                    .isEqualTo("succeeded");
+            String kb = createIndexedBase(client, processing, "当前知识库", "甲".repeat(2000) + "乙".repeat(2000));
+            JsonNode request = search(client, kb);
+            assertThat(await(client, request.at("/task/id").asText())
+                            .path("state")
+                            .asText())
+                    .isEqualTo("succeeded");
+            JsonNode result = read(
+                            client, "/search-requests/" + request.path("id").asText())
+                    .at("/result/evidence");
+            var actual = new java.util.ArrayList<String>();
+            for (JsonNode value : result) {
+                actual.add(value.path("chunkId").asText());
+                assertThat(value.path("knowledgeBaseId").asText()).isEqualTo(kb);
+            }
+            assertThat(actual).containsExactlyElementsOf(orderedIds).hasSize(2);
+            JsonNode overflow = search(client, kb);
+            JsonNode failed = await(client, overflow.at("/task/id").asText());
+            assertThat(failed.path("state").asText()).isEqualTo("failed");
+            assertThat(failed.at("/failure/code").asText()).isEqualTo("INTEGRITY_FAILED");
+        } finally {
+            vector.stop(0);
+        }
+    }
+
+    private String readCreatedDataset(Client client, String name) throws Exception {
+        return JSON.readTree(send(client, "/datasets", "POST", "{\"name\":\"" + name + "\"}", null)
+                        .body())
+                .path("id")
+                .asText();
+    }
+
+    private String createIndexedBase(Client client, String processing, String name, String text) throws Exception {
+        String dataset = readCreatedDataset(client, name);
+        uploadText(client, dataset, text);
+        JsonNode accepted = JSON.readTree(send(
+                        client,
+                        "/knowledge-bases",
+                        "POST",
+                        "{\"name\":\"" + name + "\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                + "\"]}",
+                        UUID.randomUUID().toString())
+                .body());
+        String kb = await(client, accepted.at("/task/id").asText())
+                .path("resultResourceId")
+                .asText();
+        for (JsonNode file : read(client, "/knowledge-bases/" + kb + "/files").path("items"))
+            assertThat(await(client, file.at("/task/id").asText()).path("state").asText())
+                    .isEqualTo("succeeded");
+        return kb;
+    }
+
+    private JsonNode search(Client client, String kb) throws Exception {
+        return JSON.readTree(send(
+                        client,
+                        "/knowledge-bases/" + kb + "/search-test",
+                        "POST",
+                        "{\"query\":\"固定查询\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                        UUID.randomUUID().toString())
+                .body());
+    }
+
+    private java.util.List<String> index(String text, int overlap, String metadata, String fields) throws Exception {
+        return index(text, overlap, metadata, fields, "succeeded");
+    }
+
+    private java.util.List<String> index(String text, int overlap, String metadata, String fields, String expectedState)
+            throws Exception {
+        return index(text, overlap, metadata, fields, expectedState, "4", "MODEL_CONFIG_INVALID");
+    }
+
+    private java.util.List<String> index(
+            String text,
+            int overlap,
+            String metadata,
+            String fields,
+            String expectedState,
+            String usage,
+            String failureCode)
+            throws Exception {
+        var inputs = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        HttpServer vector = indexedVector(inputs, () -> {}, () -> {}, usage);
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "chunking-http-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), overlap, metadata, fields);
+            String dataset = JSON.readTree(send(client, "/datasets", "POST", "{\"name\":\"切片固定样例\"}", null)
+                            .body())
+                    .path("id")
+                    .asText();
+            uploadText(client, dataset, text);
+            HttpResponse<String> response = send(
+                    client,
+                    "/knowledge-bases",
+                    "POST",
+                    "{\"name\":\"切片校验\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset + "\"]}",
+                    UUID.randomUUID().toString());
+            assertThat(response.statusCode()).as(response.body()).isEqualTo(202);
+            JsonNode created =
+                    await(client, JSON.readTree(response.body()).at("/task/id").asText());
+            assertThat(created.path("state").asText()).as(created.toString()).isEqualTo("succeeded");
+            String kb = created.path("resultResourceId").asText();
+            JsonNode file = read(client, "/knowledge-bases/" + kb + "/files")
+                    .path("items")
+                    .get(0);
+            JsonNode indexed = await(client, file.at("/task/id").asText());
+            assertThat(indexed.path("state").asText()).as(indexed.toString()).isEqualTo(expectedState);
+            if (expectedState.equals("failed")) {
+                assertThat(indexed.at("/failure/code").asText()).isEqualTo(failureCode);
+                assertThat(read(client, "/knowledge-bases/" + kb)
+                                .path("searchableFileCount")
+                                .asInt())
+                        .isZero();
+            }
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo(expectedState.equals("failed") ? "failed" : "idle");
+            if (expectedState.equals("succeeded")) {
+                var measurements = app.getBean(cn.knowpool.infrastructure.ApplicationData.class)
+                        .read(jdbc -> jdbc.sql(
+                                        "SELECT input_upper_bound,prompt_tokens,meter_version FROM index_chunks ORDER BY ordinal")
+                                .query((row, n) -> java.util.List.of(row.getInt(1), row.getInt(2), row.getString(3)))
+                                .list());
+                assertThat(measurements).hasSize(inputs.size());
+                for (int i = 0; i < inputs.size(); i++) {
+                    assertThat(measurements.get(i))
+                            .containsExactly(
+                                    inputs.get(i).getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                                    Integer.parseInt(usage),
+                                    "qwen-byte-upper-bound-1");
+                }
+            }
+            return java.util.List.copyOf(inputs);
+        } finally {
+            vector.stop(0);
+        }
+    }
+
+    private String processing(Client client, int port, int overlap, String metadata, String fields) throws Exception {
+        configure(client, port);
+        send(
+                client,
+                "/settings/models/embedding",
+                "PUT",
+                "{\"endpoint\":\"http://127.0.0.1:" + port
+                        + "/v1\",\"model\":\"text-embedding-v4\",\"contextWindowTokens\":null,\"maxOutputTokens\":null,\"credential\":{\"action\":\"replace\",\"value\":\"fixed-test-key\"}}",
+                null);
+        JsonNode saved = read(client, "/settings/models/embedding");
+        return "{\"chunking\":{\"strategy\":\"structure\",\"overlapCodePoints\":" + overlap
+                + ",\"removePageHeadersFooters\":false,\"customMetadata\":" + metadata
+                + ",\"embeddedMetadataFields\":" + fields
+                + "},\"embedding\":{\"modelConfigVersionId\":\""
+                + saved.path("versionId").asText()
+                + "\",\"dimensions\":3,\"distance\":\"cosine\",\"similarityThreshold\":0.5,\"candidatesPerQuery\":10,\"modelSnapshot\":{\"endpoint\":\"http://127.0.0.1:"
+                + port + "/v1\",\"model\":\"text-embedding-v4\"}}}";
+    }
+
+    private void configure(Client client, int port) throws Exception {
+        String endpoint = "http://127.0.0.1:" + port;
+        assertThat(send(
+                                client,
+                                "/settings/vector-store",
+                                "PUT",
+                                "{\"endpoint\":\"" + endpoint + "\",\"credential\":{\"action\":\"clear\"}}",
+                                null)
+                        .statusCode())
+                .isEqualTo(200);
+    }
+
+    private JsonNode uploadText(Client client, String dataset, String text) throws Exception {
+        return uploadText(client, dataset, text, "source.txt");
+    }
+
+    private JsonNode uploadText(Client client, String dataset, String text, String filename) throws Exception {
+        String boundary = "knowledge-boundary";
+        String body = "--" + boundary
+                + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"" + filename
+                + "\"\r\nContent-Type: text/plain\r\n\r\n"
+                + text + "\r\n--"
+                + boundary + "--\r\n";
+        HttpRequest request = HttpRequest.newBuilder(
+                        URI.create(client.base() + "/datasets/" + dataset + "/files:upload"))
+                .header("Cookie", client.cookie())
+                .header("X-CSRF-Token", client.token())
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        return JSON.readTree(response.body());
+    }
+
+    private JsonNode await(Client client, String id) throws Exception {
+        for (int i = 0; i < 200; i++) {
+            JsonNode task = read(client, "/tasks/" + id);
+            if (!java.util.Set.of("queued", "running")
+                    .contains(task.path("state").asText())) return task;
+            Thread.sleep(25);
+        }
+        throw new AssertionError("创建任务没有按期结束。");
+    }
+
+    private JsonNode read(Client client, String path) throws Exception {
+        HttpResponse<String> response = send(client, path, "GET", null, null);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        return JSON.readTree(response.body());
+    }
+
+    private HttpResponse<String> send(Client client, String path, String method, String body, String key)
+            throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(client.base() + path));
+        if (client.cookie() != null) request.header("Cookie", client.cookie());
+        if (client.token() != null) request.header("X-CSRF-Token", client.token());
+        if (key != null) request.header("Idempotency-Key", key);
+        if (body != null) request.header("Content-Type", "application/json");
+        HttpResponse<String> response = http.send(
+                request.method(
+                                method,
+                                body == null
+                                        ? HttpRequest.BodyPublishers.noBody()
+                                        : HttpRequest.BodyPublishers.ofString(body))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        if (java.util.Arrays.stream(Thread.currentThread().getStackTrace())
+                .anyMatch(frame -> frame.getMethodName().equals("publicContractBranchesRemainReachable"))) {
+            java.util.Map<String, Object> item = new java.util.LinkedHashMap<>();
+            item.put("path", response.request().uri().getRawPath());
+            item.put("method", method);
+            item.put("status", response.statusCode());
+            item.put(
+                    "contentType", response.headers().firstValue("Content-Type").orElse(""));
+            item.put("response", JSON.readTree(response.body()));
+            item.put("body", body);
+            java.util.Map<String, String> parameters = new java.util.LinkedHashMap<>();
+            response.request().headers().map().forEach((name, values) -> parameters.put(name, values.getFirst()));
+            item.put("parameters", parameters);
+            item.put("behavior", "publicContractBranchesRemainReachable");
+            GAP_OBSERVATIONS.add(item);
+        }
+        return response;
+    }
+
+    private Client client(ConfigurableApplicationContext app) throws Exception {
+        String base = "http://127.0.0.1:" + app.getEnvironment().getProperty("local.server.port") + "/api/v1";
+        HttpResponse<String> response = send(new Client(base, null, null), "/session", "GET", null, null);
+        return new Client(
+                base,
+                response.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0],
+                JSON.readTree(response.body()).get("csrfToken").asText());
+    }
+
+    private HttpServer indexedVector(java.util.List<String> inputs) throws Exception {
+        return indexedVector(inputs, () -> {});
+    }
+
+    private HttpServer indexedVector(java.util.List<String> inputs, Runnable beforeEmbedding) throws Exception {
+        return indexedVector(inputs, beforeEmbedding, () -> {});
+    }
+
+    private HttpServer indexedVector(java.util.List<String> inputs, Runnable beforeEmbedding, Runnable beforeQuery)
+            throws Exception {
+        return indexedVector(inputs, beforeEmbedding, beforeQuery, "4");
+    }
+
+    private HttpServer indexedVector(
+            java.util.List<String> inputs, Runnable beforeEmbedding, Runnable beforeQuery, String usage)
+            throws Exception {
+        return indexedVector(inputs, beforeEmbedding, beforeQuery, usage, hits -> {});
+    }
+
+    private HttpServer indexedVector(
+            java.util.List<String> inputs,
+            Runnable beforeEmbedding,
+            Runnable beforeQuery,
+            String usage,
+            java.util.function.Consumer<tools.jackson.databind.node.ArrayNode> adjustHits)
+            throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(command -> Thread.ofVirtual().start(command));
+        java.util.Set<String> collections = java.util.concurrent.ConcurrentHashMap.newKeySet();
+        java.util.Map<String, JsonNode> points = new java.util.concurrent.ConcurrentHashMap<>();
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            byte[] request = exchange.getRequestBody().readAllBytes();
+            JsonNode body = request.length == 0 ? JSON.createObjectNode() : JSON.readTree(request);
+            String response;
+            int status = 200;
+            if (path.equals("/v1/embeddings")) {
+                inputs.add(body.at("/input/0").asText());
+                beforeEmbedding.run();
+                String usageBody =
+                        usage.equals("missing") ? "{}" : "{\"prompt_tokens\":" + usage + ",\"total_tokens\":4}";
+                response =
+                        "{\"object\":\"list\",\"data\":[{\"object\":\"embedding\",\"index\":0,\"embedding\":[1,0,0]}],\"model\":\"text-embedding-v4\",\"usage\":"
+                                + usageBody + "}";
+            } else if (path.endsWith("/points") && exchange.getRequestMethod().equals("PUT")) {
+                for (JsonNode point : body.path("points"))
+                    points.put(point.path("id").asText(), point);
+                response = "{\"status\":\"ok\",\"result\":{\"status\":\"completed\"}}";
+            } else if (path.endsWith("/points") && exchange.getRequestMethod().equals("POST")) {
+                var result = JSON.createArrayNode();
+                for (JsonNode id : body.path("ids"))
+                    if (points.containsKey(id.asText())) {
+                        var point = (tools.jackson.databind.node.ObjectNode)
+                                points.get(id.asText()).deepCopy();
+                        var normalized = JSON.createArrayNode();
+                        for (JsonNode component : point.path("vector")) {
+                            if (component.doubleValue() == Math.rint(component.doubleValue()))
+                                normalized.add(component.intValue());
+                            else normalized.add(component.doubleValue());
+                        }
+                        point.set("vector", normalized);
+                        result.add(point);
+                    }
+                response = JSON.writeValueAsString(java.util.Map.of("status", "ok", "result", result));
+            } else if (path.endsWith("/points/query")) {
+                beforeQuery.run();
+                var result = JSON.createArrayNode();
+                for (JsonNode point : points.values())
+                    for (JsonNode index : body.at("/filter/must/0/match/any"))
+                        if (point.at("/payload/index_id").asText().equals(index.asText()))
+                            result.add(((tools.jackson.databind.node.ObjectNode) point.deepCopy()).put("score", 0.9));
+                adjustHits.accept(result);
+                response = JSON.writeValueAsString(
+                        java.util.Map.of("status", "ok", "result", java.util.Map.of("points", result)));
+            } else if (exchange.getRequestMethod().equals("PUT")) {
+                collections.add(path);
+                response = "{\"status\":\"ok\",\"result\":true}";
+            } else if (collections.contains(path)) {
+                response =
+                        "{\"status\":\"ok\",\"result\":{\"config\":{\"params\":{\"vectors\":{\"size\":3,\"distance\":\"Cosine\"}}}}}";
+            } else {
+                status = 404;
+                response = "{}";
+            }
+            byte[] bytes = response.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        return server;
+    }
+
+    private ConfigurableApplicationContext start(Path directory) {
+        ConfigurableApplicationContext app = new SpringApplication(KnowledgePoolApplication.class)
+                .run("--server.port=0", "--know-pool.data-directory=" + directory);
+        if (GAP_ROUTES.isEmpty())
+            app.getBean(org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class)
+                    .getHandlerMethods()
+                    .forEach((mapping, handler) -> {
+                        for (String path : mapping.getPatternValues())
+                            for (var method : mapping.getMethodsCondition().getMethods())
+                                GAP_ROUTES.add(java.util.Map.of("method", method.name(), "path", path));
+                    });
+        return app;
+    }
+
+    @org.junit.jupiter.api.AfterAll
+    static void gapEvidence() throws Exception {
+        if (!gapsPassed) return;
+        GAP_OBSERVATIONS.getFirst().put("routes", GAP_ROUTES);
+        Path root = Path.of(System.getProperty("maven.multiModuleProjectDirectory", ".."))
+                .toAbsolutePath()
+                .normalize();
+        Process process = new ProcessBuilder(
+                        "python",
+                        "server/src/test/resources/contract/settings-evidence.py",
+                        root.toString(),
+                        "indexing-gaps")
+                .directory(root.toFile())
+                .redirectError(ProcessBuilder.Redirect.INHERIT)
+                .start();
+        try (var output = process.getOutputStream()) {
+            output.write(JSON.writeValueAsBytes(GAP_OBSERVATIONS));
+        }
+        String result = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(process.waitFor()).as(result).isZero();
+    }
+
+    private record Client(String base, String cookie, String token) {}
+}

@@ -55,6 +55,7 @@ public final class ApiErrors {
         String requestId = response.getHeader("X-Request-Id");
         if (requestId == null) requestId = UUID.randomUUID().toString();
         return ResponseEntity.status(status)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .body(Map.of(
                         "requestId",
                         requestId,

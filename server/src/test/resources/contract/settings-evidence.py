@@ -21,6 +21,29 @@ operations = verification.inventory(document)
 observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
+INDEXING_CHECKS = {
+    'currentIndexVersions': ({'textIndexBecomesEffective'}, {
+        'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'},
+        '#/x-business-constraints/indexSwitch', '真实生效版本、替换和失败保留旧索引经公开接口断言。'),
+    'managementPublication': ({'textIndexBecomesEffective'}, {'testKnowledgeBaseSearch', 'getKnowledgeBase'},
+        '#/x-business-constraints/publication', '未发布知识库可管理检索，索引成功不自动发布。'),
+    'queryDoesNotRepeatCalls': ({'managementSearchFailureIsStableAndExpiresOnRestart', 'managementQueueAndRestartAreSafe'}, {'getTask', 'testKnowledgeBaseSearch'},
+        '#/x-business-constraints/cost', '同键和原任务查询不重新外发，重启不自动恢复收费检索。'),
+    'indexRetriesAreBounded': ({'textIndexBecomesEffective'}, {'getTask', 'testKnowledgeBaseSearch'},
+        None, '后台索引可重试阶段最多三次含首次；此断言不证明恢复不会重复收费。'),
+    'persistedEmbeddingNoRepeat': ({'persistedEmbeddingResumesWithoutModelCall'}, {'getTask'},
+        '#/x-business-constraints/cost', '向量写入门控后关闭应用并重启，持久嵌入安全恢复成功，模型调用总数始终为一次。'),
+    'eventReconnect': ({'terminalSnapshotCanBeResumed'}, {'watchTask', 'getTask'},
+        '#/x-business-constraints/sse', '断线查询原任务，重订阅不改变任务或重新外发。'),
+    'eventCursor': ({'terminalSnapshotCanBeResumed'}, {'watchTask'},
+        '#/paths/~1tasks~1{taskId}~1events/get/x-sse/lastEventIdHeader', '合法旧及未来游标只返回当前快照，非法或异任务游标拒绝。'),
+    'eventReconnectProtocol': ({'terminalSnapshotCanBeResumed', 'boundedSubscriptionsReleaseOnDisconnectAndEmitHeartbeat'}, {'watchTask'},
+        '#/paths/~1tasks~1{taskId}~1events/get/x-sse/reconnect', '重连不重跑、不改变序号，终态快照可重发后关闭，心跳使用注释帧。'),
+    'eventCookieSecurity': ({'terminalSnapshotCanBeResumed'}, {'watchTask'},
+        'security.8', '真实Cookie事件会话、来源及失效会话拒绝，令牌不进URL，断线不重新受理。'),
+    'eventCapacity': ({'boundedSubscriptionsReleaseOnDisconnectAndEmitHeartbeat'}, {'watchTask'},
+        None, '真实订阅容量满时返回429，断线释放槽位，后续订阅可恢复。'),
+}
 BEHAVIORS = {
     'initialConfigurationSurvivesRestart': ('持久初值：两模型独立身份、空值、时间及重启保留，向量未设置状态。', {'getGenerationModel','getEmbeddingModel','getVectorConfig'}),
     'credentialAndVersionsAreIndependent': ('配置独立：三态、同源继承、跨源400原子拒绝、相同保存不造版本、历史清除不改当前版本、分页。', {'getEmbeddingModel','updateEmbeddingModel','getEmbeddingModelVersion','updateEmbeddingVersionCredential','listEmbeddingModelVersions'}),
@@ -42,6 +65,66 @@ def validate_media(value):
 def behavior_assertions(item, name):
     behavior = BEHAVIORS.get(item.get('behavior'))
     return [behavior[0]] if behavior and name in behavior[1] else []
+
+
+def indexing_assertions(item, name):
+    """只接收已通过测试显式声明的对应行为，不由结构清单推断。"""
+    found, assertions = set(), []
+    for check in item.get('behaviorChecks', []):
+        if check not in INDEXING_CHECKS:
+            raise AssertionError('未声明的索引行为检查：' + str(check))
+        methods, identifiers, pointer, explanation = INDEXING_CHECKS[check]
+        if item.get('behavior') in methods and name in identifiers:
+            if pointer:
+                found.add(pointer)
+            assertions.append(explanation)
+    return found, assertions
+
+
+def event_constraints(item, prefix):
+    """核对真实事件帧及数据，只映射本次实际观察到的事件结构。"""
+    if item['contentType'].split(';', 1)[0].strip().lower() != 'text/event-stream':
+        raise AssertionError('真实事件媒体不符合契约。')
+    if not isinstance(item['response'], str):
+        raise AssertionError('真实事件响应必须保留原始帧。')
+    found = {prefix + '/responses/200/content/text~1event-stream/schema/type'}
+    task_id = item['path'].split('?', 1)[0].split('/')[-2]
+    cursor_schema = document['paths']['/tasks/{taskId}/events']['get']['parameters'][1]['schema']
+    count = 0
+    normalized = item['response'].replace('\r\n', '\n').replace('\r', '\n')
+    if not normalized.endswith('\n\n'):
+        raise AssertionError('真实事件末帧不完整。')
+    for frame in normalized.split('\n\n'):
+        fields = {}
+        for line in frame.split('\n'):
+            if not line or line.startswith(':'):
+                continue
+            key, separator, value = line.partition(':')
+            if not separator or key not in ('event', 'id', 'data') or key in fields:
+                raise AssertionError('真实事件包含非法或重复字段。')
+            fields[key] = value.removeprefix(' ')
+        if not fields:
+            continue
+        if set(fields) != {'event', 'id', 'data'} or fields['event'] not in ('phase', 'terminal'):
+            raise AssertionError('真实事件缺少身份、类型或数据。')
+        value = json.loads(fields['data'])
+        validator({'$ref': '#/components/schemas/TaskEvent'}).validate(value)
+        validator(cursor_schema).validate(fields['id'])
+        if value['taskId'] != task_id or fields['id'] != task_id + ':' + str(value['sequence']):
+            raise AssertionError('真实事件身份或序号不一致。')
+        terminal = value['state'] in document['paths']['/tasks/{taskId}/events']['get']['x-sse']['terminalStates']
+        if (fields['event'] == 'terminal') != terminal:
+            raise AssertionError('真实事件类型与任务终态不一致。')
+        if count and previous_terminal:
+            raise AssertionError('真实终态之后不得继续发送事件。')
+        previous_terminal = terminal
+        keywords({'$ref': '#/components/schemas/TaskEvent'}, '#/event', value, found)
+        found.update({prefix + '/x-sse/events/' + fields['event'], prefix + '/x-sse/id',
+                      prefix + '/x-sse/terminalStates'})
+        count += 1
+    if not count:
+        raise AssertionError('真实事件响应没有阶段或终态帧。')
+    return found
 
 def error_field_constraints(schema, pointer, field, value, found):
     if '$ref' in schema:
@@ -172,6 +255,29 @@ if profile == 'knowledge-bases':
     assert '#/metadata/propertyNames/pattern' in found
     assert '#/metadata/additionalProperties/maxLength' in found
 
+if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
+    selected_operations = {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
+                           'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
+                           'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
+    BEHAVIORS = {
+        'textIndexBecomesEffective': ('真实文本索引、生效版本及管理结果身份与证据读取。',
+            {'getTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
+        'managementSearchFailureIsStableAndExpiresOnRestart': ('无索引异步失败、同键原请求、非法输入拒绝与重启410墓碑。',
+            {'getTask', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
+        'managementQueueAndRestartAreSafe': ('真实检索容量拒绝、同键不重提及重启在途请求中断和身份失效。',
+            {'getTask', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
+        'persistedEmbeddingResumesWithoutModelCall': ('向量写入中断后从持久嵌入检查点恢复，索引成功且模型调用总数不增加。',
+            {'getTask', 'listKnowledgeBaseFiles'}),
+        'terminalSnapshotCanBeResumed': ('真实阶段终态事件及恢复游标，订阅不改变持久状态序号。', {'watchTask'}),
+        'boundedSubscriptionsReleaseOnDisconnectAndEmitHeartbeat': ('真实订阅容量、断线释放及注释心跳不改变序号，阶段和终态随任务状态变化。', {'watchTask'}),
+        'everyOperationRejectsUnsafeRequests': ('真实会话及来源拒绝、未知查询、分页与标识边界和本机异常响应。',
+            {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
+             'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
+             'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}),
+    }
+    if profile == 'indexing-events':
+        selected_operations = {'watchTask', 'getTask'}
+
 
 for index, item in enumerate(observations):
     path = item['path'].split('?', 1)[0].removeprefix('/api/v1')
@@ -187,13 +293,20 @@ for index, item in enumerate(observations):
     if selected is None or selected[0] not in selected_operations:
         continue
     name, operation = selected
-    validate_media(item['contentType'])
+    is_indexing = profile in ('indexing', 'indexing-events', 'indexing-gaps')
+    is_event = is_indexing and name == 'watchTask' and item['status'] == 200
+    if not is_event:
+        validate_media(item['contentType'])
     method = item['method'].lower()
     prefix = '#/paths/' + verification.escape(operation['path']) + '/' + method
     definition = document['paths'][operation['path']][method]
     found = {prefix + '/method', prefix + '/path', prefix + '/security', prefix + '/parameters',
              prefix + '/responses/' + str(item['status'])}
     assertions = behavior_assertions(item, name)
+    if is_indexing:
+        behavior_found, behavior_notes = indexing_assertions(item, name)
+        found.update(behavior_found)
+        assertions.extend(behavior_notes)
     if definition.get('description') and assertions:
         found.add(prefix + '/description')
     response_definition = definition['responses'][str(item['status'])]
@@ -203,12 +316,15 @@ for index, item in enumerate(observations):
         response_pointer = ref
     else:
         response_pointer = prefix + '/responses/' + str(item['status'])
-    response_schema = response_definition['content']['application/json']['schema']
-    errors = list(validator(response_schema).iter_errors(item['response']))
-    if errors:
-        raise AssertionError('真实响应结构不符合契约：' + name + ':' + str(item['status']) + ':' + '/'.join(map(str, errors[0].schema_path)))
-    keywords(response_schema, response_pointer + '/content/application~1json/schema', item['response'], found)
-    if 'requestBody' in definition:
+    if is_event:
+        found.update(event_constraints(item, prefix))
+    else:
+        response_schema = response_definition['content']['application/json']['schema']
+        errors = list(validator(response_schema).iter_errors(item['response']))
+        if errors:
+            raise AssertionError('真实响应结构不符合契约：' + name + ':' + str(item['status']) + ':' + '/'.join(map(str, errors[0].schema_path)))
+        keywords(response_schema, response_pointer + '/content/application~1json/schema', item['response'], found)
+    if 'application/json' in definition.get('requestBody', {}).get('content', {}):
         found.add(prefix + '/requestBody')
         found.add(prefix + '/requestBody/required')
         request_schema = definition['requestBody']['content']['application/json']['schema']
@@ -244,8 +360,8 @@ for index, item in enumerate(observations):
             try: actual = int(actual)
             except ValueError: pass
         found.update(parameter_constraints(schema,pointer,actual,parameter.get('required',False),item['status']))
-    found &= set(operation['constraints'])
-    request_label = '真实知识库请求' if profile == 'knowledge-bases' else '真实设置请求'
+    found &= set(operation['constraints']) | ({'security.8'} if is_indexing else set())
+    request_label = '真实索引边界请求' if profile == 'indexing-gaps' else '真实事件请求' if profile == 'indexing-events' else '真实索引请求' if is_indexing else '真实知识库请求' if profile == 'knowledge-bases' else '真实设置请求'
     tests.append({'name': str(index + 1) + '：' + request_label + '：' + name + '：' + str(item['status']),
                   'passed': True, 'operationIds': [name], 'constraintIds': sorted(found),
                   'request': {'method': item['method'], 'path': path},
@@ -255,7 +371,7 @@ for index, item in enumerate(observations):
 report = {'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
           'implementationSha256': verification.snapshot()[0],
           'routes': observations[0]['routes'], 'tests': tests}
-output = root / ('server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
+output = root / ('server/target/contract/provider-indexing-gaps-evidence.json' if profile == 'indexing-gaps' else 'server/target/contract/provider-indexing-events-evidence.json' if profile == 'indexing-events' else 'server/target/contract/provider-indexing-evidence.json' if profile == 'indexing' else 'server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print('提供方证据完成：' + profile + '：' + str(len(tests)))

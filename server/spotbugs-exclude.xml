@@ -13,4 +13,12 @@
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.KnowledgeBases"/><Field name="json"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.VectorCollections"/><Field name="json"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.api.KnowledgeBaseController"/><Field name="service"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.infrastructure.TaskEvents"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.infrastructure.TaskEvents"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Indexes"/><Field name="bases"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Indexes"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Indexes"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.search.SearchRequests"/><Field name="bases"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.search.SearchRequests"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.search.SearchRequests"/><Field name="json"/></Match>
 </FindBugsFilter>

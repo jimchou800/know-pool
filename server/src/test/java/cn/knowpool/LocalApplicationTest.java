@@ -271,10 +271,10 @@ class LocalApplicationTest {
                 .hasMessageContaining("另一应用进程");
         Path other = Files.createTempDirectory(Path.of("target/test-data"), "reopen-");
         try (ApplicationData first = new ApplicationData(other.toString())) {
-            assertThat(first.status().schemaVersion()).isEqualTo(5);
+            assertThat(first.status().schemaVersion()).isEqualTo(6);
         }
         try (ApplicationData reopened = new ApplicationData(other.toString())) {
-            assertThat(reopened.status().schemaVersion()).isEqualTo(5);
+            assertThat(reopened.status().schemaVersion()).isEqualTo(6);
         }
         assertThatThrownBy(() -> new ApplicationData("\\\\server\\share"))
                 .isInstanceOf(IOException.class)
@@ -524,7 +524,7 @@ class LocalApplicationTest {
             statement.execute("INSERT INTO application_metadata VALUES ('created_at','保留原始元数据')");
             statement.execute("PRAGMA user_version=1");
             try (ApplicationData upgraded = new ApplicationData(directory.toString())) {
-                assertThat(upgraded.status().schemaVersion()).isEqualTo(5);
+                assertThat(upgraded.status().schemaVersion()).isEqualTo(6);
                 assertThat(upgraded.<String>read(jdbc -> jdbc.sql("SELECT value FROM application_metadata")
                                 .query(String.class)
                                 .single()))
@@ -575,7 +575,7 @@ class LocalApplicationTest {
         try (var connection =
                         java.sql.DriverManager.getConnection("jdbc:sqlite:" + newer.resolve("application.sqlite"));
                 var statement = connection.createStatement()) {
-            statement.execute("PRAGMA user_version=6");
+            statement.execute("PRAGMA user_version=7");
         }
         assertThatThrownBy(() -> new ApplicationData(newer.toString()))
                 .isInstanceOf(IOException.class)
