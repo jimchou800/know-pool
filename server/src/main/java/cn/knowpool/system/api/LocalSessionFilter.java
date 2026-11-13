@@ -155,7 +155,15 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         && request.getMethod().equals("POST")
                 || path.matches("/api/v1/tasks/[^/]+(?:/connection-test)?")
                         && request.getMethod().equals("GET");
-        if (collection || resource || fileOperation || settings) {
+        boolean knowledgeBases =
+                path.equals("/api/v1/knowledge-bases") && Set.of("GET", "POST").contains(request.getMethod())
+                        || path.matches("/api/v1/knowledge-bases/[^/]+")
+                                && Set.of("GET", "PATCH").contains(request.getMethod())
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files)")
+                                && request.getMethod().equals("GET")
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/sources")
+                                && request.getMethod().equals("POST");
+        if (collection || resource || fileOperation || settings || knowledgeBases) {
             request.setAttribute("localSession", session);
             chain.doFilter(request, response);
             return;

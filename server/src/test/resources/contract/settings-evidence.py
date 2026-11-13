@@ -19,6 +19,7 @@ spec.loader.exec_module(verification)
 document = json.loads((root / 'docs/agents/api/openapi.yaml').read_bytes())
 operations = verification.inventory(document)
 observations = json.load(sys.stdin)
+profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 BEHAVIORS = {
     'initialConfigurationSurvivesRestart': ('持久初值：两模型独立身份、空值、时间及重启保留，向量未设置状态。', {'getGenerationModel','getEmbeddingModel','getVectorConfig'}),
@@ -83,6 +84,15 @@ def keywords(schema, pointer, value, found, visited=None):
             for name, part in child.items():
                 if name in value:
                     keywords(part, here + '/' + verification.escape(name), value[name], found, visited)
+        elif key == 'propertyNames' and isinstance(value, dict):
+            for name in value:
+                validator(child).validate(name)
+                keywords(child, here, name, found, set(visited))
+        elif key == 'additionalProperties' and isinstance(child, dict) and isinstance(value, dict):
+            for name, item in value.items():
+                if name not in schema.get('properties', {}):
+                    validator(child).validate(item)
+                    keywords(child, here, item, found, set(visited))
         elif key == 'items' and isinstance(value, list):
             for item in value:
                 keywords(child, here, item, found, set(visited))
@@ -130,6 +140,29 @@ def self_check():
 
 self_check()
 
+selected_operations = {'getGenerationModel','updateGenerationModel','testGenerationModel',
+                       'getEmbeddingModel','updateEmbeddingModel','testEmbeddingModel',
+                       'listEmbeddingModelVersions','getEmbeddingModelVersion','updateEmbeddingVersionCredential',
+                       'getConnectionTestResult','getVectorConfig','updateVectorConfig','testVectorConfig','getTask'}
+if profile == 'knowledge-bases':
+    selected_operations = {'listKnowledgeBases','createKnowledgeBase','getKnowledgeBase','updateKnowledgeBase',
+                           'getProcessingConfig','addKnowledgeBaseSource','listKnowledgeBaseSources','listKnowledgeBaseFiles','getTask'}
+    BEHAVIORS = {
+        'emptyKnowledgeBaseSurvivesRestart': ('空库初始化完成才公开，配置快照和未发布状态跨重启保留。',selected_operations),
+        'sourcesKeepUniqueQueuedIntent': ('两类来源独立保留、文件并集与持久排队任务唯一，重启不丢失且不执行索引。',selected_operations),
+        'namesIdempotencyAndSnapshotsAreStable': ('名称唯一、同键原任务与异负载冲突，任务时间和历史模型身份及配置快照稳定。',selected_operations),
+        'queueCapacityAndHiddenInitialization': ('真实队列满四二九无业务副作用，半初始化列表隐藏且详情不存在，同键复用。',selected_operations),
+        'compensationResumesWithoutReplacingOriginalFailure': ('本机最终提交故障保留原失败，删除返回假值不算清理成功，重启恢复补偿。',selected_operations),
+        'foreignAndUnknownCollectionsAreNeverDeleted': ('已有与结果不确定集合均不接管删除，原失败与幂等任务保留。',selected_operations),
+        'rejectsInvalidInputWithoutSideEffects': ('非法结构、逐字段、用户元数据、重叠与快照身份校验无副作用，合法元数据持久保存。',selected_operations),
+        'manyCompensationsDoNotBlockStartup': ('超过执行容量的补偿记录重启后有界处理，本地资料管理仍可用。',selected_operations),
+        'everyOperationRejectsUnsafeRequests': ('全部操作真实会话和跨站保护，查询及标识边界，本机存储异常统一错误。',selected_operations),
+    }
+    found = set()
+    keywords({'type':'object','propertyNames':{'pattern':'^user_[a-z]+$'},'additionalProperties':{'type':'string','maxLength':20}}, '#/metadata', {'user_name':'中文'}, found)
+    assert '#/metadata/propertyNames/pattern' in found
+    assert '#/metadata/additionalProperties/maxLength' in found
+
 
 for index, item in enumerate(observations):
     path = item['path'].split('?', 1)[0].removeprefix('/api/v1')
@@ -142,7 +175,7 @@ for index, item in enumerate(observations):
         if len(expected) == len(actual) and all(a == b or a.startswith('{') for a, b in zip(expected, actual)):
             selected = name, operation
             break
-    if selected is None or selected[0] not in verification.SCOPE[13:]:
+    if selected is None or selected[0] not in selected_operations:
         continue
     name, operation = selected
     validate_media(item['contentType'])
@@ -212,7 +245,7 @@ for index, item in enumerate(observations):
 report = {'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
           'implementationSha256': verification.snapshot()[0],
           'routes': observations[0]['routes'], 'tests': tests}
-output = root / 'server/target/contract/provider-settings-evidence.json'
+output = root / ('server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-print('设置提供方证据完成：' + str(len(tests)))
+print('提供方证据完成：' + profile + '：' + str(len(tests)))

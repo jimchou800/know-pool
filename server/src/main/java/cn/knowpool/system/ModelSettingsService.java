@@ -189,6 +189,20 @@ public final class ModelSettingsService {
         return data.read(ModelSettingsService::vectorSnapshot).view();
     }
 
+    public VectorConnection vectorConnection() {
+        return data.read(jdbc -> {
+            VectorSnapshot stored = vectorSnapshot(jdbc);
+            return new VectorConnection(stored.endpoint(), stored.secret());
+        });
+    }
+
+    public record VectorConnection(String endpoint, String secret) {
+        @Override
+        public String toString() {
+            return "向量连接快照";
+        }
+    }
+
     public record CredentialState(boolean configured, String mask) {
         static CredentialState of(String secret) {
             return new CredentialState(secret != null, secret == null ? null : "【密钥已设置】");

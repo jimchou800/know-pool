@@ -25,6 +25,24 @@ public final class FileService {
     private final DatasetService datasets;
     private final cn.knowpool.infrastructure.UploadConfiguration.Limits limits;
 
+    public List<SourceFile> sourceFiles(org.springframework.jdbc.core.simple.JdbcClient jdbc, String type, String id) {
+        String valid = cn.knowpool.system.ModelSettingsService.identifier(id, "/resourceId");
+        if (type.equals("dataset")) {
+            datasets.get(valid);
+            return jdbc.sql("SELECT id, dataset_id, latest_version FROM files WHERE dataset_id=? ORDER BY id")
+                    .param(valid)
+                    .query((row, index) -> new SourceFile(row.getString(1), row.getString(2), row.getString(3)))
+                    .list();
+        }
+        return List.of(jdbc.sql("SELECT id,dataset_id,latest_version FROM files WHERE id=?")
+                .param(valid)
+                .query((row, index) -> new SourceFile(row.getString(1), row.getString(2), row.getString(3)))
+                .optional()
+                .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "资料不存在。", null)));
+    }
+
+    public record SourceFile(String id, String datasetId, String contentVersionId) {}
+
     public FileService(
             ApplicationData data,
             DatasetService datasets,
