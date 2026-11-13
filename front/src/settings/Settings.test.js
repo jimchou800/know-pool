@@ -557,3 +557,35 @@ it('预算错误与输入通过可访问说明关联，失败后焦点落到具�
   );
   expect(description.text()).toBe('上下文预算须为安全正整数');
 });
+
+it('历史轮换先于延迟当前配置读取完成时，不恢复旧凭据状态或开启测试', async () => {
+  let resolveCurrent;
+  const pending = new Promise((resolve) => (resolveCurrent = resolve));
+  const cleared = {
+    ...configured('embedding'),
+    credential: { configured: false, mask: null },
+    complete: false,
+  };
+  let reads = 0;
+  const { form } = await page((config) =>
+    config.url === '/settings/models/embedding' && config.method === 'get'
+      ? ++reads === 1
+        ? pending
+        : cleared
+      : config.url.endsWith('/credential')
+        ? cleared
+        : undefined,
+  );
+  await wrapper.get('.embedding-history li button').trigger('click');
+  await flushPromises();
+  await form('history').get('[name="action"]').setValue('clear');
+  await form('history').get('form').trigger('submit');
+  await flushPromises();
+  resolveCurrent(configured('embedding'));
+  await flushPromises();
+  expect(form('embedding').text()).toContain('配置未完整');
+  expect(form('embedding').text()).toContain('密钥状态：未设置');
+  expect(
+    button(form('embedding'), '测试已保存连接').attributes('disabled'),
+  ).toBeDefined();
+});
