@@ -115,6 +115,10 @@ public final class Deletions {
     }
 
     private void next() {
+        try (var lease=data.gate().enter()) { if (lease==null) return; nextActive(); }
+    }
+
+    private void nextActive() {
         if (stopping) return;
         try {
             var pending=data.read(jdbc -> jdbc.sql("SELECT d.task_id,d.targets,d.endpoint FROM deletion_cleanup d JOIN tasks t ON t.id=d.task_id WHERE t.state IN ('queued','running') ORDER BY d.task_id LIMIT 1")

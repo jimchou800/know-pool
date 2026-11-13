@@ -218,10 +218,10 @@ public final class SearchRequests {
                 instances.put(instance,owner);
             }
             try {
-                worker.execute(() -> { try { run(id,kb,input.path("query").asText()); } finally {
+                worker.execute(data.gate().activity(() -> { try { run(id,kb,input.path("query").asText()); } finally {
                     synchronized (this) { running.remove(id); }
                     Thread.interrupted(); capacity.release();
-                } });
+                } }));
             } catch (java.util.concurrent.RejectedExecutionException failure) {
                 task.put("state","interrupted").put("phase","completed").put("finishedAt",Instant.now().toString());
                 task.set("failure",json.createObjectNode().put("code","TASK_INTERRUPTED").put("message","检索执行器已停止，可能已产生费用，请手动重试。").put("retryable",false));
@@ -384,7 +384,7 @@ public final class SearchRequests {
     public void releaseQuestion() { capacity.release(); }
 
     public void executeQuestion(Runnable action) {
-        worker.execute(() -> { try { action.run(); } finally { Thread.interrupted();capacity.release(); } });
+        worker.execute(data.gate().activity(() -> { try { action.run(); } finally { Thread.interrupted();capacity.release(); } }));
     }
 
     public Grounding beginGrounding(List<String> selectedIds) {

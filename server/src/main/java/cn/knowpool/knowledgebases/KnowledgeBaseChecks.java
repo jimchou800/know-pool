@@ -75,7 +75,7 @@ public final class KnowledgeBaseChecks {
             throw failure;
         }
         if (pending.model()!=null) {
-            try { worker.execute(() -> { try { run(pending); } finally { capacity.release(); } }); }
+            try { worker.execute(data.gate().activity(() -> { try { run(pending); } finally { capacity.release(); } })); }
             catch (java.util.concurrent.RejectedExecutionException failure) {
                 capacity.release();
                 ObjectNode rejected = (ObjectNode)json.valueToTree(pending.task());

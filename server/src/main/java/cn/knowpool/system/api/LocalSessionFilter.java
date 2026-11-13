@@ -36,6 +36,8 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
     private final Set<String> allowedOrigins;
     private final JsonMapper json;
     private final Clock clock;
+    @Autowired(required=false)
+    private cn.knowpool.infrastructure.ApplicationData data;
     private final SecureRandom random = new SecureRandom();
 
     @Autowired
@@ -198,9 +200,15 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 || path.matches("/api/v1/(?:datasets|files|knowledge-bases)/[^/]+") && request.getMethod().equals("DELETE")
                 || path.equals("/api/v1/tasks") && request.getMethod().equals("GET")
                 || path.matches("/api/v1/tasks/[^/]+/retry-cleanup") && request.getMethod().equals("POST");
-        if (collection || resource || fileOperation || settings || knowledgeBases || search || chunkPreflight || processingUpdate || cancellation) {
+        boolean maintenance=path.matches("/api/v1/maintenance/(?:migration(?:/preflight)?|tasks/[^/]+(?:/retry)?)") && Set.of("GET","POST").contains(request.getMethod());
+        if (maintenance || collection || resource || fileOperation || settings || knowledgeBases || search || chunkPreflight || processingUpdate || cancellation) {
             request.setAttribute("localSession", session);
-            chain.doFilter(request, response);
+            boolean readable=maintenance || path.equals("/api/v1/tasks") && request.getMethod().equals("GET");
+            if (data==null || readable) { chain.doFilter(request,response);return; }
+            try (var lease=data.gate().enter()) {
+                if (lease==null) { error(response,503,"MAINTENANCE_IN_PROGRESS","数据维护进行中，请稍后重试。",requestId);return; }
+                chain.doFilter(request,response);
+            }
             return;
         }
         error(response, 404, "NOT_FOUND", "请求的操作不存在或尚未实现。", requestId);

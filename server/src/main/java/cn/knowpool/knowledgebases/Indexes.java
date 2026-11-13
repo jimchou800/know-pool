@@ -91,6 +91,10 @@ public final class Indexes {
     }
 
     private void next() {
+        try (var lease=data.gate().enter()) { if (lease==null) return; nextActive(); }
+    }
+
+    private void nextActive() {
         synchronized (data) { if (stopping || deletionBusy) return;workerBusy=true; }
         try {
             if (System.nanoTime() >= nextOriginalCleanup) {

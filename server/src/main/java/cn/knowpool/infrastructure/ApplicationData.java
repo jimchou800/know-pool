@@ -20,9 +20,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Component
 public final class ApplicationData implements AutoCloseable {
-    private final Path directory;
-    private final FileChannel lockChannel;
-    private final FileLock lock;
+    private volatile Path directory;
+    private final Path anchor;
+    private final MaintenanceGate gate = new MaintenanceGate();
+    private FileChannel lockChannel;
+    private FileLock lock;
     private final DriverManagerDataSource dataSource;
     private final Instant startedAt = Instant.now();
 
@@ -32,7 +34,9 @@ public final class ApplicationData implements AutoCloseable {
             throw new IOException("数据目录必须位于本机磁盘。");
         }
         Files.createDirectories(requested);
-        directory = requested.toRealPath();
+        anchor = requested.toRealPath();
+        directory = locate(anchor);
+        Files.createDirectories(directory);
         lockChannel = FileChannel.open(
                 directory.resolve("application.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
         try {
@@ -52,10 +56,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 16) {
+            if (version > 17) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 16) {
+            if (version > 0 && version < 17) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -273,13 +277,19 @@ public final class ApplicationData implements AutoCloseable {
                 });
             }
 
+            if (version < 17) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE maintenance_tasks(task_id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
+                    transaction.sql("PRAGMA user_version=17").update();return null;
+                });
+            }
         } catch (RuntimeException | IOException failure) {
             close();
             throw new IOException("数据目录初始化失败，已停止业务写入。", failure);
         }
     }
 
-    public <T> T read(Function<JdbcClient, T> action) {
+    public synchronized <T> T read(Function<JdbcClient, T> action) {
         return action.apply(JdbcClient.create(dataSource));
     }
 
@@ -293,11 +303,36 @@ public final class ApplicationData implements AutoCloseable {
     }
 
     public synchronized Status status() {
-        int version = JdbcClient.create(dataSource)
-                .sql("PRAGMA user_version")
-                .query(Integer.class)
-                .single();
-        return new Status("0.1.0", startedAt.toString(), "ready", directory.toString(), version, List.of());
+        return new Status("0.1.0", startedAt.toString(), gate.paused()?"maintenance":"ready", directory.toString(), 17, List.of());
+    }
+
+    public MaintenanceGate gate() { return gate; }
+    public Path anchor() { return anchor; }
+    public synchronized void checkpoint() {
+        JdbcClient.create(dataSource).sql("PRAGMA wal_checkpoint(TRUNCATE)").query((row,n) -> row.getInt(1)).list();
+    }
+    public synchronized void switchDirectory(Path target) throws IOException {
+        FileChannel nextChannel=FileChannel.open(target.resolve("application.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
+        FileLock nextLock;
+        try { nextLock=nextChannel.tryLock();if (nextLock==null) throw new IOException("目标目录已被占用。"); }
+        catch (IOException | RuntimeException failure) { nextChannel.close();throw failure; }
+        try {
+            Path pointer=anchor.resolve("active-directory");
+            Path pending=anchor.resolve("active-directory.pending");
+            Files.writeString(pending,target.toString(),StandardOpenOption.CREATE,StandardOpenOption.TRUNCATE_EXISTING,StandardOpenOption.SYNC);
+            Files.move(pending,pointer,java.nio.file.StandardCopyOption.ATOMIC_MOVE,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException failure) { nextLock.release();nextChannel.close();throw failure; }
+        lock.release();lockChannel.close();
+        directory=target;lockChannel=nextChannel;lock=nextLock;
+        dataSource.setUrl("jdbc:sqlite:"+directory.resolve("application.sqlite")+"?foreign_keys=on&busy_timeout=5000");
+    }
+    private static Path locate(Path anchor) throws IOException {
+        Path pointer=anchor.resolve("active-directory");
+        if (!Files.exists(pointer)) return anchor;
+        if (Files.isSymbolicLink(pointer)) throw new IOException("数据目录检查点不能是链接。");
+        Path target=Path.of(Files.readString(pointer)).toAbsolutePath().normalize();
+        if (target.getParent()==null || !Files.isDirectory(target) || Files.isSymbolicLink(target) || target.toString().startsWith("\\\\")) throw new IOException("迁移检查点无效，已停止业务写入。");
+        return target.toRealPath();
     }
 
     @PreDestroy

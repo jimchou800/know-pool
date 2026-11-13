@@ -30,7 +30,7 @@ public class UploadConfiguration {
 
     @Bean
     public MultipartConfigElement multipartConfigElement(ApplicationData data, Limits limits) throws IOException {
-        var directory = data.directory().resolve("multipart");
+        var directory = Files.createTempDirectory("know-pool-multipart-");
         Files.createDirectories(directory);
         return new MultipartConfigElement(directory.toString(), limits.maxUploadBytes(), limits.maxUploadBytes(), 0);
     }

@@ -165,13 +165,13 @@ public final class KnowledgeBases {
             if (!committed && acquired.get()) capacity.release();
         }
         if (pending.vector() != null) {
-            executor.execute(() -> {
+            executor.execute(data.gate().activity(() -> {
                 try {
                     initialize(pending);
                 } finally {
                     capacity.release();
                 }
-            });
+            }));
         }
         return new ConnectionTests.Accepted(pending.task());
     }
@@ -331,7 +331,7 @@ public final class KnowledgeBases {
         ModelSettingsService.VectorConnection current = settings.vectorConnection();
         if (!pending.isEmpty()) {
             capacity.acquireUninterruptibly();
-            executor.execute(() -> {
+            executor.execute(data.gate().activity(() -> {
                 try {
                     for (String[] item : pending) {
                         if (stopping.get()) return;
@@ -340,7 +340,7 @@ public final class KnowledgeBases {
                 } finally {
                     capacity.release();
                 }
-            });
+            }));
         }
     }
 
