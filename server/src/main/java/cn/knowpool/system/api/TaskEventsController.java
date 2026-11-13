@@ -55,18 +55,20 @@ public final class TaskEventsController {
         SseEmitter emitter = new SseEmitter(TimeUnit.MINUTES.toMillis(30));
         Subscription subscription = new Subscription(
                 snapshot.path("taskId").asText(), snapshot.path("sequence").asLong());
-        subscriptions.put(emitter, subscription);
         emitter.onCompletion(() -> release(emitter));
         emitter.onTimeout(() -> {
             release(emitter);
             emitter.complete();
         });
         emitter.onError(failure -> release(emitter));
-        try {
-            send(emitter, snapshot);
-        } catch (IOException | RuntimeException failure) {
-            release(emitter);
-            emitter.completeWithError(failure);
+        synchronized (emitter) {
+            subscriptions.put(emitter, subscription);
+            try {
+                send(emitter, snapshot);
+            } catch (IOException | RuntimeException failure) {
+                release(emitter);
+                emitter.completeWithError(failure);
+            }
         }
         return emitter;
     }
@@ -86,19 +88,22 @@ public final class TaskEventsController {
 
     private void refresh() {
         subscriptions.forEach((emitter, subscription) -> {
-            try {
-                JsonNode snapshot = events.snapshot(subscription.taskId);
-                long sequence = snapshot.path("sequence").asLong();
-                if (sequence != subscription.sequence) {
-                    send(emitter, snapshot);
-                    subscription.sequence = sequence;
-                } else if (System.nanoTime() - subscription.heartbeatAt >= TimeUnit.SECONDS.toNanos(5)) {
-                    emitter.send(SseEmitter.event().comment("心跳"));
-                    subscription.heartbeatAt = System.nanoTime();
+            synchronized (emitter) {
+                if (!subscriptions.containsKey(emitter)) return;
+                try {
+                    JsonNode snapshot = events.snapshot(subscription.taskId);
+                    long sequence = snapshot.path("sequence").asLong();
+                    if (sequence != subscription.sequence) {
+                        send(emitter, snapshot);
+                        subscription.sequence = sequence;
+                    } else if (System.nanoTime() - subscription.heartbeatAt >= TimeUnit.SECONDS.toNanos(5)) {
+                        emitter.send(SseEmitter.event().comment("心跳"));
+                        subscription.heartbeatAt = System.nanoTime();
+                    }
+                } catch (IOException | RuntimeException failure) {
+                    release(emitter);
+                    emitter.completeWithError(failure);
                 }
-            } catch (IOException | RuntimeException failure) {
-                release(emitter);
-                emitter.completeWithError(failure);
             }
         });
     }
