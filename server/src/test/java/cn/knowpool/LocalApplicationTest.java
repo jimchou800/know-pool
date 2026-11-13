@@ -1408,6 +1408,24 @@ class LocalApplicationTest {
             JsonNode page = JSON.readTree(call("GET", "/datasets/" + datasetId + "/files", null, credentials)
                     .body());
             assertThat(page.get("items").toString()).contains("\"createdBy\":null", "\"uploadedBy\":null");
+            String path = "/files/" + unknown.get("id").asText();
+            String body = "{\"name\":\"unknown-renamed.txt\"}";
+            HttpResponse<String> renamedResponse = call("PATCH", path + "/name", body, credentials);
+            assertThat(renamedResponse.statusCode()).isEqualTo(200);
+            JsonNode renamed = JSON.readTree(renamedResponse.body());
+            assertThat(renamed.get("createdBy").isNull()).isTrue();
+            assertThat(renamed.at("/latestVersion/uploadedBy").isNull()).isTrue();
+            assertThat(renamed.get("name").asText()).isEqualTo("unknown-renamed.txt");
+            assertThat(renamed.get("id")).isEqualTo(unknown.get("id"));
+            assertThat(renamed.get("latestVersion")).isEqualTo(unknown.get("latestVersion"));
+            verified("未知系统上传人重命名保留真实空值", "renameFile", renamedResponse, body);
+            HttpResponse<String> versionsResponse = call("GET", path + "/versions", null, credentials);
+            assertThat(versionsResponse.statusCode()).isEqualTo(200);
+            JsonNode versions = JSON.readTree(versionsResponse.body());
+            assertThat(versions.get("items").size()).isEqualTo(1);
+            assertThat(versions.at("/items/0/uploadedBy").isNull()).isTrue();
+            assertThat(versions.at("/items/0")).isEqualTo(unknown.get("latestVersion"));
+            assertThat(versions.get("nextCursor").isNull()).isTrue();
         } finally {
             if (original == null) System.clearProperty("user.name");
             else System.setProperty("user.name", original);
