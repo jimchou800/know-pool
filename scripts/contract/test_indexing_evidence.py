@@ -73,6 +73,13 @@ class IndexingEvidenceTests(unittest.TestCase):
         self.assertEqual(check(observed, 'testKnowledgeBaseSearch'), (set(), []))
         self.assertTrue(description({'behavior': 'textIndexBecomesEffective'}, 'listKnowledgeBaseTasks'))
         self.assertEqual(check({'behavior': 'textIndexBecomesEffective'}, 'listKnowledgeBaseTasks'), (set(), []))
+        retry = {'behavior': 'textIndexBecomesEffective', 'behaviorChecks': ['indexRetriesAreBounded']}
+        self.assertEqual(check(retry, 'getTask')[0], set())
+        recovery = {'behavior': 'persistedEmbeddingResumesWithoutModelCall',
+                    'behaviorChecks': ['persistedEmbeddingNoRepeat']}
+        self.assertEqual(check(recovery, 'getTask')[0], {'#/x-business-constraints/cost'})
+        self.assertEqual(check(recovery, 'listKnowledgeBaseFiles'), (set(), []))
+        self.assertEqual(check({**recovery, 'behavior': 'textIndexBecomesEffective'}, 'getTask'), (set(), []))
 
     def test_profile_records_observed_sse_without_body_or_unclaimed_behavior(self):
         root = Path(self.directory.name)
