@@ -139,8 +139,14 @@ export async function checkSourceAssociations(
     .getByRole('button', { name: '确认撤销此来源', exact: true })
     .click();
   await row().getByRole('button', { name: '取消排除', exact: true }).waitFor();
-  assert.deepEqual((await list()).sources, []);
-  assert.equal((await list()).included, false);
+  const excludedWithoutSource = await list();
+  assert.deepEqual(excludedWithoutSource.sources, []);
+  assert.equal(excludedWithoutSource.included, false);
+  assert.equal(excludedWithoutSource.excluded, true);
+  assert.equal(excludedWithoutSource.task, null);
+  assert.equal(excludedWithoutSource.targetContentVersionId, null);
+  assert.equal(excludedWithoutSource.targetConfigVersionId, null);
+  assert.equal(excludedWithoutSource.updateState, 'not_included');
   await row().getByRole('button', { name: '取消排除', exact: true }).click();
   await row()
     .getByRole('button', { name: '确认取消排除', exact: true })
