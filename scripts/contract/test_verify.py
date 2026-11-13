@@ -59,6 +59,13 @@ class ContractGateTests(unittest.TestCase):
         self.assertEqual(verify.coverage({'tests': [{'name': '空声明', 'passed': True,
                          'operationIds': ['initializeSession']}]}, 'initializeSession', '约束'), [])
 
+    def test_partial_scope_is_not_complete_operation(self):
+        """当前适用项全过也不能把后续保留项算作完整操作通过。"""
+        constraints = [{'状态': '通过'}, {'状态': '条件未触发或后续保留'}]
+        self.assertFalse(verify.operation_complete(constraints))
+        self.assertTrue(verify.operation_complete([{'状态': '通过'}]))
+        self.assertFalse(verify.operation_complete([]))
+
     def test_rejects_extra_or_missing_routes(self):
         """拒绝额外公开接口和缺失路由。"""
         routes = [{'method': operation['method'], 'path': '/api/v1' + operation['path']}

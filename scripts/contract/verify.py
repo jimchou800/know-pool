@@ -15,8 +15,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '02'
-SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset')
+TICKET = '03'
+SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
+         'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile')
 METHODS = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options'}
 KEYWORDS = {
     'type', 'required', 'additionalProperties', 'enum', 'const', 'format',
@@ -42,7 +43,7 @@ def snapshot():
             for parent, directories, names in os.walk(directory):
                 directories[:] = [name for name in directories if name not in excluded]
                 files.extend(Path(parent) / name for name in names)
-    files.extend(ROOT / name for name in ('pom.xml', '.gitignore') if (ROOT / name).exists())
+    files.extend(ROOT / name for name in ('pom.xml', '.gitignore', '.gitattributes') if (ROOT / name).exists())
     entries = [
         {'path': p.relative_to(ROOT).as_posix(), 'sha256': digest(p.read_bytes())}
         for p in sorted(set(files)) if not excluded.intersection(p.relative_to(ROOT).parts)
@@ -135,6 +136,11 @@ def coverage(evidence, operation_id, constraint):
     return [test['name'] for test in evidence.get('tests', [])
             if operation_id in test.get('operationIds', [])
             and constraint in test.get('constraintIds', []) and test.get('passed') is True]
+
+
+def operation_complete(constraints):
+    """完整操作要求全部原始约束通过，保留项不计完成。"""
+    return bool(constraints) and all(row['状态'] == '通过' for row in constraints)
 
 
 def scope_mapping(contract_hash):
@@ -270,7 +276,7 @@ def main():
         report['校验工具'] = {name: importlib.metadata.version(name)
                             for name in ('openapi-spec-validator', 'jsonschema', 'referencing')}
         for role in ('frontend', 'backend'):
-            approval = ROOT / f'docs/agents/api/reviews/{role}-baseline.md'
+            approval = ROOT / f'docs/agents/api/reviews/contract-03-{role}.md'
             if contract_hash not in approval.read_text(encoding='utf-8'):
                 raise ValueError('缺少同一契约的设计签认：' + role)
         mapping, mapping_hash = scope_mapping(contract_hash)
@@ -310,6 +316,7 @@ def main():
             rows.append({'约束': constraint, '状态': state, '证据': checks, '适用说明': reason})
         applicable = [row for row in rows if row['适用说明'] is None]
         report['操作'].append({'标识': identifier, '方法': operation['method'], '路径': operation['path'],
+                               '完整操作状态': '通过' if operation_complete(rows) else '未完成',
                                '状态': '通过' if applicable and all(row['状态'] == '通过' for row in applicable)
                                else ('未验证' if identifier in SCOPE else '未实现'), '约束': rows})
     scoped = [row for row in report['操作'] if row['标识'] in SCOPE]
@@ -332,9 +339,10 @@ def main():
     report['当前安全行为'] = security
     if not security or any(row['状态'] != '通过' for row in security):
         report['失败'].append('当前安全行为存在未验证项')
-    report['全项目路径覆盖'] = {'通过': passed, '全部': len(operations)}
+    complete = [row for row in report['操作'] if row['完整操作状态'] == '通过']
+    report['全项目路径覆盖'] = {'通过': len(complete), '全部': len(operations)}
     report['全项目约束覆盖'] = {'通过': verified, '全部': sum(len(row['约束']) for row in report['操作'])}
-    report['全项目未完成'] = [row['标识'] for row in report['操作'] if row['状态'] != '通过']
+    report['全项目未完成'] = [row['标识'] for row in report['操作'] if row['完整操作状态'] != '通过']
     report['全项目保留规则'] = mapping.get('后续保留', [])
     report['全项目未完成约束'] = [
         {'操作': operation['标识'], '约束': row['约束'], '状态': row['状态'], '说明': row['适用说明']}

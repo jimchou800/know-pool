@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "个人知识管理应用唯一接口契约",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "正式接口设计开发基线，批准证据由前后端在契约外分别记录同一字节摘要。设计完整不代表业务代码、自动校验或真实模型效果已实现。所有对象默认拒绝未知字段；服务端重校验关联、排除、发布、版本及取消资格。"
   },
   "servers": [
@@ -689,7 +689,7 @@
             "localSession": []
           }
         ],
-        "description": "200 表示已逐项处理，不保证全部成功。按完整文件名不区分大小写匹配，SHA-256 与大小一致跳过；变化生成内容版本并保持 fileId。新版本提交成功后立即取消旧任务；不同名不合并。提交时再次校验并发版本。逐项输入索引与结果索引对应。文件名首尾空白不自动修剪。",
+        "description": "200 表示已逐项处理，不保证全部成功。按完整文件名不区分大小写匹配，SHA-256 与大小一致跳过；变化生成内容版本并保持 fileId。新版本提交成功后立即取消旧任务；不同名不合并。提交时再次校验并发版本。逐项输入索引与结果索引对应。文件名首尾空白不自动修剪。 整请求结构、未知字段及文件数量先校验，失败返回400且不提交任何项目；总请求字节数含multipart封装开销，超过运行参数 maxUploadBytes 返回413及 RESOURCE_LIMIT且无项目提交。单份超过 maxFileBytes 则在200逐项结果中返回 failed及 RESOURCE_LIMIT；其他项目继续。批内同名组全组返回 failed及 CONFLICT，其他不重名项目继续。文本类资料采用严格UTF-8，允许UTF-8 BOM及空文件（大小为0），拒绝非法UTF-8和NUL；副本、哈希及大小使用未改写原始字节。不支持的单份媒体或内容返回逐项 failed及 UNSUPPORTED_FILE，整个请求不是multipart返回415。文件名非法返回逐项 failed及 INVALID_REQUEST。PDF须为可读取的文字PDF，加密或无可提取文字的PDF按不支持内容逐项失败。失败项不变更旧副本、元数据或任务。限额取运行参数，当前启动初值由工程实测记录，不以容器默认限制代替业务校验。",
         "requestBody": {
           "required": true,
           "content": {
@@ -1120,6 +1120,9 @@
           },
           "503": {
             "$ref": "#/components/responses/503"
+          },
+          "410": {
+            "$ref": "#/components/responses/410"
           }
         },
         "security": [
@@ -1127,7 +1130,7 @@
             "localSession": []
           }
         ],
-        "description": "只支持完整文件200，不承诺Range/206；Range头可忽略。旧副本清理返回410，不冒充最新正文。"
+        "description": "只支持完整文件200，不承诺Range/206；Range头可忽略。旧副本清理返回410，不冒充最新正文。 文件资源不存在返回404；元数据明确标记 originalAvailable=false 返回410及 CONTENT_UNAVAILABLE；标记可用但发生意外读取故障返回500及 INTERNAL_ERROR，不以410掩盖磁盘故障。文本原副本保留原始字节，媒体字符集为UTF-8。"
       }
     },
     "/files/{fileId}/versions/{contentVersionId}/preview": {
@@ -1339,6 +1342,9 @@
           },
           "503": {
             "$ref": "#/components/responses/503"
+          },
+          "410": {
+            "$ref": "#/components/responses/410"
           }
         },
         "security": [
@@ -1346,7 +1352,7 @@
             "localSession": []
           }
         ],
-        "description": "只支持完整文件200，不承诺Range/206；Range头可忽略。旧副本清理返回410，不冒充最新正文。"
+        "description": "只支持完整文件200，不承诺Range/206；Range头可忽略。旧副本清理返回410，不冒充最新正文。 文件资源不存在返回404；元数据明确标记 originalAvailable=false 返回410及 CONTENT_UNAVAILABLE；标记可用但发生意外读取故障返回500及 INTERNAL_ERROR，不以410掩盖磁盘故障。文本原副本保留原始字节，媒体字符集为UTF-8。"
       }
     },
     "/files/{fileId}/versions/{contentVersionId}/download": {
