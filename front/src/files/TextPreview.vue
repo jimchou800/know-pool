@@ -19,7 +19,12 @@ const source = ref(null);
 onMounted(() => {
   if (props.initialLine !== null) {
     line.value = props.initialLine;
-    if (props.endLine !== null && (!Number.isInteger(props.endLine) || props.endLine < props.initialLine || props.endLine > lines.value.length)) {
+    if (
+      props.endLine !== null &&
+      (!Number.isInteger(props.endLine) ||
+        props.endLine < props.initialLine ||
+        props.endLine > lines.value.length)
+    ) {
       error.value = `证据源行范围越界，请核对1至${lines.value.length}行的实际原文。`;
       return;
     }

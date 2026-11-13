@@ -43,7 +43,20 @@ it.each([
   ['x-content-type-options', ''],
   ['content-security-policy', "default-src 'none'"],
 ])('版本预览拒绝不安全响应头%s=%s', async (key, value) => {
-  const response = { status: 200, data: new ArrayBuffer(1), headers: { 'content-type': 'text/markdown; charset=UTF-8', 'content-disposition': 'inline; filename="old.md"', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'", [key]: value } };
+  const response = {
+    status: 200,
+    data: new ArrayBuffer(1),
+    headers: {
+      'content-type': 'text/markdown; charset=UTF-8',
+      'content-disposition': 'inline; filename="old.md"',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "sandbox; default-src 'none'",
+      [key]: value,
+    },
+  };
   const api = createFileClient({ request: async () => response });
-  await expect(api.previewVersion(fileId, versionId)).rejects.toThrow('响应格式');
+  await expect(api.previewVersion(fileId, versionId)).rejects.toThrow(
+    '响应格式',
+  );
 });

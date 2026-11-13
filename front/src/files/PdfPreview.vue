@@ -18,7 +18,11 @@ const pageNumber = ref(1);
 const pageInput = ref(1);
 const busy = ref(true);
 const error = ref('');
-const errorText = computed(() => props.downloadAvailable ? error.value : error.value.replace('下载原文件', '核对完整切片证据'));
+const errorText = computed(() =>
+  props.downloadAvailable
+    ? error.value
+    : error.value.replace('下载原文件', '核对完整切片证据'),
+);
 const fieldError = ref('');
 let loadingTask;
 let document;
@@ -173,8 +177,11 @@ onMounted(async () => {
     if (
       !Number.isInteger(props.initialPage) ||
       props.initialPage < 1 ||
-      props.initialPage > total.value
-      || (props.endPage !== null && (!Number.isInteger(props.endPage) || props.endPage < props.initialPage || props.endPage > total.value))
+      props.initialPage > total.value ||
+      (props.endPage !== null &&
+        (!Number.isInteger(props.endPage) ||
+          props.endPage < props.initialPage ||
+          props.endPage > total.value))
     ) {
       clearTimeout(timer);
       busy.value = false;

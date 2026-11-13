@@ -2,6 +2,7 @@
 import { ref, watch, onBeforeUnmount } from 'vue';
 import { createKnowledgeBaseClient } from './client';
 import { watchTask } from './task-events';
+import ChunkPreflight from './ChunkPreflight.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -73,7 +74,8 @@ function stop() {
   lastEventId = undefined;
 }
 async function refreshTask(id, current) {
-  const task = await api.task(id, 'index_file');
+  const kind = rows.value.find((row) => row.id === id)?.kind;
+  const task = await api.task(id, kind);
   if (current !== followSequence || following.value !== id) return null;
   rows.value = rows.value.map((row) => (row.id === id ? task : row));
   if (!['queued', 'running'].includes(task.state)) {
@@ -176,6 +178,11 @@ onBeforeUnmount(() => {
         </p>
         <p v-if="item.failure" role="status">{{ item.failure.message }}</p>
         <p v-for="warning in item.warnings" :key="warning">{{ warning }}</p>
+        <ChunkPreflight
+          v-if="item.kind === 'index_file'"
+          :client="client"
+          :task="item"
+        />
         <button
           v-if="['queued', 'running'].includes(item.state)"
           :disabled="following === item.id"

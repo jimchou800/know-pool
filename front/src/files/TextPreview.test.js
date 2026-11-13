@@ -42,7 +42,9 @@ it('超过Markdown预算明确拒绝而不显示截断内容', async () => {
   expect(() => renderMarkdown('甲'.repeat(200001))).toThrow('资源限制');
 });
 it('起始行存在但范围末行越界仍拒绝定位', async () => {
-  const wrapper = mount(TextPreview, { props: { text: '首行\n次行', initialLine: 1, endLine: 3 } });
+  const wrapper = mount(TextPreview, {
+    props: { text: '首行\n次行', initialLine: 1, endLine: 3 },
+  });
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(wrapper.get('[role=alert]').text()).toContain('源行范围越界');
   expect(wrapper.find('.located-line').exists()).toBe(false);

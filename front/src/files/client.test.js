@@ -750,17 +750,26 @@ it.each([3, 4, 7])('三媒体原字节与完整二进制响应头%d', async (ind
       'cache-control': 'no-store',
       'content-security-policy': "sandbox; default-src 'none'",
     };
-    const result = await (index === 7 ? api.previewVersion(id, id) : index === 3 ? api.preview(id) : api.download(id));
+    const result = await (index === 7
+      ? api.previewVersion(id, id)
+      : index === 3
+        ? api.preview(id)
+        : api.download(id));
     expect(new Uint8Array(result.bytes)).toEqual(
       new Uint8Array([239, 187, 191, 60, 62, 13, 10]),
     );
     expect(result.mediaType).toBe(mediaType);
     expect(requests.at(-1).method).toBe('get');
     expect(requests.at(-1).withCredentials).toBe(true);
-    if (index === 7) expect(requests.at(-1).url).toBe(`/files/${id}/versions/${id}/preview`);
+    if (index === 7)
+      expect(requests.at(-1).url).toBe(`/files/${id}/versions/${id}/preview`);
   }
   observed(index, '三媒体二进制原字节与安全响应头', [
-    ...(index === 7 ? ['required', 'schema/type', 'schema/format'].map((part) => `${prefixes[index]}/parameters/1/${part}`) : []),
+    ...(index === 7
+      ? ['required', 'schema/type', 'schema/format'].map(
+          (part) => `${prefixes[index]}/parameters/1/${part}`,
+        )
+      : []),
     ...[
       'method',
       'path',
@@ -871,10 +880,9 @@ it.each(
   failure = new Error();
   failure.response = {
     status,
-    data:
-      [3, 4, 7].includes(index)
-        ? new TextEncoder().encode(JSON.stringify(detail)).buffer
-        : detail,
+    data: [3, 4, 7].includes(index)
+      ? new TextEncoder().encode(JSON.stringify(detail)).buffer
+      : detail,
   };
   await expect(invoke(index)).rejects.toMatchObject({
     code: detail.code,
