@@ -285,23 +285,31 @@ onBeforeUnmount(() => {
               >上下文窗口词元数<input
                 v-model="form.contextWindowTokens"
                 name="contextWindowTokens"
+                :aria-invalid="!!fieldError('contextWindowTokens')"
+                :aria-describedby="`${kind}-context-error`"
                 type="number"
                 min="1"
                 max="9007199254740991"
                 step="1"
                 required
-              /><small>{{ fieldError('contextWindowTokens') }}</small></label
+              /><small :id="`${kind}-context-error`">{{
+                fieldError('contextWindowTokens')
+              }}</small></label
             >
             <label
               >最大输出词元数<input
                 v-model="form.maxOutputTokens"
                 name="maxOutputTokens"
+                :aria-invalid="!!fieldError('maxOutputTokens')"
+                :aria-describedby="`${kind}-output-error`"
                 type="number"
                 min="1"
                 max="9007199254740991"
                 step="1"
                 required
-              /><small>{{ fieldError('maxOutputTokens') }}</small></label
+              /><small :id="`${kind}-output-error`">{{
+                fieldError('maxOutputTokens')
+              }}</small></label
             >
           </div>
           <p class="settings-help">
