@@ -324,7 +324,7 @@ for index, item in enumerate(observations):
         if errors:
             raise AssertionError('真实响应结构不符合契约：' + name + ':' + str(item['status']) + ':' + '/'.join(map(str, errors[0].schema_path)))
         keywords(response_schema, response_pointer + '/content/application~1json/schema', item['response'], found)
-    if 'requestBody' in definition:
+    if 'application/json' in definition.get('requestBody', {}).get('content', {}):
         found.add(prefix + '/requestBody')
         found.add(prefix + '/requestBody/required')
         request_schema = definition['requestBody']['content']['application/json']['schema']

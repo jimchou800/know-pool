@@ -96,6 +96,20 @@ class IndexingEvidenceTests(unittest.TestCase):
         self.assertNotIn('#/x-business-constraints/sse', test['constraintIds'])
         self.assertNotIn('data:', json.dumps(report))
 
+    def test_multipart_observation_does_not_claim_json_request_constraints(self):
+        root = Path(self.directory.name)
+        script = verify.ROOT / 'server/src/test/resources/contract/settings-evidence.py'
+        item = {'path': '/api/v1/datasets/00000000-0000-4000-8000-000000000003/files:upload',
+                'method': 'POST', 'status': 400, 'contentType': 'application/json', 'body': None,
+                'parameters': {}, 'routes': [], 'behavior': '',
+                'response': {'code': 'INVALID_REQUEST', 'message': '固定拒绝', 'retryable': False,
+                             'requestId': '00000000-0000-4000-8000-000000000004', 'fieldErrors': []}}
+        with patch('sys.argv', [str(script), str(root), 'indexing']), patch('sys.stdin', io.StringIO(json.dumps([item]))):
+            runpy.run_path(str(script))
+        report = json.loads((root / 'server/target/contract/provider-indexing-evidence.json').read_bytes())
+        self.assertEqual(report['tests'][0]['operationIds'], ['uploadFiles'])
+        self.assertFalse(any('/requestBody' in pointer for pointer in report['tests'][0]['constraintIds']))
+
     def test_event_profile_preserves_indexing_output_and_does_not_invent_capacity_pointer(self):
         root = Path(self.directory.name)
         script = verify.ROOT / 'server/src/test/resources/contract/settings-evidence.py'
