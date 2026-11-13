@@ -541,20 +541,35 @@ public final class FileService {
                     .query((row,n) -> new String[]{row.getString(1),row.getString(2)}).list();
             for (String[] candidate : candidates) {
                 if (protectedVersions.contains(candidate[0])) continue;
-                Path target = data.directory().resolve(candidate[1]).toAbsolutePath().normalize();
-                Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
-                if (!root.equals(target.getParent()) || target.getFileName() == null || !target.getFileName().toString().equals(candidate[0]))
-                    throw new IllegalStateException("旧副本清理路径不合法。");
-                try {
-                    validateStoragePath(target);
-                    Files.deleteIfExists(target);
-                    jdbc.sql("UPDATE file_versions SET available=0 WHERE id=?").param(candidate[0]).update();
-                } catch (IOException failure) {
-                    LOG.warn("旧副本暂未清理，将在安全检查点重试。");
-                }
+                cleanupPath(candidate[0],candidate[1]);
+                jdbc.sql("INSERT OR IGNORE INTO file_version_cleanup(version_id,relative_path) VALUES(?,?)").params(candidate[0],candidate[1]).update();
+                jdbc.sql("UPDATE file_versions SET available=0 WHERE id=?").param(candidate[0]).update();
             }
             return null;
         });
+        var pending = data.read(jdbc -> jdbc.sql("SELECT version_id,relative_path FROM file_version_cleanup WHERE attempts<3 ORDER BY version_id")
+                .query((row,n) -> new String[]{row.getString(1),row.getString(2)}).list());
+        for (String[] candidate : pending) {
+            Path target = cleanupPath(candidate[0],candidate[1]);
+            boolean claimed = data.write(jdbc -> jdbc.sql("UPDATE file_version_cleanup SET attempts=attempts+1 WHERE version_id=? AND attempts<3")
+                    .param(candidate[0]).update() == 1);
+            if (!claimed) continue;
+            try {
+                validateStoragePath(target);
+                Files.deleteIfExists(target);
+                data.write(jdbc -> { jdbc.sql("DELETE FROM file_version_cleanup WHERE version_id=?").param(candidate[0]).update(); return null; });
+            } catch (IOException failure) {
+                LOG.warn("????????????????????????");
+            }
+        }
+    }
+
+    private Path cleanupPath(String version, String relative) {
+        Path target = data.directory().resolve(relative).toAbsolutePath().normalize();
+        Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
+        if (!root.equals(target.getParent()) || target.getFileName() == null || !target.getFileName().toString().equals(version))
+            throw new IllegalStateException("???????????");
+        return target;
     }
 
     public VersionContent versionContent(String id, String version) throws IOException {
