@@ -159,6 +159,19 @@ class ContractGateTests(unittest.TestCase):
             '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/429',
             '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/503',
         })
+
+    def test_preflight_scope_keeps_statistics_and_rebuild_identities_required(self):
+        """预检统计与整库任务的空文件身份不能因缺测被保留。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-10.json').read_bytes())
+        self.assertEqual(mapping['操作']['updateProcessingConfig'], {})
+        self.assertEqual(set(mapping['操作']['getChunkPreflight']), {
+            '#/paths/~1tasks~1{taskId}~1chunk-preflight/get/responses/429',
+            '#/paths/~1tasks~1{taskId}~1chunk-preflight/get/responses/503',
+        })
+        for field in ('fileId', 'targetContentVersionId'):
+            self.assertNotIn('#/components/schemas/Task/properties/' + field + '/anyOf/1/type',
+                             mapping['操作']['listKnowledgeBaseTasks'])
+
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])
