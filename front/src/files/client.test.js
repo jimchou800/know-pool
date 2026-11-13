@@ -670,7 +670,6 @@ it.each([
   ['content-disposition', undefined],
   ['content-disposition', 'inline; filename="../资料.txt"'],
   ['content-disposition', "inline; filename*=UTF-8''%ZZ"],
-  ['content-disposition', 'inline; filename="资料.txt"\r\nX: injected'],
   ['x-content-type-options', ''],
   ['cache-control', 'public'],
   ['content-security-policy', "default-src 'none'"],
@@ -686,6 +685,22 @@ it.each([
     [name]: value,
   };
   await expect(api.preview(id)).rejects.toThrow('资料响应格式');
+});
+it('客户端直接拒绝含换行的原始响应头', async () => {
+  const client = createFileClient({
+    request: async () => ({
+      status: 200,
+      data: new ArrayBuffer(0),
+      headers: {
+        'content-type': 'text/plain;charset=UTF-8',
+        'content-disposition': 'inline; filename="资料.txt"\r\nX: injected',
+        'x-content-type-options': 'nosniff',
+        'cache-control': 'no-store',
+        'content-security-policy': "sandbox; default-src 'none'",
+      },
+    }),
+  });
+  await expect(client.preview(id)).rejects.toThrow('资料响应格式');
 });
 const invoke = (index) =>
   [

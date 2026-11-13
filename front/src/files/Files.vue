@@ -1,5 +1,5 @@
 <script setup>
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { createFileClient } from './client';
 import './files.css';
 
@@ -26,6 +26,8 @@ const summary = ref(null);
 const previewButton = ref(null);
 const previewPanel = ref(null);
 const previewText = ref('');
+const previewContent = shallowRef(null);
+const previewRenderer = shallowRef(null);
 const previewOpen = ref(false);
 const previewLoading = ref(false);
 const contentError = ref('');
@@ -58,6 +60,9 @@ async function open(id) {
   detailId.value = id;
   ++contentSequence;
   previewOpen.value = false;
+  previewContent.value = null;
+  previewText.value = '';
+  previewRenderer.value = null;
   previewLoading.value = false;
   contentError.value = '';
   const current = ++detailSequence;
@@ -78,19 +83,53 @@ async function preview() {
   previewOpen.value = true;
   previewLoading.value = true;
   previewText.value = '';
+  previewContent.value = null;
   contentError.value = '';
   await nextTick();
   previewPanel.value?.focus();
   try {
     const result = await api.preview(selected.value.id);
     if (current !== contentSequence) return;
-    if (result.mediaType !== 'text/plain')
-      throw new Error('此处仅支持纯文本预览，请下载原文件查看。');
-    previewText.value = new TextDecoder('utf-8', { fatal: true }).decode(
-      result.bytes,
-    );
+    if (result.mediaType !== selected.value.latestVersion.mediaType)
+      throw new Error('预览媒体与资料元数据不一致，请重新读取资料。');
+    if (result.mediaType === 'application/pdf') {
+      let renderer;
+      try {
+        renderer = (await import('./PdfPreview.vue')).default;
+      } catch {
+        throw new Error('预览组件加载失败，请刷新页面后重试。');
+      }
+      if (current !== contentSequence) return;
+      previewRenderer.value = renderer;
+      previewContent.value = result;
+      return;
+    }
+    if (result.bytes.byteLength > 800_000)
+      throw new Error('文本超过预览资源限制，请下载原文件查看。');
+    previewText.value = new TextDecoder('utf-8', {
+      fatal: true,
+      ignoreBOM: true,
+    }).decode(result.bytes);
     if (previewText.value.includes('\u0000'))
       throw new Error('资料不是有效的纯文本，请下载原文件查看。');
+    if (
+      previewText.value.length > 200_000 ||
+      previewText.value.split(/\r\n|\r|\n/).length > 10_000
+    )
+      throw new Error(
+        '文本超过预览资源限制（20万字符或1万行），请下载原文件查看。',
+      );
+    const text = previewText.value;
+    let renderer;
+    try {
+      renderer = (await import('./TextPreview.vue')).default;
+    } catch {
+      throw new Error('预览组件加载失败，请刷新页面后重试。');
+    }
+    if (current !== contentSequence) return;
+    previewText.value = text;
+    previewRenderer.value = renderer;
+    previewContent.value = result;
   } catch (failure) {
     if (current === contentSequence)
       contentError.value =
@@ -107,8 +146,13 @@ async function closePreview() {
   previewLoading.value = false;
   contentError.value = '';
   previewText.value = '';
+  previewContent.value = null;
+  previewRenderer.value = null;
   await nextTick();
   previewButton.value?.focus();
+}
+function reloadPage() {
+  window.location.reload();
 }
 async function download() {
   if (downloading.value) return;
@@ -145,8 +189,8 @@ function choose(event) {
 }
 async function upload() {
   if (saving.value || !props.writable) return;
-  if (!chosen.value || !/\.txt$/i.test(chosen.value.name)) {
-    uploadError.value = '请选择一份扩展名为 .txt 的纯文本资料。';
+  if (!chosen.value || !/\.(txt|md|markdown|pdf)$/i.test(chosen.value.name)) {
+    uploadError.value = '请选择一份纯文本、Markdown 或文字 PDF 资料。';
     await nextTick();
     summary.value?.focus();
     return;
@@ -190,6 +234,9 @@ watch(
     ++uploadSequence;
     ++contentSequence;
     previewOpen.value = false;
+    previewContent.value = null;
+    previewText.value = '';
+    previewRenderer.value = null;
     previewLoading.value = false;
     contentError.value = '';
     selected.value = null;
@@ -219,14 +266,14 @@ onBeforeUnmount(() => {
     <h3>资料</h3>
     <p>保存资料不代表已完成索引，需在知识库中处理后才可检索。</p>
     <form @submit.prevent="upload">
-      <label for="text-file">选择一份纯文本资料</label>
+      <label for="text-file">选择一份资料</label>
       <input
         id="text-file"
         ref="fileInput"
         class="file-input"
         tabindex="-1"
         type="file"
-        accept=".txt,text/plain"
+        accept=".txt,.md,.markdown,.pdf,text/plain,text/markdown,application/pdf"
         :disabled="!writable || saving"
         @change="choose"
       />
@@ -235,11 +282,11 @@ onBeforeUnmount(() => {
         :disabled="!writable || saving"
         @click="fileInput.click()"
       >
-        选择文本文件
+        选择文件
       </button>
       <span class="chosen-file">{{ chosen?.name || '未选择资料' }}</span>
       <button class="primary-button" :disabled="!writable || saving">
-        {{ saving ? '正在保存资料…' : '上传文本资料' }}
+        {{ saving ? '正在保存资料…' : '上传资料' }}
       </button>
       <p v-if="uploadError" ref="summary" role="alert" tabindex="-1">
         {{ uploadError }}
@@ -254,7 +301,9 @@ onBeforeUnmount(() => {
       {{ error }} <button @click="load()">重试资料列表</button>
     </p>
     <p v-if="loading" role="status">正在加载资料…</p>
-    <p v-else-if="!rows.length && !error">尚无资料，选择文本文件开始导入。</p>
+    <p v-else-if="!rows.length && !error">
+      尚无资料，选择纯文本、Markdown 或文字 PDF 开始导入。
+    </p>
     <ul v-if="rows.length" class="file-rows">
       <li v-for="item in rows" :key="item.id">
         <button :aria-pressed="selected?.id === item.id" @click="open(item.id)">
@@ -327,13 +376,10 @@ onBeforeUnmount(() => {
       <button
         ref="previewButton"
         data-action="preview"
-        :disabled="
-          !selected.latestVersion.originalAvailable ||
-          selected.latestVersion.fileType !== 'text'
-        "
+        :disabled="!selected.latestVersion.originalAvailable"
         @click="preview"
       >
-        预览最新文本
+        预览最新资料
       </button>
       <button
         data-action="download"
@@ -347,20 +393,38 @@ onBeforeUnmount(() => {
         v-if="previewOpen"
         ref="previewPanel"
         class="file-preview"
-        aria-label="最新文本预览"
+        aria-label="最新资料预览"
         tabindex="-1"
         @keydown.esc.stop="closePreview"
       >
         <div class="dataset-list-heading">
-          <h4>最新文本预览</h4>
+          <h4>最新资料预览</h4>
           <button data-action="close-preview" @click="closePreview">
             关闭预览
           </button>
         </div>
         <p v-if="previewLoading" role="status">正在读取原文件…</p>
-        <p v-else-if="contentError" role="alert">{{ contentError }}</p>
-        <pre v-else-if="previewText">{{ previewText }}</pre>
-        <p v-else>这份文本为空。</p>
+        <p v-else-if="contentError" role="alert">
+          {{ contentError }}
+          <button
+            v-if="contentError.startsWith('预览组件加载失败')"
+            @click="reloadPage"
+          >
+            刷新页面
+          </button>
+        </p>
+        <component
+          :is="previewRenderer"
+          v-else-if="previewContent && previewRenderer"
+          v-bind="
+            previewContent.mediaType === 'application/pdf'
+              ? { bytes: previewContent.bytes }
+              : {
+                  text: previewText,
+                  markdown: previewContent.mediaType === 'text/markdown',
+                }
+          "
+        />
       </section>
     </section>
   </section>

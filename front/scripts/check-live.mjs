@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { checkDatasets } from './check-datasets.mjs';
 import { checkFiles } from './check-files.mjs';
+import { checkDocumentPreviews } from './check-document-previews.mjs';
 
 const baseURL = process.argv[2] || 'http://127.0.0.1:4173';
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
@@ -113,6 +114,7 @@ try {
   }
   const reviewedSources = [
     '../server/src/main/resources/application.properties',
+    '../server/src/main/java/cn/knowpool/system/api/LocalSessionFilter.java',
     '../server/src/test/java/cn/knowpool/LocalApplicationTest.java',
     '../server/src/test/java/cn/knowpool/system/api/LocalSessionFilterTest.java',
   ];
@@ -156,7 +158,7 @@ try {
     operationIds: ['initializeSession', 'getSystemStatus'],
     constraintIds: ['security.1', 'security.4', 'security.7'],
     source: {
-      actor: '/root/frontend_implementation',
+      actor: '/root/frontend04',
       files: sources,
       originalReports,
     },
@@ -181,6 +183,7 @@ try {
   }
   await checkDatasets(page, baseURL, tests);
   await checkFiles(page, baseURL, tests);
+  await checkDocumentPreviews(page, tests);
   await writeFile(
     'artifacts/contract-browser.json',
     JSON.stringify(

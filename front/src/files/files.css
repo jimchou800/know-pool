@@ -112,3 +112,56 @@
 .files-panel .dataset-pagination {
   flex-wrap: wrap;
 }
+
+.preview-navigation input {
+  width: 100px;
+}
+
+.preview-navigation label {
+  width: auto;
+}
+
+.markdown-body {
+  overflow: auto;
+  max-height: 500px;
+  overflow-wrap: anywhere;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--line);
+  padding: 8px;
+}
+
+.markdown-body pre {
+  white-space: pre;
+}
+
+.source-text .located-line {
+  background: var(--accent-soft);
+  outline: 2px solid var(--accent);
+}
+
+.pdf-preview {
+  min-width: 0;
+}
+
+.pdf-page {
+  position: relative;
+  max-width: 100%;
+  overflow: hidden;
+  margin: auto;
+}
+
+.pdf-page canvas {
+  display: block;
+}
+
+.pdf-page .textLayer {
+  position: absolute;
+  inset: 0;
+}

@@ -19,14 +19,14 @@ export async function checkFiles(page, baseURL, tests) {
   };
   page.on('response', listener);
   await page
-    .getByLabel('选择一份纯文本资料')
+    .getByLabel('选择一份资料')
     .setInputFiles({ name, mimeType: 'text/plain', buffer: bytes });
   const uploaded = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
       response.url().includes('/files:upload'),
   );
-  await page.getByRole('button', { name: '上传文本资料', exact: true }).click();
+  await page.getByRole('button', { name: '上传资料', exact: true }).click();
   const result = await (await uploaded).json();
   assert.equal(result.items[0].outcome, 'created');
   const file = result.items[0].file;
@@ -43,23 +43,23 @@ export async function checkFiles(page, baseURL, tests) {
     .getByRole('region', { name: '资料详情', exact: true })
     .getByText(file.latestVersion.contentHash, { exact: true })
     .waitFor();
-  await page.getByRole('button', { name: '预览最新文本', exact: true }).click();
+  await page.getByRole('button', { name: '预览最新资料', exact: true }).click();
   await page.locator('.file-preview pre').waitFor();
   assert.equal(
     await page.locator('.file-preview pre').textContent(),
-    bytes.toString('utf8').slice(1),
+    bytes.toString('utf8').slice(1).replaceAll('\r\n', '\n'),
   );
   assert.equal(await page.locator('.file-preview script').count(), 0);
   assert.equal(
     await page.evaluate(() =>
       document.activeElement?.getAttribute('aria-label'),
     ),
-    '最新文本预览',
+    '最新资料预览',
   );
   await page.locator('.file-preview').press('Escape');
   assert.equal(
     await page
-      .getByRole('button', { name: '预览最新文本', exact: true })
+      .getByRole('button', { name: '预览最新资料', exact: true })
       .evaluate((node) => node === document.activeElement),
     true,
   );
@@ -68,7 +68,7 @@ export async function checkFiles(page, baseURL, tests) {
   const download = await downloading;
   assert.equal(download.suggestedFilename(), name);
   assert.deepEqual(await readFile(await download.path()), bytes);
-  await page.getByLabel('选择一份纯文本资料').setInputFiles({
+  await page.getByLabel('选择一份资料').setInputFiles({
     name,
     mimeType: 'text/plain',
     buffer: Buffer.from([0, 255]),
@@ -78,7 +78,7 @@ export async function checkFiles(page, baseURL, tests) {
       response.request().method() === 'POST' &&
       response.url().includes('/files:upload'),
   );
-  await page.getByRole('button', { name: '上传文本资料', exact: true }).click();
+  await page.getByRole('button', { name: '上传资料', exact: true }).click();
   const rejectedResult = await (await rejected).json();
   assert.equal(rejectedResult.items[0].outcome, 'failed');
   await page.locator('.files-panel form [role=alert]').waitFor();
@@ -88,18 +88,18 @@ export async function checkFiles(page, baseURL, tests) {
       .evaluate((node) => node === document.activeElement),
     true,
   );
-  await page.getByRole('button', { name: '预览最新文本', exact: true }).click();
+  await page.getByRole('button', { name: '预览最新资料', exact: true }).click();
   await page.locator('.file-preview pre').waitFor();
   assert.equal(
     await page.locator('.file-preview pre').textContent(),
-    bytes.toString('utf8').slice(1),
+    bytes.toString('utf8').slice(1).replaceAll('\r\n', '\n'),
   );
   await page.waitForLoadState('networkidle');
   await page.reload();
   await page
     .getByRole('button', { name: new RegExp(name.slice(0, 15)) })
     .click();
-  await page.getByRole('button', { name: '预览最新文本', exact: true }).click();
+  await page.getByRole('button', { name: '预览最新资料', exact: true }).click();
   await page.locator('.file-preview pre').waitFor();
   for (const width of [1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });

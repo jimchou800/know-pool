@@ -37,7 +37,7 @@ it('空数据集提供单份文本上传与保存不等于索引提示', async (
   ).toBeUndefined();
   expect(wrapper.text()).toContain('保存资料不代表已完成索引');
   expect(wrapper.text()).toContain('尚无资料');
-  expect(findButton(wrapper, '选择文本文件').exists()).toBe(true);
+  expect(findButton(wrapper, '选择文件').exists()).toBe(true);
 });
 it('选中文本上传后显示逐项结果、集中元数据与未知上传人', async () => {
   let saved = false;
@@ -104,7 +104,9 @@ it('危险文本只以正文显示，关闭预览后焦点返回触发按钮', a
   await flushPromises();
   await wrapper.get('[data-action=preview]').trigger('click');
   await flushPromises();
-  expect(wrapper.get('pre').text()).toBe('<script>危险内容</script>');
+  await vi.waitFor(() =>
+    expect(wrapper.get('pre').text()).toBe('<script>危险内容</script>'),
+  );
   expect(wrapper.find('script').exists()).toBe(false);
   await wrapper.get('[data-action=close-preview]').trigger('click');
   await flushPromises();
@@ -196,7 +198,7 @@ it('上传无选择、错误类型、暂停和逐项失败均不会冒报保存'
   await wrapper.get('form').trigger('submit');
   await flushPromises();
   expect(document.activeElement.getAttribute('role')).toBe('alert');
-  await selectFile(wrapper, '资料.pdf');
+  await selectFile(wrapper, '资料.docx');
   await wrapper.get('form').trigger('submit');
   await flushPromises();
   expect(request.mock.calls.every(([config]) => config.method === 'get')).toBe(
@@ -366,7 +368,7 @@ it.each(['', '\u0000', '非法编码', '副本不可用', '其他媒体'])(
           : value === '非法编码'
             ? '不是有效的UTF-8文本'
             : value === '其他媒体'
-              ? '仅支持纯文本预览'
+              ? '预览媒体与资料元数据不一致'
               : '副本不可用',
     );
     await wrapper.get('.file-preview').trigger('keydown', { key: 'Escape' });
@@ -431,4 +433,96 @@ it('关闭预览隔离迟到正文，重复上传在途只提交一次', async (
   });
   await flushPromises();
   expect(wrapper.text()).toContain('内容未变化');
+});
+it.each(['text/plain', 'text/markdown'])(
+  '文本预算拒绝且原文件下载仍可用：%s',
+  async (mediaType) => {
+    const file = {
+      ...record,
+      latestVersion: {
+        ...record.latestVersion,
+        fileType: mediaType === 'text/plain' ? 'text' : 'markdown',
+        mediaType,
+      },
+    };
+    const request = vi.fn(async (config) =>
+      config.rawResponse
+        ? {
+            data: new TextEncoder().encode('\n'.repeat(10001)).buffer,
+            status: 200,
+            headers: {
+              'content-type': `${mediaType};charset=UTF-8`,
+              'content-disposition': 'inline; filename="资料.txt"',
+              'x-content-type-options': 'nosniff',
+              'cache-control': 'no-store',
+              'content-security-policy': "sandbox; default-src 'none'",
+            },
+          }
+        : config.url.startsWith('/files/')
+          ? file
+          : { items: [file], nextCursor: null },
+    );
+    const wrapper = mount(Files, {
+      props: { client: { request }, datasetId: id },
+    });
+    await flushPromises();
+    await wrapper.get('.file-rows button').trigger('click');
+    await flushPromises();
+    await wrapper.get('[data-action=preview]').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('.file-preview [role=alert]').text()).toContain(
+      '资源限制',
+    );
+    expect(
+      wrapper.get('[data-action=download]').attributes('disabled'),
+    ).toBeUndefined();
+    wrapper.unmount();
+  },
+);
+it('双BOM仅移除首个且Markdown呈现与源行保持一致', async () => {
+  const file = {
+    ...record,
+    latestVersion: {
+      ...record.latestVersion,
+      fileType: 'markdown',
+      mediaType: 'text/markdown',
+    },
+  };
+  const request = vi.fn(async (config) =>
+    config.rawResponse
+      ? {
+          data: new TextEncoder().encode('\ufeff\ufeff# 标题\r正文\n').buffer,
+          status: 200,
+          headers: {
+            'content-type': 'text/markdown;charset=UTF-8',
+            'content-disposition': 'inline; filename="资料.md"',
+            'x-content-type-options': 'nosniff',
+            'cache-control': 'no-store',
+            'content-security-policy': "sandbox; default-src 'none'",
+          },
+        }
+      : config.url.startsWith('/files/')
+        ? file
+        : { items: [file], nextCursor: null },
+  );
+  const wrapper = mount(Files, {
+    props: { client: { request }, datasetId: id },
+  });
+  await flushPromises();
+  await wrapper.get('.file-rows button').trigger('click');
+  await flushPromises();
+  await wrapper.get('[data-action=preview]').trigger('click');
+  await vi.waitFor(() =>
+    expect(wrapper.get('.markdown-body').element.textContent).toContain(
+      '\ufeff# 标题',
+    ),
+  );
+  await wrapper
+    .findAll('button')
+    .find((button) => button.text() === '查看源文本')
+    .trigger('click');
+  expect(wrapper.get('.source-text').element.textContent).toBe(
+    '\ufeff# 标题\n正文\n',
+  );
+  wrapper.unmount();
 });

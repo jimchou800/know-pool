@@ -780,6 +780,70 @@ class LocalApplicationTest {
         assertThat(content.body()).isEqualTo("第二版不同字节");
     }
 
+    @Test
+    @Order(58)
+    @DisplayName("多页中文及动作PDF与危险Markdown保留原格式且图像扫描件独立拒绝")
+    void preserveChinesePdfAndUnsafeMarkdownBytesWhileRejectingImageOnlyPdf() throws Exception {
+        Credentials credentials = credentials();
+        String datasetId = createDataset("安全文档预览验收", credentials);
+        byte[] pdf;
+        byte[] scanned;
+        try (var input = LocalApplicationTest.class.getResourceAsStream("/documents/chinese-two-pages-actions.pdf")) {
+            assertThat(input).isNotNull();
+            pdf = input.readAllBytes();
+        }
+        try (var input = LocalApplicationTest.class.getResourceAsStream("/documents/image-only.pdf")) {
+            assertThat(input).isNotNull();
+            scanned = input.readAllBytes();
+        }
+        try (var document = org.apache.pdfbox.Loader.loadPDF(pdf)) {
+            assertThat(document.getNumberOfPages()).isEqualTo(2);
+            assertThat(new org.apache.pdfbox.text.PDFTextStripper().getText(document))
+                    .contains("第一页：中文资料预览", "第二页：保留原文与页码");
+            assertThat(document.getDocumentCatalog().getOpenAction()).isNotNull();
+            assertThat(document.getPage(0).getAnnotations()).hasSize(1);
+        }
+        try (var document = org.apache.pdfbox.Loader.loadPDF(scanned)) {
+            assertThat(document.getPage(0).getResources().getXObjectNames()).isNotEmpty();
+            assertThat(new org.apache.pdfbox.text.PDFTextStripper().getText(document))
+                    .isBlank();
+        }
+        byte[] markdown = ("\ufeff# 中文原文\r\n\r\n<script>globalThis.documentAttack=true</script>\r"
+                        + "[危险链接](javascript:alert(1))\n![外部图片](https://example.invalid/image.png)\n"
+                        + "<img src=x onerror=alert(1)>\n\n")
+                .getBytes(StandardCharsets.UTF_8);
+        JsonNode items = JSON.readTree(upload(
+                                datasetId,
+                                credentials,
+                                new UploadPart("中文两页与动作.pdf", "application/pdf", pdf),
+                                new UploadPart("危险内容与原始换行.md", "text/markdown", markdown),
+                                new UploadPart("图像扫描件.pdf", "application/pdf", scanned))
+                        .body())
+                .get("items");
+        for (int index = 0; index < 2; index++) {
+            assertThat(items.get(index).get("outcome").asText()).isEqualTo("created");
+            String fileId = items.get(index).at("/file/id").asText();
+            for (String route : List.of("preview", "download")) {
+                HttpResponse<byte[]> response = HTTP.send(
+                        request("GET", "/files/" + fileId + "/latest/" + route, null, credentials)
+                                .build(),
+                        HttpResponse.BodyHandlers.ofByteArray());
+                verifiedBinary(
+                        response,
+                        index == 0 ? pdf : markdown,
+                        index == 0 ? "application/pdf" : "text/markdown",
+                        route.equals("preview"));
+            }
+        }
+        assertThat(items.get(2).get("outcome").asText()).isEqualTo("failed");
+        assertThat(items.get(2).get("file").isNull()).isTrue();
+        assertThat(items.get(2).at("/error/code").asText()).isEqualTo("UNSUPPORTED_FILE");
+        assertThat(JSON.readTree(call("GET", "/datasets/" + datasetId + "/files", null, credentials)
+                                .body())
+                        .get("items"))
+                .hasSize(2);
+    }
+
     private static byte[] textPdf() throws Exception {
         try (var document = new org.apache.pdfbox.pdmodel.PDDocument()) {
             var page = new org.apache.pdfbox.pdmodel.PDPage();

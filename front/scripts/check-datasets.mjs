@@ -72,7 +72,9 @@ export async function checkDatasets(page, baseURL, tests) {
     '浏览器数据集',
   );
   await page
-    .getByText('尚无资料，选择文本文件开始导入。', { exact: true })
+    .getByText('尚无资料，选择纯文本、Markdown 或文字 PDF 开始导入。', {
+      exact: true,
+    })
     .waitFor();
   await page.getByRole('button', { name: '修改名称与说明' }).click();
   await page.getByLabel('名称 必填').fill('浏览器已修改数据集');

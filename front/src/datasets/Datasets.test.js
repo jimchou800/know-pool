@@ -233,9 +233,11 @@ it('上传后的统计刷新失败保留已保存资料及结果，重试成功�
     '资料已保存',
   );
   expect(wrapper.get('.files-panel').element).toBe(panel);
-  await button('预览最新文本').trigger('click');
+  await button('预览最新资料').trigger('click');
   await flushPromises();
-  expect(wrapper.get('.file-preview pre').text()).toBe('固定预览正文');
+  await vi.waitFor(() =>
+    expect(wrapper.get('.file-preview pre').text()).toBe('固定预览正文'),
+  );
   fail = false;
   await button('重试资料统计').trigger('click');
   await flushPromises();
@@ -310,7 +312,7 @@ it('无资料空态、稳定标识详情导航与读失败恢复', async () => {
   await wrapper.get('.dataset-rows a').trigger('click');
   await flushPromises();
   expect(router.currentRoute.value.path).toBe(`/datasets/${record.id}`);
-  expect(wrapper.get('.dataset-detail').text()).toContain('上传文本资料');
+  expect(wrapper.get('.dataset-detail').text()).toContain('上传资料');
   expect(wrapper.text()).toContain(record.createdAt);
   handler.mockRejectedValueOnce(new Error('不显示的内部路径'));
   await router.push('/datasets/00000000-0000-4000-8000-000000000002');
@@ -326,7 +328,7 @@ it('无资料空态、稳定标识详情导航与读失败恢复', async () => {
   await button('重试详情').trigger('click');
   await flushPromises();
   expect(wrapper.get('.dataset-detail').text()).toContain('暂无说明');
-  expect(wrapper.get('.dataset-detail').text()).toContain('上传文本资料');
+  expect(wrapper.get('.dataset-detail').text()).toContain('上传资料');
 });
 it('创建空说明省略，请求保护头来自共享会话；成功重新读取详情', async () => {
   await setup();

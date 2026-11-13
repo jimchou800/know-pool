@@ -1,0 +1,95 @@
+{
+  "任务": "04",
+  "说明": "04累积已验收01至03的十一个操作，扩展三媒体真实浏览器安全预览与定位基础。原始95操作与全部约束保留；继承03确实未触发的条件项，禁止将渲染、安全、媒体或资源验证排除。适用路径通过与完整操作完成分别计算，保留项不计全项目通过。",
+  "操作": {
+    "initializeSession": {
+      "#/components/schemas/FieldError/additionalProperties": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/code/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/field/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/message/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/required": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/paths/~1session/get/responses/500": "共享故障响应声明；当前初始化没有可安全触发的运行期故障分支，消费方错误替身仍须验证。",
+      "#/x-business-constraints/security": "全局规则含后续 SSE 与正式写消费；本票只验收下列已列明的当前安全行为，完整全局规则保留未完成。"
+    },
+    "getSystemStatus": {
+      "#/components/schemas/FieldError/additionalProperties": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/code/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/field/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/properties/message/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/required": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/FieldError/type": "本票错误无字段级错误；非空数组时才触发子项结构。",
+      "#/components/schemas/SystemStatus/properties/warnings/items/type": "真实状态无警告时子项条件未触发；非空及非法元素的消费测试仍保留。",
+      "#/paths/~1system~1status/get/responses/404": "共享错误声明；精确状态路径本票没有资源缺失分支，不以其他路径的 404 冒充此操作。",
+      "#/paths/~1system~1status/get/responses/429": "共享错误声明；本票状态读取没有独立排队或容量分支，不以初始化容量响应冒充此操作。",
+      "#/paths/~1system~1status/get/responses/503": "共享错误声明；本票状态读取不依赖外部服务，不额外发明业务故障。",
+      "#/x-business-constraints/security": "全局规则含后续 SSE 与正式写消费；本票只验收下列已列明的当前安全行为，完整全局规则保留未完成。"
+    },
+    "listDatasets": {
+      "#/x-business-constraints/security": "共享全局规则按当前七项行为验证；后续SSE仍保留未实现。",
+      "#/paths/~1datasets/get/responses/429": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets/get/responses/503": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets/get/responses/404": "集合级操作没有资源缺失分支，不挪用单资源404作为证据。"
+    },
+    "createDataset": {
+      "#/x-business-constraints/security": "共享全局规则按当前七项行为验证；后续SSE仍保留未实现。",
+      "#/paths/~1datasets/post/responses/429": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets/post/responses/503": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets/post/responses/404": "集合级操作没有资源缺失分支，不挪用单资源404作为证据。",
+      "#/paths/~1datasets/post/responses/422": "共享配置或业务前置失败声明；本票仅创建修改数据集，没有此类前置分支，非法字段按400处理。"
+    },
+    "getDataset": {
+      "#/x-business-constraints/security": "共享全局规则按当前七项行为验证；后续SSE仍保留未实现。",
+      "#/paths/~1datasets~1{datasetId}/get/responses/429": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets~1{datasetId}/get/responses/503": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。"
+    },
+    "updateDataset": {
+      "#/x-business-constraints/security": "共享全局规则按当前七项行为验证；后续SSE仍保留未实现。",
+      "#/paths/~1datasets~1{datasetId}/patch/responses/429": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets~1{datasetId}/patch/responses/503": "当前操作无排队或外部依赖分支，保留共享错误声明与消费方替身验证。",
+      "#/paths/~1datasets~1{datasetId}/patch/responses/422": "共享配置或业务前置失败声明；本票仅创建修改数据集，没有此类前置分支，非法字段按400处理。"
+    },
+    "listDatasetFiles": {
+      "#/x-business-constraints/security": "共享全局安全规则含后续SSE，当前七项行为分别验证，完整全局规则保留未完成。",
+      "#/paths/~1datasets~1{datasetId}~1files/get/responses/429": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。",
+      "#/paths/~1datasets~1{datasetId}~1files/get/responses/503": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。"
+    },
+    "uploadFiles": {
+      "#/x-business-constraints/security": "共享全局安全规则含后续SSE，当前七项行为分别验证，完整全局规则保留未完成。",
+      "#/paths/~1datasets~1{datasetId}~1files:upload/post/responses/429": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。",
+      "#/paths/~1datasets~1{datasetId}~1files:upload/post/responses/503": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。",
+      "#/paths/~1datasets~1{datasetId}~1files:upload/post/responses/422": "本票没有知识库配置或索引前置条件；非法项目采用200逐项错误，结构非法采用400，不挪用其他操作状态。",
+      "#/paths/~1datasets~1{datasetId}~1files:upload/post/responses/409": "当前同名覆盖与批内冲突按已确认逐项结果处理，没有独立整体409触发条件；共享声明保留，不伪造整体失败。",
+      "#/components/schemas/UploadItem/properties/indexTaskIds/items/format": "本票尚无知识库关联，indexTaskIds为空；索引任务标识非空时的结构在关联与索引切片验证，不能伪造任务。",
+      "#/components/schemas/UploadItem/properties/indexTaskIds/items/type": "本票尚无知识库关联，indexTaskIds为空；索引任务标识非空时的结构在关联与索引切片验证，不能伪造任务。"
+    },
+    "getFile": {
+      "#/x-business-constraints/security": "共享全局安全规则含后续SSE，当前七项行为分别验证，完整全局规则保留未完成。",
+      "#/paths/~1files~1{fileId}/get/responses/429": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。",
+      "#/paths/~1files~1{fileId}/get/responses/503": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。"
+    },
+    "previewLatestFile": {
+      "#/x-business-constraints/security": "共享全局安全规则含后续SSE，当前七项行为分别验证，完整全局规则保留未完成。",
+      "#/paths/~1files~1{fileId}~1latest~1preview/get/responses/429": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。",
+      "#/paths/~1files~1{fileId}~1latest~1preview/get/responses/503": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。"
+    },
+    "downloadLatestFile": {
+      "#/x-business-constraints/security": "共享全局安全规则含后续SSE，当前七项行为分别验证，完整全局规则保留未完成。",
+      "#/paths/~1files~1{fileId}~1latest~1download/get/responses/429": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。",
+      "#/paths/~1files~1{fileId}~1latest~1download/get/responses/503": "本操作当前仅本地文件与数据库，无队列或外部服务依赖；保留共享响应声明与消费方替身，不伪造服务端业务分支。"
+    }
+  },
+  "当前安全行为": [
+    "仅回环监听及 Host 白名单",
+    "Origin 白名单与拒绝非法来源",
+    "会话 Cookie 的 HttpOnly、SameSite=Strict、Path=/ 属性",
+    "HTTP 不强制 Secure，HTTPS 安全请求设置 Secure",
+    "缺失或失效会话拒绝访问受保护读取与写入",
+    "非法写请求在业务路由前校验 CSRF，合法保护信息不绕过路由检查",
+    "会话令牌不进入 URL 或前端持久化，报告日志不保存真实值"
+  ],
+  "后续保留": [
+    "SSE 的 Cookie 会话兼容性待事件操作切片验证",
+    "真实 TLS 部署不属于本票已验证范围，Secure 属性由安全请求边界测试验证"
+  ]
+}
