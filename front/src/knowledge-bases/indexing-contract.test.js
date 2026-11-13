@@ -948,6 +948,82 @@ it('取消与切换公开错误实际消费不自动发出新任务', async () =
   }
 });
 
+it('发布下线消费完整历史与独立可用状态，复查携带费用确认和原幂等键', async () => {
+  const s = await setup(() => null);
+  for (const publicationState of ['unpublished', 'published', 'offline']) {
+    const value = {
+      ...record,
+      publicationState,
+      publishedAt: publicationState === 'unpublished' ? null : time,
+      offlineAt: publicationState === 'offline' ? time : null,
+      offlineReason: publicationState === 'offline' ? 'manual' : null,
+      availability: 'unavailable',
+      availabilityReason: '受控依赖故障',
+    };
+    for (const [method, operation] of [
+      ['publish', 'publishKnowledgeBase'],
+      ['offline', 'offlineKnowledgeBase'],
+    ]) {
+      s.reply(value);
+      expect(await s.api[method](id.toUpperCase())).toEqual(value);
+      expect(s.requests.at(-1).data).toBeUndefined();
+      observed(operation, s.requests.at(-1));
+      s.reply({ ...value, id: otherId });
+      await expect(s.api[method](id)).rejects.toThrow('响应格式');
+    }
+  }
+  const check = { ...task, kind: 'model_test' };
+  s.reply({ task: check });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    expect(await s.api.check(id, otherId, true)).toEqual({ task: check });
+    expect(JSON.parse(s.requests.at(-1).data)).toEqual({
+      allowChargedCall: true,
+    });
+    expect(s.requests.at(-1).headers.get('Idempotency-Key')).toBe(otherId);
+    observed('checkKnowledgeBase', s.requests.at(-1));
+  }
+  s.reply({ task: { ...check, knowledgeBaseId: otherId } });
+  await expect(s.api.check(id, otherId, true)).rejects.toThrow('响应格式');
+  await expect(s.api.check(id, otherId, false)).rejects.toThrow('费用');
+  await expect(s.api.check(id, '无效', true)).rejects.toThrow('费用');
+});
+it('发布下线复查公开错误实际消费，保留原状态且不自动创建新任务', async () => {
+  const s = await setup(() => null);
+  for (const [status, code] of [
+    [400, 'INVALID_REQUEST'],
+    [401, 'SESSION_EXPIRED'],
+    [403, 'CSRF_REJECTED'],
+    [404, 'NOT_FOUND'],
+    [409, 'CONFLICT'],
+    [422, 'INVALID_STATE'],
+    [429, 'QUEUE_FULL'],
+    [500, 'INTERNAL_ERROR'],
+    [503, 'DEPENDENCY_UNAVAILABLE'],
+  ]) {
+    s.reply({
+      errorStatus: status,
+      body: {
+        requestId: id,
+        code,
+        message: '固定发布操作失败',
+        fieldErrors: [
+          { field: '/knowledgeBaseId', code, message: '固定知识库说明' },
+        ],
+        retryable: false,
+      },
+    });
+    for (const [method, operation] of [
+      ['publish', 'publishKnowledgeBase'],
+      ['offline', 'offlineKnowledgeBase'],
+      ['check', 'checkKnowledgeBase'],
+    ]) {
+      await expect(s.api[method](id, otherId, true)).rejects.toThrow(
+        '固定发布操作失败',
+      );
+      observed(operation, s.requests.at(-1));
+    }
+  }
+});
 afterAll(() => {
   execFileSync('python', ['scripts/settings-evidence.py', '08'], {
     input: JSON.stringify(observations),

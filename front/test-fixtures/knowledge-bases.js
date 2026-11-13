@@ -138,9 +138,12 @@ export async function setup(reply) {
         : undefined) ||
       (config.method === 'post'
         ? config.url === '/knowledge-bases' ||
-          config.url.endsWith('/search-test')
+          config.url.endsWith('/search-test') ||
+          config.url.endsWith('/check')
           ? 202
-          : 201
+          : /\/(publish|offline|cancel)$/.test(config.url)
+            ? 200
+            : 201
         : 200);
     const data =
       result?.errorStatus || result?.httpStatus ? result.body : result;
