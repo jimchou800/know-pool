@@ -80,6 +80,7 @@ public final class ConnectionTests {
                 version = model.versionId();
             }
             if (!capacity.tryAcquire()) throw new ApiFailure(429, "QUEUE_FULL", "连接测试队列已满，请稍后重试。", null);
+            boolean accepted = false;
             try {
                 Task task = new Task(
                         UUID.randomUUID().toString(),
@@ -112,10 +113,10 @@ public final class ConnectionTests {
                                 validKey,
                                 fingerprint)
                         .update();
+                accepted = true;
                 return new Pending(task, snapshot);
-            } catch (RuntimeException failure) {
-                capacity.release();
-                throw failure;
+            } finally {
+                if (!accepted) capacity.release();
             }
         });
         if (pending.snapshot() != null) executor.execute(() -> run(pending));

@@ -68,11 +68,11 @@ public final class ConnectionProbe {
                     .build();
             OpenAIClient client = new OpenAIClientImpl(options);
             if (snapshot.kind().equals("generation")) {
-                OpenAiChatOptions chatOptions = OpenAiChatOptions.builder()
-                        .model(snapshot.model())
-                        .maxTokens((int) Math.min(16, snapshot.maxOutputTokens()))
-                        .extraBody(java.util.Map.of("stream", false))
-                        .build();
+                OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder();
+                builder.model(snapshot.model());
+                builder.maxTokens((int) Math.min(16, snapshot.maxOutputTokens()));
+                builder.extraBody(java.util.Map.of("stream", false));
+                OpenAiChatOptions chatOptions = builder.build();
                 var response = OpenAiChatModel.builder()
                         .openAiClient(client)
                         .openAiClientAsync(client.async())
@@ -111,9 +111,10 @@ public final class ConnectionProbe {
     }
 
     private static byte[] bounded(Response response) throws IOException {
-        if (response.body() == null) throw new IOException("连接响应正文缺失。");
-        if (response.body().contentLength() > RESPONSE_LIMIT) throw new IOException("连接响应超出大小限制。");
-        try (InputStream stream = response.body().byteStream()) {
+        okhttp3.ResponseBody responseBody = response.body();
+        if (responseBody == null) throw new IOException("连接响应正文缺失。");
+        if (responseBody.contentLength() > RESPONSE_LIMIT) throw new IOException("连接响应超出大小限制。");
+        try (InputStream stream = responseBody.byteStream()) {
             byte[] body = stream.readNBytes(RESPONSE_LIMIT + 1);
             if (body.length > RESPONSE_LIMIT) throw new IOException("连接响应超出大小限制。");
             return body;
@@ -135,7 +136,9 @@ public final class ConnectionProbe {
         public HttpResponse execute(HttpRequest request, RequestOptions options) {
             try {
                 ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                request.body().writeTo(bytes);
+                com.openai.core.http.HttpRequestBody requestBody = request.body();
+                if (requestBody == null) throw new IllegalStateException("模型连接请求正文缺失。");
+                requestBody.writeTo(bytes);
                 Request.Builder outgoing = new Request.Builder().url(request.url());
                 for (String header : request.headers().names()) {
                     for (String value : request.headers().values(header)) outgoing.addHeader(header, value);

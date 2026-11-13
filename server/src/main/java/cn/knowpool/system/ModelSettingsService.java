@@ -134,7 +134,11 @@ public final class ModelSettingsService {
 
     private static String changedSecret(CredentialChange change, String previous, String oldEndpoint, String endpoint) {
         if (change.action().equals("keep")) {
-            if (previous != null && !origin(oldEndpoint).equals(origin(endpoint)))
+            if (previous != null
+                    && !Objects.equals(oldEndpoint, endpoint)
+                    && (oldEndpoint == null
+                            || endpoint == null
+                            || !origin(oldEndpoint).equals(origin(endpoint))))
                 throw ApiFailure.invalid("/credential/action", "连接来源已变化，请明确替换或清除密钥后保存。");
             return previous;
         }
