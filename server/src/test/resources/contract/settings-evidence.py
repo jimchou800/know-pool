@@ -255,7 +255,7 @@ if profile == 'knowledge-bases':
     assert '#/metadata/propertyNames/pattern' in found
     assert '#/metadata/additionalProperties/maxLength' in found
 
-if profile in ('indexing', 'indexing-events'):
+if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
     selected_operations = {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
@@ -293,7 +293,7 @@ for index, item in enumerate(observations):
     if selected is None or selected[0] not in selected_operations:
         continue
     name, operation = selected
-    is_indexing = profile in ('indexing', 'indexing-events')
+    is_indexing = profile in ('indexing', 'indexing-events', 'indexing-gaps')
     is_event = is_indexing and name == 'watchTask' and item['status'] == 200
     if not is_event:
         validate_media(item['contentType'])
@@ -371,7 +371,7 @@ for index, item in enumerate(observations):
 report = {'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
           'implementationSha256': verification.snapshot()[0],
           'routes': observations[0]['routes'], 'tests': tests}
-output = root / ('server/target/contract/provider-indexing-events-evidence.json' if profile == 'indexing-events' else 'server/target/contract/provider-indexing-evidence.json' if profile == 'indexing' else 'server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
+output = root / ('server/target/contract/provider-indexing-gaps-evidence.json' if profile == 'indexing-gaps' else 'server/target/contract/provider-indexing-events-evidence.json' if profile == 'indexing-events' else 'server/target/contract/provider-indexing-evidence.json' if profile == 'indexing' else 'server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print('提供方证据完成：' + profile + '：' + str(len(tests)))
