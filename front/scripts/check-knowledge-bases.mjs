@@ -5,8 +5,13 @@ import { mkdir } from 'node:fs/promises';
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
   const collections = new Map();
+  const points = new Map();
   const probes = [];
   let rejectCreation = false;
+  let noMatches = false;
+  let rejectEmbedding = false;
+  let releaseEmbedding;
+  let embeddingGate;
   const vector = createServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
@@ -15,6 +20,77 @@ export async function checkKnowledgeBases(page, tests) {
       : null;
     probes.push({ method: request.method, path: request.url });
     response.setHeader('Content-Type', 'application/json');
+    const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
+    if (pathname === '/v1/embeddings') {
+      if (embeddingGate) await embeddingGate;
+      if (rejectEmbedding) {
+        response.statusCode = 503;
+        response.end(JSON.stringify({ error: { message: '固定依赖不可用' } }));
+        return;
+      }
+      assert.equal(body.model, 'text-embedding-v4');
+      const inputs = Array.isArray(body.input) ? body.input : [body.input];
+      response.end(
+        JSON.stringify({
+          object: 'list',
+          data: inputs.map((_, index) => ({
+            object: 'embedding',
+            index,
+            embedding: [1, 0, 0],
+          })),
+          model: 'text-embedding-v4',
+          usage: { prompt_tokens: 4, total_tokens: 4 },
+        }),
+      );
+      return;
+    }
+    const pointCollection =
+      /^\/collections\/(kp_[a-f0-9]{32})\/points(?:\/query)?$/.exec(
+        pathname,
+      )?.[1];
+    if (pointCollection) {
+      const saved = points.get(pointCollection) || new Map();
+      if (pathname.endsWith('/query')) {
+        assert.ok(
+          body.filter.must.some(
+            (filter) => filter.key === 'index_id' && filter.match.any.length,
+          ),
+        );
+        const allowed = body.filter.must.find(
+          (filter) => filter.key === 'index_id',
+        ).match.any;
+        response.end(
+          JSON.stringify({
+            status: 'ok',
+            result: {
+              points: noMatches
+                ? []
+                : [...saved.values()]
+                    .filter((point) => allowed.includes(point.payload.index_id))
+                    .map((point) => ({ ...point, score: 0.9 }))
+                    .slice(0, body.limit),
+            },
+          }),
+        );
+      } else if (request.method === 'PUT') {
+        for (const point of body.points) {
+          assert.equal(point.vector.length, 3);
+          saved.set(point.id, point);
+        }
+        points.set(pointCollection, saved);
+        response.end(
+          JSON.stringify({ status: 'ok', result: { status: 'completed' } }),
+        );
+      } else {
+        response.end(
+          JSON.stringify({
+            status: 'ok',
+            result: body.ids.map((id) => saved.get(id)).filter(Boolean),
+          }),
+        );
+      }
+      return;
+    }
     const name = /^\/collections\/(kp_[a-f0-9]{32})$/.exec(request.url)?.[1];
     if (!name) {
       response.statusCode = 400;
@@ -54,7 +130,8 @@ export async function checkKnowledgeBases(page, tests) {
     const path = new URL(request.url()).pathname;
     if (
       path.startsWith('/api/v1/knowledge-bases') ||
-      path.startsWith('/api/v1/tasks/')
+      path.startsWith('/api/v1/tasks/') ||
+      path.startsWith('/api/v1/search-requests/')
     )
       requests.push({
         method: request.method(),
@@ -83,7 +160,7 @@ export async function checkKnowledgeBases(page, tests) {
     });
     const embeddingVersion = await put('/settings/models/embedding', {
       endpoint: `${endpoint}/v1`,
-      model: '仅保存不外发的嵌入模型',
+      model: 'text-embedding-v4',
       contextWindowTokens: null,
       maxOutputTokens: null,
       credential: { action: 'replace', value: 'fixed-knowledge-base-fixture' },
@@ -128,6 +205,7 @@ export async function checkKnowledgeBases(page, tests) {
       await page.getByLabel('名称', { exact: true }).fill(name);
       await page.getByLabel('相似度阈值（必填）').fill('0.5');
       await page.getByLabel('每条查询候选数（必填）').fill('10');
+      await page.getByLabel('嵌入维度', { exact: true }).fill('3');
     };
     const save = async () => {
       const response = page.waitForResponse(
@@ -163,6 +241,24 @@ export async function checkKnowledgeBases(page, tests) {
     assert.ok((await detail.innerText()).includes('未发布'));
     assert.ok((await detail.innerText()).includes('运行可用'));
     assert.ok((await detail.innerText()).includes('暂无处理任务'));
+    const emptySearch = page.getByRole('region', {
+      name: '单库检索测试',
+      exact: true,
+    });
+    const callsBeforeEmpty = probes.filter((probe) =>
+      /embeddings/.test(probe.path),
+    ).length;
+    await emptySearch.getByLabel('检索内容').fill('空库不调用模型');
+    await emptySearch
+      .getByRole('button', { name: '执行单库检索', exact: true })
+      .click();
+    await emptySearch
+      .getByText('没有生效索引，请先完成资料处理。', { exact: true })
+      .waitFor();
+    assert.equal(
+      probes.filter((probe) => /embeddings/.test(probe.path)).length,
+      callsBeforeEmpty,
+    );
     await detail.getByRole('button', { name: '修改名称与说明' }).click();
     await page.getByLabel('名称', { exact: true }).fill('空库联调已维护');
     await page
@@ -173,6 +269,9 @@ export async function checkKnowledgeBases(page, tests) {
       .getByRole('heading', { name: '空库联调已维护', exact: true })
       .waitFor();
     await start('初始资料库' + '较长名称用于检验排版'.repeat(5));
+    embeddingGate = new Promise((resolve) => {
+      releaseEmbedding = resolve;
+    });
     await page.getByLabel(dataset.name, { exact: true }).check();
     const accepted = await save();
     await detail.getByRole('heading', { name: /^初始资料库/ }).waitFor();
@@ -182,7 +281,6 @@ export async function checkKnowledgeBases(page, tests) {
     assert.ok(resource);
     await detail.getByText('固定知识库资料.txt', { exact: true }).waitFor();
     assert.ok((await detail.innerText()).includes('已纳入'));
-    assert.ok((await detail.innerText()).includes('尚未生效'));
     const add = async (type) => {
       await detail
         .getByRole('button', { name: '关联资料', exact: true })
@@ -215,12 +313,241 @@ export async function checkKnowledgeBases(page, tests) {
     assert.equal(filesReply.items.length, 1);
     assert.equal(filesReply.items[0].sources.length, 2);
     assert.ok(
-      ['queued', 'running', 'failed'].includes(filesReply.items[0].task.state),
+      ['queued', 'running', 'failed', 'succeeded'].includes(
+        filesReply.items[0].task.state,
+      ),
     );
     assert.equal(filesReply.items[0].task.kind, 'index_file');
-    assert.equal(filesReply.items[0].effectiveIndexVersionId, null);
     assert.equal((await add('dataset')).status(), 409);
     await page.getByRole('button', { name: '取消关联', exact: true }).click();
+    const indexedTaskId = filesReply.items[0].task.id;
+    const streamPattern = `**/api/v1/tasks/${indexedTaskId}/events`;
+    await page.route(streamPattern, async (route) => {
+      await page.unroute(streamPattern);
+      await route.abort('failed');
+    });
+    const recovery = page.waitForResponse(
+      (reply) =>
+        new URL(reply.url()).pathname === `/api/v1/tasks/${indexedTaskId}`,
+    );
+    await page
+      .getByRole('button', { name: '刷新处理任务', exact: true })
+      .click();
+    await page
+      .getByRole('button', { name: '跟踪处理任务', exact: true })
+      .first()
+      .click();
+    assert.equal((await recovery).status(), 200);
+    const subscribed = page.waitForResponse(
+      (reply) =>
+        new URL(reply.url()).pathname ===
+        `/api/v1/tasks/${indexedTaskId}/events`,
+    );
+    const stream = await subscribed;
+    assert.equal(stream.status(), 200);
+    assert.ok(
+      (await stream.allHeaders())['content-type'].startsWith(
+        'text/event-stream',
+      ),
+    );
+    const eventRequest = await stream.request().allHeaders();
+    assert.ok(eventRequest.cookie?.includes('KNOW_POOL_SESSION='));
+    assert.equal(new URL(stream.url()).search, '');
+    assert.equal(eventRequest['x-csrf-token'], undefined);
+    const streamCapture = page.evaluate(async (url) => {
+      const response = await fetch(url, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error('事件独立读取失败');
+      return response.text();
+    }, `/api/v1/tasks/${indexedTaskId}/events`);
+    releaseEmbedding();
+    embeddingGate = undefined;
+    let indexed;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      indexed = (
+        await (
+          await http.get(
+            `${base}/api/v1/knowledge-bases/${resource}/files?limit=20`,
+          )
+        ).json()
+      ).items[0];
+      if (!['queued', 'running'].includes(indexed.task.state)) break;
+      await page.waitForTimeout(100);
+    }
+    assert.equal(indexed.task.state, 'succeeded');
+    assert.ok(indexed.effectiveIndexVersionId);
+    assert.equal(
+      indexed.task.resultResourceId,
+      indexed.effectiveIndexVersionId,
+    );
+    assert.equal(
+      indexed.effectiveContentVersionId,
+      indexed.latestContentVersionId,
+    );
+    const eventFrames = (await streamCapture)
+      .replace(/\r\n/g, '\n')
+      .split('\n\n')
+      .filter((frame) => frame.includes('data:'));
+    assert.ok(eventFrames.length > 0);
+    let finalEvent;
+    for (const frame of eventFrames) {
+      const data = JSON.parse(
+        frame
+          .split('\n')
+          .find((line) => line.startsWith('data:'))
+          .slice(5)
+          .trim(),
+      );
+      assert.equal(data.taskId, indexedTaskId);
+      assert.ok(Number.isSafeInteger(data.sequence) && data.sequence > 0);
+      assert.ok(frame.includes(`id: ${indexedTaskId}:${data.sequence}`));
+      if (frame.includes('event: terminal')) {
+        assert.equal(data.state, 'succeeded');
+        assert.equal(data.phase, 'completed');
+        finalEvent = data;
+      } else assert.ok(frame.includes('event: phase'));
+    }
+    assert.ok(finalEvent);
+    const replay = await http.get(
+      `${base}/api/v1/tasks/${indexedTaskId}/events`,
+      {
+        headers: { 'Last-Event-ID': `${indexedTaskId}:${finalEvent.sequence}` },
+      },
+    );
+    assert.equal(replay.status(), 200);
+    const replayText = await replay.text();
+    assert.ok(
+      replayText.includes(`id: ${indexedTaskId}:${finalEvent.sequence}`),
+    );
+    assert.ok(replayText.includes('event: terminal'));
+    const hostileStream = await http.get(
+      `${base}/api/v1/tasks/${indexedTaskId}/events`,
+      { headers: { Origin: 'https://untrusted.invalid' } },
+    );
+    assert.equal(hostileStream.status(), 403);
+    const expiredStream = await http.get(
+      `${base}/api/v1/tasks/${indexedTaskId}/events`,
+      { headers: { Cookie: 'KNOW_POOL_SESSION=expired-fixed-session' } },
+    );
+    assert.equal(expiredStream.status(), 401);
+    const library = await (
+      await http.get(`${base}/api/v1/knowledge-bases/${resource}`)
+    ).json();
+    assert.equal(library.publicationState, 'unpublished');
+    assert.ok(library.effectiveIndexVersionId);
+    await page
+      .getByRole('button', { name: '刷新处理任务', exact: true })
+      .click();
+    await detail.getByText('处理成功 · 已结束', { exact: true }).waitFor();
+    const management = page.getByRole('region', {
+      name: '单库检索测试',
+      exact: true,
+    });
+    await management
+      .getByLabel('检索内容', { exact: true })
+      .fill('固定知识库联调资料');
+    const resultQuery = page.waitForResponse((reply) =>
+      /\/api\/v1\/search-requests\/[^/]+$/.test(new URL(reply.url()).pathname),
+    );
+    embeddingGate = new Promise((resolve) => {
+      releaseEmbedding = resolve;
+    });
+    await management
+      .getByRole('button', { name: '执行单库检索', exact: true })
+      .click();
+    const queryResponse = await resultQuery;
+    assert.equal(queryResponse.status(), 200);
+    const runningSearch = await queryResponse.json();
+    assert.ok(['queued', 'running'].includes(runningSearch.task.state));
+    assert.equal(runningSearch.result, null);
+    releaseEmbedding();
+    embeddingGate = undefined;
+    await management
+      .getByRole('button', { name: '查看原文依据', exact: true })
+      .first()
+      .waitFor();
+    await management
+      .getByRole('button', { name: '查看原文依据', exact: true })
+      .first()
+      .click();
+    const evidence = management.getByRole('region', {
+      name: '原文依据',
+      exact: true,
+    });
+    await evidence.waitFor();
+    assert.ok(
+      (await evidence.innerText()).includes(indexed.effectiveContentVersionId),
+    );
+    assert.ok((await evidence.innerText()).includes('第1至1行'));
+    assert.equal(
+      requests.filter(
+        (request) =>
+          request.method === 'POST' && request.path.endsWith('/search-test'),
+      ).length,
+      2,
+    );
+    const ssePrefix = '#/paths/~1tasks~1{taskId}~1events/get';
+    tests.push({
+      name: '真实浏览器索引事件中断原任务恢复与单库版本保护',
+      passed: true,
+      operationIds: [
+        'watchTask',
+        'getTask',
+        'listKnowledgeBaseFiles',
+        'getKnowledgeBase',
+        'testKnowledgeBaseSearch',
+        'getSearchRequest',
+        'getSearchEvidence',
+      ],
+      constraintIds: [
+        'security.8',
+        '#/x-business-constraints/indexSwitch',
+        '#/x-business-constraints/publication',
+        '#/x-business-constraints/cost',
+        '#/x-business-constraints/sse',
+        `${ssePrefix}/x-sse/reconnect`,
+        `${ssePrefix}/x-sse/events/phase`,
+        `${ssePrefix}/x-sse/events/terminal`,
+        `${ssePrefix}/x-sse/id`,
+        `${ssePrefix}/x-sse/lastEventIdHeader`,
+        `${ssePrefix}/x-sse/terminalStates`,
+      ],
+      assertions: [
+        '真实浏览器中断一次事件流后先GET原任务，再恢复Cookie鉴权同源事件流；没有URL令牌或新建索引提交',
+        '空库管理检索无索引失败且未外发嵌入；未发布库索引完成仍未发布，管理检索成功',
+        '首次索引任务成功资源与实际生效索引版本一致、内容版本一致；查询结果由真实GET获取，证据绑定实际版本及原文行',
+        '两次显式检索分别为空库和当前库，恢复过程不产生新检索提交；所有模型请求均本机替身，无回答生成',
+      ],
+    });
+    for (const width of [1280, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await management.scrollIntoViewIfNeeded();
+      assert.equal(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+        true,
+      );
+      await page.screenshot({
+        path: `artifacts/live-index-search-evidence-${width}.png`,
+      });
+    }
+    await evidence.getByRole('button', { name: '关闭原文依据' }).click();
+    noMatches = true;
+    await management
+      .getByRole('button', { name: '执行单库检索', exact: true })
+      .click();
+    await management.getByText('未找到相关内容。', { exact: true }).waitFor();
+    noMatches = false;
+    rejectEmbedding = true;
+    await management
+      .getByRole('button', { name: '执行单库检索', exact: true })
+      .click();
+    await management.getByRole('alert').waitFor();
+    assert.equal(
+      await management.getByText('未找到相关内容。', { exact: true }).count(),
+      0,
+    );
+    rejectEmbedding = false;
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.locator('.formal-main').evaluate((node) => {
@@ -255,9 +582,10 @@ export async function checkKnowledgeBases(page, tests) {
     assert.ok(creationRequests.every((r) => r.hasProtection && r.key));
     assert.notEqual(creationRequests.at(-1).key, creationRequests.at(-2).key);
     assert.equal(
-      probes.some((p) => /embeddings|chat\/completions/.test(p.path)),
+      probes.some((p) => /chat\/completions/.test(p.path)),
       false,
     );
+    assert.ok(probes.some((p) => /embeddings/.test(p.path)));
     assert.equal(
       await page.evaluate(() => localStorage.length + sessionStorage.length),
       0,
@@ -276,6 +604,10 @@ export async function checkKnowledgeBases(page, tests) {
         'listKnowledgeBaseSources',
         'listKnowledgeBaseFiles',
         'getTask',
+        'listKnowledgeBaseTasks',
+        'testKnowledgeBaseSearch',
+        'getSearchRequest',
+        'getSearchEvidence',
       ],
       requests: requests.map(({ key, ...rest }) => ({
         ...rest,
@@ -287,16 +619,18 @@ export async function checkKnowledgeBases(page, tests) {
         'security.7',
       ],
       assertions: [
-        '真实应用接口与本机向量替身联通；所有模型路径零请求',
+        '真实应用接口与本机向量及嵌入替身联通；回答生成路径零请求',
         '空库创建受理后查询原任务，成功才进入详情，发布及可用及处理状态独立',
         '显式配置与无密钥嵌入身份快照、初始datasetIds、名称说明保存及刷新仍保留',
         '数据集与文件来源并集只保留一份文件与排队意图，重复来源409且无新索引',
         '远端拒绝保留失败原任务，显式修改后新键重建成功',
         '三宽长名称表单与详情无横向溢出且保存截图，浏览器不持久化凭据',
+        '未发布单库索引生效后检索真实切片与版本位置；无命中和嵌入故障分别展示',
       ],
       tasks: { initialAccepted: !!accepted.id },
     });
   } finally {
+    releaseEmbedding?.();
     page.off('request', observe);
     await new Promise((resolve) => vector.close(resolve));
   }
