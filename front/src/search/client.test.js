@@ -8,7 +8,10 @@ import {
   result,
   scope,
 } from '../../test-fixtures/search';
-import { evidence } from '../../test-fixtures/indexing';
+import {
+  evidence,
+  search as managementSearch,
+} from '../../test-fixtures/indexing';
 import { createSearchClient } from './client';
 const observations = [];
 function observed(operationId, request) {
@@ -276,6 +279,126 @@ it('普通检索全部公开错误由真实响应处理，不自动发新请求'
   observed('getSearchRequest', s.requests.at(-1));
   await expect(api.evidence(id, evidence)).rejects.toThrow('结果已失效');
   observed('getSearchEvidence', s.requests.at(-1));
+});
+it('实例分页详情重命名与范围保存消费所有状态，允许重复名和空范围', async () => {
+  const s = await setup(() => null),
+    api = createSearchClient(s.client);
+  for (const state of [
+    'never_submitted',
+    'running',
+    'available',
+    'failed',
+    'cancelled',
+    'rerun_required',
+  ]) {
+    const value = {
+      ...instance,
+      name: '允许重复名称',
+      manuallyNamed: true,
+      resultState: state,
+      lastSubmittedQuery: input.query,
+      knowledgeBaseIds: [...input.knowledgeBaseIds],
+      currentRequestId: state === 'rerun_required' ? null : id,
+    };
+    s.reply({ items: [value], nextCursor: '下一页' });
+    expect((await api.list('上页')).items[0]).toEqual(value);
+    observed('listSearchInstances', s.requests.at(-1));
+    s.reply(value);
+    expect(await api.getInstance(instanceId)).toEqual(value);
+    observed('getSearchInstance', s.requests.at(-1));
+    expect(await api.rename(instanceId, '允许重复名称')).toEqual(value);
+    observed('renameSearchInstance', s.requests.at(-1));
+    expect(await api.scope(instanceId, input.knowledgeBaseIds)).toEqual(value);
+    observed('updateSearchInstanceScope', s.requests.at(-1));
+  }
+  s.reply({ items: [], nextCursor: null });
+  expect((await api.list()).items).toEqual([]);
+  observed('listSearchInstances', s.requests.at(-1));
+  s.reply(instance);
+  expect((await api.scope(instanceId, [])).knowledgeBaseIds).toEqual([]);
+  observed('updateSearchInstanceScope', s.requests.at(-1));
+  await expect(api.rename(instanceId, ' ')).rejects.toThrow('名称');
+  await expect(api.scope(instanceId, [id, id])).rejects.toThrow('范围');
+});
+it('删除确认幂等受理并消费同步清理终态，普通与管理原请求取消返回实际终态', async () => {
+  const cleanup = {
+    ...result.task,
+    kind: 'cleanup',
+    progressCompleted: 1,
+    progressTotal: 1,
+    attempt: 1,
+    knowledgeBaseId: null,
+    targetConfigVersionId: null,
+    fileId: null,
+    targetContentVersionId: null,
+    resultResourceId: null,
+  };
+  const s = await setup(() => ({ httpStatus: 202, body: { task: cleanup } })),
+    api = createSearchClient(s.client);
+  expect((await api.remove(instanceId, otherId)).task).toEqual(cleanup);
+  expect(JSON.parse(s.requests.at(-1).data)).toEqual({ confirmed: true });
+  observed('deleteSearchInstance', s.requests.at(-1));
+  s.reply(result);
+  expect(await api.cancel(id, instanceId, input)).toEqual(result);
+  observed('cancelSearchRequest', s.requests.at(-1));
+  const cancelled = {
+    ...result,
+    result: null,
+    task: { ...result.task, state: 'cancelled', resultResourceId: null },
+  };
+  s.reply(cancelled);
+  expect((await api.cancel(id, instanceId, input)).task.state).toBe(
+    'cancelled',
+  );
+  observed('cancelSearchRequest', s.requests.at(-1));
+  s.reply(managementSearch);
+  expect(
+    await api.cancel(id, null, { query: input.query, knowledgeBaseIds: [id] }),
+  ).toEqual(managementSearch);
+  observed('cancelSearchRequest', s.requests.at(-1));
+});
+it('实例管理与取消所有公开错误真实消费，不自动重发删除或检索', async () => {
+  const s = await setup(() => null),
+    api = createSearchClient(s.client);
+  for (const [status, code] of [
+    [400, 'INVALID_REQUEST'],
+    [401, 'SESSION_EXPIRED'],
+    [403, 'CSRF_REJECTED'],
+    [404, 'NOT_FOUND'],
+    [409, 'CONFLICT'],
+    [410, 'RESULT_EXPIRED'],
+    [422, 'INVALID_STATE'],
+    [429, 'QUEUE_FULL'],
+    [500, 'INTERNAL_ERROR'],
+    [503, 'DEPENDENCY_UNAVAILABLE'],
+  ]) {
+    s.reply({
+      errorStatus: status,
+      body: {
+        requestId: id,
+        code,
+        message: '固定实例操作失败',
+        fieldErrors: [{ field: '/name', code, message: '固定名称错误' }],
+        retryable: false,
+      },
+    });
+    const calls = [
+      ['getSearchInstance', () => api.getInstance(instanceId)],
+      ['renameSearchInstance', () => api.rename(instanceId, '新名称')],
+      ['updateSearchInstanceScope', () => api.scope(instanceId, [])],
+      ['deleteSearchInstance', () => api.remove(instanceId, otherId)],
+      ['cancelSearchRequest', () => api.cancel(id, instanceId, input)],
+    ];
+    if (![409, 410, 422].includes(status))
+      calls.push(['listSearchInstances', () => api.list()]);
+    for (const [operation, call] of calls) {
+      if (status === 410 && operation !== 'cancelSearchRequest') continue;
+      if (status === 422 && operation === 'getSearchInstance') continue;
+      if (status === 409 && operation === 'getSearchInstance') continue;
+      await expect(call()).rejects.toThrow('固定实例操作失败');
+      observed(operation, s.requests.at(-1));
+    }
+  }
 });
 afterAll(() => {
   execFileSync('python', ['scripts/settings-evidence.py', '08'], {

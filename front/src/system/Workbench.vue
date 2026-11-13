@@ -6,7 +6,7 @@ import { createSystemClient } from './session';
 import Datasets from '../datasets/Datasets.vue';
 import Settings from '../settings/Settings.vue';
 import KnowledgeBases from '../knowledge-bases/KnowledgeBases.vue';
-import Search from '../search/Search.vue';
+import Search from '../search/SearchInstances.vue';
 
 const props = defineProps({
   client: { type: Object, default: () => createSystemClient() },

@@ -16,3 +16,21 @@
   box-sizing: border-box;
   resize: vertical;
 }
+
+.search-window-host {
+  min-width: 0;
+}
+
+.managed-search {
+  padding: 0;
+}
+
+.search-page .dataset-rows button {
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.search-page .dataset-rows button span {
+  display: block;
+}

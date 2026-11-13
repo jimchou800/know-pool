@@ -100,7 +100,9 @@ function validRequest(v, instanceId, submitted) {
     !identifier(v.id) ||
     v.instanceId !== instanceId ||
     !validTask(v.task, 'search') ||
-    v.task.knowledgeBaseId !== null ||
+    (instanceId === null
+      ? v.task.knowledgeBaseId !== submitted.knowledgeBaseIds[0]
+      : v.task.knowledgeBaseId !== null) ||
     !nullable(v.scope, (s) =>
       validScope(s, submitted.knowledgeBaseIds, v.task.state === 'succeeded'),
     )
@@ -127,6 +129,7 @@ function validRequest(v, instanceId, submitted) {
     r.requestId === v.id &&
     r.instanceId === instanceId &&
     r.taskId === v.task.id &&
+    query(r.query) &&
     r.query === submitted.query &&
     validScope(r.scope, submitted.knowledgeBaseIds) &&
     sameIds(r.scope.usedKnowledgeBaseIds, v.scope.usedKnowledgeBaseIds) &&
@@ -151,7 +154,89 @@ function validRequest(v, instanceId, submitted) {
   );
 }
 export function createSearchClient(session) {
+  async function instanceResponse(config, id) {
+    const value = await session.request(config);
+    return verify(value, validInstance(value) && value.id === id);
+  }
   return {
+    async list(cursor) {
+      if (
+        cursor !== undefined &&
+        (typeof cursor !== 'string' ||
+          !cursor.length ||
+          Array.from(cursor).length > 2048)
+      )
+        throw new Error('分页位置无效。');
+      const value = await session.request({
+        method: 'get',
+        url: '/search-instances',
+        params: { limit: 20, ...(cursor === undefined ? {} : { cursor }) },
+      });
+      return verify(
+        value,
+        exact(value, ['items', 'nextCursor']) &&
+          Array.isArray(value.items) &&
+          value.items.every(validInstance) &&
+          nullable(value.nextCursor, (v) => typeof v === 'string'),
+      );
+    },
+    getInstance: (id) =>
+      instanceResponse({ method: 'get', url: instancePath(id) }, id),
+    async rename(id, name) {
+      if (
+        typeof name !== 'string' ||
+        !/\S/.test(name) ||
+        Array.from(name).length > 120
+      )
+        throw new Error('名称不能为空，最多120个码点。');
+      return instanceResponse(
+        { method: 'patch', url: instancePath(id) + '/name', data: { name } },
+        id,
+      );
+    },
+    async scope(id, knowledgeBaseIds) {
+      if (!ids(knowledgeBaseIds))
+        throw new Error('范围须为零至一百个不同知识库。');
+      return instanceResponse(
+        {
+          method: 'put',
+          url: instancePath(id) + '/scope',
+          data: { knowledgeBaseIds },
+        },
+        id,
+      );
+    },
+    async remove(id, key) {
+      if (!identifier(key)) throw new Error('删除操作标识无效。');
+      const value = await session.request({
+        method: 'delete',
+        url: instancePath(id),
+        headers: { 'Idempotency-Key': key },
+        data: { confirmed: true },
+      });
+      return verify(
+        value,
+        exact(value, ['task']) &&
+          validTask(value.task, 'cleanup') &&
+          [
+            'knowledgeBaseId',
+            'fileId',
+            'targetContentVersionId',
+            'targetConfigVersionId',
+            'resultResourceId',
+          ].every((field) => value.task[field] === null),
+      );
+    },
+    async cancel(id, instanceId, input) {
+      const value = await session.request({
+        method: 'post',
+        url: requestPath(id) + '/cancel',
+      });
+      return verify(
+        value,
+        validRequest(value, instanceId, input) && value.id === id,
+      );
+    },
     async create() {
       const value = await session.request({
         method: 'post',
@@ -180,6 +265,20 @@ export function createSearchClient(session) {
         method: 'get',
         url: requestPath(id),
       });
+      return verify(
+        value,
+        validRequest(value, instanceId, input) && value.id === id,
+      );
+    },
+    async restore(id, instanceId, lastQuery, savedIds) {
+      const value = await session.request({
+        method: 'get',
+        url: requestPath(id),
+      });
+      const input = {
+        query: lastQuery,
+        knowledgeBaseIds: value?.scope?.selectedKnowledgeBaseIds || savedIds,
+      };
       return verify(
         value,
         validRequest(value, instanceId, input) && value.id === id,
