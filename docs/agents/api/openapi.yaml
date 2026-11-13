@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "个人知识管理应用唯一接口契约",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "description": "正式接口设计开发基线，批准证据由前后端在契约外分别记录同一字节摘要。设计完整不代表业务代码、自动校验或真实模型效果已实现。所有对象默认拒绝未知字段；服务端重校验关联、排除、发布、版本及取消资格。"
   },
   "servers": [
@@ -1732,7 +1732,8 @@
               }
             }
           }
-        }
+        },
+        "description": "返回202仅表示已持久受理创建任务，不代表初始化成功。名称、处理配置快照、初始来源与创建意图先在短事务中保存，专属向量集合在事务外初始化并核验；全部成功后再提交可见业务记录及成功任务。半初始化知识库不进入公开列表，详情按不存在返回404，不允许关联或作为成功资源使用。创建失败保留原任务及原始脱敏失败原因，补偿业务记录及本任务已证实拥有的集合；已有或归属不明的集合不得接管或删除。补偿失败、远端超时或创建结果不确定时，持久保留任务、集合名、归属状态及核查线索，供重启恢复或核查；补偿故障不得覆盖原创建失败原因。成功任务的 resultResourceId 与 knowledgeBaseId 为同一非空知识库标识；其他状态的 resultResourceId 为空。"
       }
     },
     "/knowledge-bases/{knowledgeBaseId}": {
@@ -2581,7 +2582,8 @@
               }
             }
           }
-        }
+        },
+        "description": "同一知识库重复添加相同 type 与 resourceId 返回409 CONFLICT，不新增来源、文件关联或排队任务；不同来源重叠仍返回201并保留各来源，但有效文件按并集合并，同库同文件当前内容与目标配置只保留一条持久 index_file 排队意图。"
       }
     },
     "/knowledge-bases/{knowledgeBaseId}/sources/{sourceId}": {
@@ -9198,7 +9200,7 @@
                 "type": "null"
               }
             ],
-            "description": "创建成功后的知识库等资源标识，其他任务可空"
+            "description": "知识库创建任务成功时为已完成初始化的知识库标识，必须与 knowledgeBaseId 相同且均非空；该类型其他状态必须为空。其他任务按其类型定义，可空。"
           }
         },
         "required": [
@@ -9271,6 +9273,49 @@
                   "type": "string",
                   "format": "date-time",
                   "pattern": "Z$"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "knowledge_base_create"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "succeeded"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "resultResourceId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "knowledgeBaseId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "resultResourceId": {
+                    "type": "null"
+                  }
                 }
               }
             }

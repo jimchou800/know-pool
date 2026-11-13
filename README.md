@@ -8,7 +8,7 @@
 
 演示原型使用固定样例，不调用真实模型或后端。技术任务 01 的正式工作台、本机会话、安全及统一构建，02 的数据集管理、03 的单份文本上传、预览与原格式下载、04 的安全文档预览与定位及 05 的批量上传、重命名与版本分页已通过端到端验收，见[01 实施记录](.scratch/technical-design/implementation-01.md)、[02 实施记录](.scratch/technical-design/implementation-02.md)、[03 实施记录](.scratch/technical-design/implementation-03.md)、[04 实施记录](.scratch/technical-design/implementation-04.md)与[05 实施记录](.scratch/technical-design/implementation-05.md)。06 的生成、嵌入与向量配置及显式连接测试也已通过同快照双签验收，见[06 实施记录](.scratch/technical-design/implementation-06.md)。其余业务尚未验收；后续变更须重新验证，不沿用旧快照结论。
 
-06 的模型与向量配置正在独立分支 `implement/06-integration` 集成，前后端分别在 `implement/06-frontend`、`implement/06-backend` 实施；已双审的 `1.0.2` 契约仅在 06 分支采纳，主 `integration` 保留 05 已验收基线，详见 [06 实施记录](.scratch/technical-design/implementation-06.md)。本票尚未验收。
+06 已合入本地 `integration` 并完成主工作区复验；保留的领域分支是历史交付记录，不代表仍有待合并代码。07 按[设计预检](.scratch/technical-design/implementation-07.md)先补齐技术契约并双审，再推进实现；后续逐票验证、独立验收并集成，不积累多票后一次合并。
 
 ## 运行界面原型
 
