@@ -206,7 +206,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
             boolean readable=maintenance || path.equals("/api/v1/tasks") && request.getMethod().equals("GET");
             if (data==null || readable) { chain.doFilter(request,response);return; }
             try (var lease=data.gate().enter()) {
-                if (lease==null) { error(response,503,"MAINTENANCE_IN_PROGRESS","数据维护进行中，请稍后重试。",requestId);return; }
+                if (lease==null) { error(response,503,"WRITES_PAUSED","数据维护进行中，请稍后重试。",requestId);return; }
                 chain.doFilter(request,response);
             }
             return;

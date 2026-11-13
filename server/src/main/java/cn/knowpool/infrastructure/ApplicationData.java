@@ -26,6 +26,7 @@ public final class ApplicationData implements AutoCloseable {
     private FileChannel lockChannel;
     private FileLock lock;
     private final DriverManagerDataSource dataSource;
+    private volatile boolean migrationFailed;
     private final Instant startedAt = Instant.now();
 
     public ApplicationData(@Value("${know-pool.data-directory}") String configuredDirectory) throws IOException {
@@ -302,10 +303,11 @@ public final class ApplicationData implements AutoCloseable {
                 .execute(status -> action.apply(JdbcClient.create(dataSource)));
     }
 
-    public synchronized Status status() {
-        return new Status("0.1.0", startedAt.toString(), gate.paused()?"maintenance":"ready", directory.toString(), 17, List.of());
+    public Status status() {
+        return new Status("0.1.0", startedAt.toString(), gate.paused()?"paused":migrationFailed?"migration_failed":"ready", directory.toString(), 17, List.of());
     }
 
+    public void migrationFailed(boolean value) { migrationFailed=value; }
     public MaintenanceGate gate() { return gate; }
     public Path anchor() { return anchor; }
     public synchronized void checkpoint() {
@@ -332,6 +334,7 @@ public final class ApplicationData implements AutoCloseable {
         if (Files.isSymbolicLink(pointer)) throw new IOException("数据目录检查点不能是链接。");
         Path target=Path.of(Files.readString(pointer)).toAbsolutePath().normalize();
         if (target.getParent()==null || !Files.isDirectory(target) || Files.isSymbolicLink(target) || target.toString().startsWith("\\\\")) throw new IOException("迁移检查点无效，已停止业务写入。");
+        for (Path item=target;item!=null;item=item.getParent()) if (Files.exists(item,java.nio.file.LinkOption.NOFOLLOW_LINKS) && (Files.isSymbolicLink(item) || !item.toRealPath().equals(item.toAbsolutePath().normalize()))) throw new IOException("迁移检查点不能指向链接或重解析目录。");
         return target.toRealPath();
     }
 
