@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '17'
+TICKET = '18'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
@@ -36,7 +36,8 @@ SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset'
          'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask',
          'watchQuestionTask', 'getConversationEvidence',
          'listConversations', 'getConversation', 'renameConversation', 'updateConversationScope',
-         'listConversationTurns', 'submitQuestion', 'deleteConversation')
+         'listConversationTurns', 'submitQuestion', 'deleteConversation',
+         'getProcessingConfigVersion')
 BUSINESS_OPERATIONS = {
     'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
     'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion'},
