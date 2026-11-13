@@ -80,7 +80,8 @@ public final class KnowledgeBaseChecks {
                 capacity.release();
                 ObjectNode rejected = (ObjectNode)json.valueToTree(pending.task());
                 rejected.put("state","interrupted").put("phase","completed").put("finishedAt",Instant.now().toString());
-                rejected.set("failure",json.createObjectNode().put("code","INTERRUPTED").put("message","知识库复查执行器已停止，请查看原任务后手动重试。").put("retryable",false));
+                rejected.set("failure",json.createObjectNode().put("code","TASK_INTERRUPTED").put("message","知识库复查执行器已停止，请查看原任务后手动重试。").put("retryable",false));
+                rejected.set("warnings",json.createArrayNode().add("连接检查可能已产生费用，请勿自动重新提交。"));
                 save(rejected,null);
                 return new ConnectionTests.Accepted(tasks.get(pending.task().id()));
             }

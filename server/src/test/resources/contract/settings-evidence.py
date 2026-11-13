@@ -22,6 +22,10 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'publicationStates': ({'publicationAndChecksKeepIndependentStates'}, {'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase'},
+        '#/x-business-constraints/publication', '真实门槛、发布幂等、主动和自动下线、恢复不自动发布及外部故障只改可用性均由接口逐项断言。'),
+    'checkDoesNotRepeatCalls': ({'publicationAndChecksKeepIndependentStates'}, {'checkKnowledgeBase'},
+        '#/x-business-constraints/cost', '固定中文短文本不发送资料正文，同键及活动不同键映射原任务，完成后查询和同键重放不重复外发。'),
     'contentVersionSwitch': ({'contentSwitchHistoryAndCancellationRemainBoundToVersions','runningSearchAndRebuildCancellationRejectLateResults'}, {
         'listIndexSwitches','cancelTask','downloadVersionFile','listKnowledgeBaseFiles','getTask'},
         '#/x-business-constraints/indexSwitch','公开接口核对同源多库独立切换、原子指针关系、旧版保留、取消幂等及目标版本正文下载；未受理的非法新文件不取消在途任务。'),
@@ -266,9 +270,11 @@ if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
                            'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig',
                            'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources',
                            'listIndexSwitches','cancelTask','downloadVersionFile','previewVersionFile',
+                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'publicationAndChecksKeepIndependentStates': ('真实发布门槛、幂等发布下线、排除后自动下线、恢复不自动发布；收费确认、固定输入及活动异键合并、同键不重复调用，外部失败正常探测且发布状态保持。', {'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getKnowledgeBase','getTask','getConnectionTestResult'}),
         'runningSearchAndRebuildCancellationRejectLateResults': ('运行中检索取消后等待后继请求完成，旧结果仍为空；整库父任务取消传播子任务，旧生效指针与切换记录保持，取消接口会话与保护令牌真实拒绝。', {'cancelTask','getTask','getSearchRequest','listIndexSwitches','listKnowledgeBaseTasks','getKnowledgeBase'}),
         'contentSwitchHistoryAndCancellationRemainBoundToVersions': ('实际内容版本、多库独立生效指针、完整前后切换关系、允许任务终态幂等取消与初始化类型拒绝，以及指定旧版下载正文和安全头均由真实接口断言。', {'listIndexSwitches','cancelTask','downloadVersionFile','listKnowledgeBaseFiles','getTask'}),
         'associationUnionExclusionsAndLateTasksStayConsistent': ('真实来源重叠不重复索引、保留单来源不下线、排除优先、无来源排除可见、取消排除无来源不排队、上传新增同步及覆盖后迟到任务不得复活；排除持久化跨重启仍有效。', {'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources', 'listKnowledgeBaseFiles', 'getKnowledgeBase', 'getTask'}),

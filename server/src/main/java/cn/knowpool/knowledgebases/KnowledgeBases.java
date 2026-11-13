@@ -820,7 +820,7 @@ public final class KnowledgeBases {
             get(jdbc, id);
             List<JsonNode> rows = jdbc
                     .sql(
-                            "SELECT payload FROM tasks WHERE kind IN ('index_file','rebuild_knowledge_base','cleanup') AND json_extract(payload,'$.knowledgeBaseId')=? AND id>? ORDER BY id LIMIT ?")
+                            "SELECT payload FROM tasks WHERE kind IN ('index_file','rebuild_knowledge_base','cleanup','model_test') AND json_extract(payload,'$.knowledgeBaseId')=? AND id>? ORDER BY id LIMIT ?")
                     .params(id, after(cursor), limit + 1)
                     .query(String.class)
                     .list()
