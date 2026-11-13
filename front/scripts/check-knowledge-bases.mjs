@@ -11,6 +11,7 @@ import { checkSearchInstances } from './check-search-instances.mjs';
 import { checkGroundedAnswer } from './check-grounded-answer.mjs';
 import { checkConfigurationRebuild } from './check-configuration-rebuild.mjs';
 import { checkDeletionCleanup } from './check-deletion-cleanup.mjs';
+import { checkDataMigration } from './check-data-migration.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -827,6 +828,7 @@ export async function checkKnowledgeBases(page, tests) {
       datasetId: dataset.id,
       knowledgeBaseId: resource,
     });
+    await checkDataMigration(page, tests, { http, base });
   } finally {
     releaseEmbedding?.();
     page.off('request', observe);

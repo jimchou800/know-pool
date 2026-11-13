@@ -1,11 +1,14 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import Workbench from './Workbench.vue';
 import { createSystemClient } from './session';
 
 let wrapper;
-afterEach(() => wrapper?.unmount());
+afterEach(() => {
+  wrapper?.unmount();
+  vi.useRealTimers();
+});
 const session = {
   sessionId: '00000000-0000-4000-8000-000000000001',
   csrfToken: '固定测试令牌'.repeat(8),
@@ -19,6 +22,58 @@ const status = {
   schemaVersion: 1,
   warnings: [],
 };
+
+it('持续读取真实维护状态暂停跨页写入口，状态读取失败保守暂停且恢复后更新目录', async () => {
+  vi.useFakeTimers();
+  let current = status,
+    fails = false;
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }],
+  });
+  await router.push('/datasets');
+  const client = createSystemClient(async (config) => {
+    if (fails) throw new Error('固定状态断线');
+    return {
+      data: config.url === '/session' ? session : current,
+      status: 200,
+      headers: {},
+      config,
+    };
+  });
+  wrapper = mount(Workbench, {
+    props: { client },
+    global: {
+      plugins: [router],
+      stubs: {
+        Datasets: {
+          props: ['writable'],
+          template: '<button :disabled="!writable">固定写入入口</button>',
+        },
+      },
+    },
+  });
+  await flushPromises();
+  const write = () =>
+    wrapper.findAll('button').find((item) => item.text() === '固定写入入口');
+  expect(write().attributes('disabled')).toBeUndefined();
+  current = { ...status, writeState: 'paused' };
+  await vi.advanceTimersByTimeAsync(2000);
+  await flushPromises();
+  expect(write().attributes('disabled')).toBeDefined();
+  expect(wrapper.text()).toContain('数据写入已暂停');
+  current = { ...status, dataDirectory: 'D:\\固定迁移后目录' };
+  fails = true;
+  await vi.advanceTimersByTimeAsync(2000);
+  await flushPromises();
+  expect(wrapper.text()).toContain('当前无法确认写入状态');
+  expect(write().attributes('disabled')).toBeDefined();
+  fails = false;
+  await vi.advanceTimersByTimeAsync(2000);
+  await flushPromises();
+  expect(write().attributes('disabled')).toBeUndefined();
+  expect(wrapper.text()).not.toContain('当前无法确认写入状态');
+});
 
 async function setup(adapter) {
   const router = createRouter({
