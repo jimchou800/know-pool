@@ -198,6 +198,19 @@ export async function checkPublication(
     rejectEmbedding(false);
   }
   assert.equal((await check()).available, true);
+  const taskList = page.getByRole('region', { name: '处理任务', exact: true });
+  await taskList
+    .getByRole('button', { name: '刷新处理任务', exact: true })
+    .click();
+  const checkRow = taskList
+    .locator('.knowledge-files > li')
+    .filter({ hasText: '类型：可用性复查' })
+    .first();
+  await checkRow.waitFor();
+  assert.equal(
+    await checkRow.getByRole('button', { name: /预检|取消原任务/ }).count(),
+    0,
+  );
   assert.equal(
     (await get(`/knowledge-bases/${id}`)).publicationState,
     'published',

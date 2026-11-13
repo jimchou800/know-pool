@@ -637,9 +637,12 @@ export function createKnowledgeBaseClient(session) {
         id,
         '/tasks',
         (value) =>
-          ['index_file', 'rebuild_knowledge_base', 'cleanup'].includes(
-            value?.kind,
-          ) && validTask(value, value.kind),
+          [
+            'index_file',
+            'rebuild_knowledge_base',
+            'cleanup',
+            'model_test',
+          ].includes(value?.kind) && validTask(value, value.kind),
         cursor,
       ),
   };

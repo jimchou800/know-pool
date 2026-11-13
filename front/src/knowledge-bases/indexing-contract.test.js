@@ -973,6 +973,14 @@ it('发布下线消费完整历史与独立可用状态，复查携带费用确�
     }
   }
   const check = { ...task, kind: 'model_test' };
+  s.reply({ items: [check], nextCursor: null });
+  expect((await s.api.tasks(id)).items).toEqual([check]);
+  observed('listKnowledgeBaseTasks', s.requests.at(-1));
+  s.reply({
+    items: [{ ...check, knowledgeBaseId: otherId }],
+    nextCursor: null,
+  });
+  await expect(s.api.tasks(id)).rejects.toThrow('响应格式');
   s.reply({ task: check });
   for (let attempt = 0; attempt < 2; attempt++) {
     expect(await s.api.check(id, otherId, true)).toEqual({ task: check });

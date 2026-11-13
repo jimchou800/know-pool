@@ -40,6 +40,12 @@ const phases = {
   cleaning: '清理已下线索引',
   completed: '已结束',
 };
+const kinds = {
+  index_file: '资料索引',
+  rebuild_knowledge_base: '整库重建',
+  cleanup: '资源清理',
+  model_test: '可用性复查',
+};
 const states = {
   queued: '等待处理',
   running: '处理中',
@@ -171,7 +177,11 @@ onBeforeUnmount(() => {
     <p v-if="!rows.length && !loading && !error">暂无处理任务。</p>
     <ul class="knowledge-files">
       <li v-for="item in rows" :key="item.id">
+        <p>类型：{{ kinds[item.kind] }}</p>
         <strong>{{ states[item.state] }} · {{ phases[item.phase] }}</strong>
+        <p v-if="item.kind === 'model_test'">
+          此任务检查知识库依赖，不处理资料。任务成功仅表示探测完成，运行可用性以知识库当前状态和复查结果为准；不会自动重新发布知识库。
+        </p>
         <p v-if="item.kind === 'cleanup'">
           下线后的资源清理任务；清理失败不会恢复资料纳入，清理重试入口尚未提供。
         </p>
@@ -195,6 +205,7 @@ onBeforeUnmount(() => {
           :task="item"
         />
         <CancelTask
+          v-if="['index_file', 'rebuild_knowledge_base'].includes(item.kind)"
           :client="client"
           :task="item"
           :writable="writable"
