@@ -92,9 +92,9 @@ class ContractGateTests(unittest.TestCase):
     def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
         """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
         operations = verify.inventory(self.document)
-        self.assertEqual(verify.TICKET, '09')
-        self.assertEqual(len(verify.SCOPE), 41)
-        self.assertEqual(len(set(verify.SCOPE)), 41)
+        self.assertEqual(verify.TICKET, '10')
+        self.assertEqual(len(verify.SCOPE), 43)
+        self.assertEqual(len(set(verify.SCOPE)), 43)
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix
@@ -129,7 +129,7 @@ class ContractGateTests(unittest.TestCase):
 
     def test_indexing_scope_keeps_reachable_publication_and_result_branches(self):
         """索引执行后已可达的版本、进度、失败及结果分支不得沿用旧豁免。"""
-        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-09.json').read_bytes())
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-10.json').read_bytes())
         operations = verify.inventory(self.document)
         verify.check_scope(mapping, operations)
         for identifier, conditions in mapping['操作'].items():
@@ -159,6 +159,19 @@ class ContractGateTests(unittest.TestCase):
             '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/429',
             '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/503',
         })
+
+    def test_preflight_scope_keeps_statistics_and_rebuild_identities_required(self):
+        """预检统计与整库任务的空文件身份不能因缺测被保留。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-10.json').read_bytes())
+        self.assertEqual(mapping['操作']['updateProcessingConfig'], {})
+        self.assertEqual(set(mapping['操作']['getChunkPreflight']), {
+            '#/paths/~1tasks~1{taskId}~1chunk-preflight/get/responses/429',
+            '#/paths/~1tasks~1{taskId}~1chunk-preflight/get/responses/503',
+        })
+        for field in ('fileId', 'targetContentVersionId'):
+            self.assertNotIn('#/components/schemas/Task/properties/' + field + '/anyOf/1/type',
+                             mapping['操作']['listKnowledgeBaseTasks'])
+
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])
