@@ -113,6 +113,7 @@ public final class ConnectionTests {
                                 validKey,
                                 fingerprint)
                         .update();
+                cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(task));
                 accepted = true;
                 return new Pending(task, snapshot);
             } finally {
@@ -197,6 +198,7 @@ public final class ConnectionTests {
     }
 
     private void persist(JdbcClient jdbc, Task task, Result result) {
+        cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(task));
         jdbc.sql("UPDATE tasks SET state=?,payload=?,result=? WHERE id=?")
                 .params(
                         task.state(),

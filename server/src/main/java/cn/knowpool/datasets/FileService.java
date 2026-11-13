@@ -24,6 +24,7 @@ public final class FileService {
     private final ApplicationData data;
     private final DatasetService datasets;
     private final cn.knowpool.infrastructure.UploadConfiguration.Limits limits;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
     public List<SourceFile> sourceFiles(org.springframework.jdbc.core.simple.JdbcClient jdbc, String type, String id) {
         String valid = cn.knowpool.system.ModelSettingsService.identifier(id, "/resourceId");
@@ -46,10 +47,12 @@ public final class FileService {
     public FileService(
             ApplicationData data,
             DatasetService datasets,
-            cn.knowpool.infrastructure.UploadConfiguration.Limits limits) {
+            cn.knowpool.infrastructure.UploadConfiguration.Limits limits,
+            org.springframework.context.ApplicationEventPublisher events) {
         this.data = data;
         this.datasets = datasets;
         this.limits = limits;
+        this.events = events;
     }
 
     private Saved create(String datasetId, MultipartFile input) throws IOException {
@@ -96,7 +99,7 @@ public final class FileService {
                     FileView current = get(fileId);
                     if (current.latestVersion().sizeBytes() == bytes.length
                             && current.latestVersion().contentHash().equals(hash))
-                        return new Saved("unchanged", current);
+                        return new Saved("unchanged", current, List.of());
                     jdbc.sql("UPDATE files SET latest_version=?, uploaded_at=?, updated_at=? WHERE id=?")
                             .param(version)
                             .param(now)
@@ -129,7 +132,10 @@ public final class FileService {
                         .param(relative)
                         .param(1)
                         .update();
-                return new Saved(existing.isPresent() ? "replaced" : "created", get(fileId));
+                ContentCommitted event = new ContentCommitted(jdbc, fileId, datasetId, version);
+                events.publishEvent(event);
+                return new Saved(
+                        existing.isPresent() ? "replaced" : "created", get(fileId), List.copyOf(event.taskIds()));
             });
             retained = !saved.outcome().equals("unchanged");
             return saved;
@@ -155,7 +161,35 @@ public final class FileService {
         return null;
     }
 
-    private record Saved(String outcome, FileView file) {}
+    private record Saved(String outcome, FileView file, List<String> taskIds) {}
+
+    public record ContentCommitted(
+            org.springframework.jdbc.core.simple.JdbcClient jdbc,
+            String fileId,
+            String datasetId,
+            String contentVersionId,
+            List<String> taskIds) {
+        public ContentCommitted {
+            taskIds = new java.util.ArrayList<>(taskIds);
+        }
+
+        @Override
+        public List<String> taskIds() {
+            return List.copyOf(taskIds);
+        }
+
+        public void addTaskId(String id) {
+            taskIds.add(id);
+        }
+
+        public ContentCommitted(
+                org.springframework.jdbc.core.simple.JdbcClient jdbc,
+                String fileId,
+                String datasetId,
+                String contentVersionId) {
+            this(jdbc, fileId, datasetId, contentVersionId, new java.util.ArrayList<>());
+        }
+    }
 
     public Upload upload(String datasetId, List<MultipartFile> inputs, String requestId) {
         datasetId = datasets.get(datasetId).id();
@@ -176,7 +210,7 @@ public final class FileService {
                 if (groups.getOrDefault(nameKey(name), 0L) > 1)
                     throw new ApiFailure(409, "CONFLICT", "同批文件名重复，请每组只选择一份资料。", "/files");
                 Saved saved = create(datasetId, input);
-                items.add(new Item(index, submitted, saved.outcome(), saved.file(), null, List.of()));
+                items.add(new Item(index, submitted, saved.outcome(), saved.file(), null, saved.taskIds()));
             } catch (ApiFailure failure) {
                 items.add(new Item(
                         index,
@@ -489,6 +523,23 @@ public final class FileService {
                 || filename == null
                 || !parent.equals(root)
                 || !filename.toString().equals(file.latestVersion().id())) throw new IOException("副本路径不合法。");
+        validateStoragePath(target);
+        return new Stored(file, Files.readAllBytes(target));
+    }
+
+    public Stored versionContent(String id, String version) throws IOException {
+        FileView file = get(id);
+        String relative = data.read(
+                jdbc -> jdbc.sql("SELECT relative_path FROM file_versions WHERE id=? AND file_id=? AND available=1")
+                        .params(version, id)
+                        .query(String.class)
+                        .optional()
+                        .orElseThrow(() -> new ApiFailure(410, "CONTENT_UNAVAILABLE", "指定版本副本不可用。", null)));
+        Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
+        Path target = data.directory().resolve(relative).toAbsolutePath().normalize();
+        Path filename = target.getFileName();
+        if (!root.equals(target.getParent()) || filename == null || !version.equals(filename.toString()))
+            throw new IOException("副本路径不合法。");
         validateStoragePath(target);
         return new Stored(file, Files.readAllBytes(target));
     }

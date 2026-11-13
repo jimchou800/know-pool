@@ -83,6 +83,11 @@ public final class KnowledgeBaseController {
         return service.files(identifier(knowledgeBaseId), limit(request), request.getParameter("cursor"));
     }
 
+    @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/tasks")
+    public KnowledgeBases.Page tasks(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
+        return service.tasks(identifier(knowledgeBaseId), limit(request), request.getParameter("cursor"));
+    }
+
     @PostMapping(value = "/api/v1/knowledge-bases/{knowledgeBaseId}/sources", consumes = "application/json")
     @ResponseStatus(HttpStatus.CREATED)
     public JsonNode source(

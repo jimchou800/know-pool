@@ -153,17 +153,21 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         && request.getMethod().equals("POST")
                 || path.equals("/api/v1/settings/vector-store/test")
                         && request.getMethod().equals("POST")
-                || path.matches("/api/v1/tasks/[^/]+(?:/connection-test)?")
+                || path.matches("/api/v1/tasks/[^/]+(?:/connection-test|/events)?")
                         && request.getMethod().equals("GET");
         boolean knowledgeBases =
                 path.equals("/api/v1/knowledge-bases") && Set.of("GET", "POST").contains(request.getMethod())
                         || path.matches("/api/v1/knowledge-bases/[^/]+")
                                 && Set.of("GET", "PATCH").contains(request.getMethod())
-                        || path.matches("/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files)")
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files|tasks)")
                                 && request.getMethod().equals("GET")
                         || path.matches("/api/v1/knowledge-bases/[^/]+/sources")
                                 && request.getMethod().equals("POST");
-        if (collection || resource || fileOperation || settings || knowledgeBases) {
+        boolean search = path.matches("/api/v1/knowledge-bases/[^/]+/search-test")
+                        && request.getMethod().equals("POST")
+                || path.matches("/api/v1/search-requests/[^/]+(?:/evidence/[^/]+)?")
+                        && request.getMethod().equals("GET");
+        if (collection || resource || fileOperation || settings || knowledgeBases || search) {
             request.setAttribute("localSession", session);
             chain.doFilter(request, response);
             return;

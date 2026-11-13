@@ -151,13 +151,41 @@ public final class ApplicationData implements AutoCloseable {
             }
             if (version < 6) {
                 write(transaction -> {
-                    transaction.sql("CREATE TABLE index_runs (task_id TEXT PRIMARY KEY REFERENCES tasks(id),id TEXT NOT NULL UNIQUE,phase TEXT NOT NULL)").update();
-                    transaction.sql("CREATE TABLE index_chunks (id TEXT PRIMARY KEY,index_id TEXT NOT NULL REFERENCES index_runs(id),ordinal INTEGER NOT NULL,text TEXT NOT NULL,location TEXT NOT NULL,vector TEXT,write_attempts INTEGER NOT NULL DEFAULT 0,embed_attempts INTEGER NOT NULL DEFAULT 0,written INTEGER NOT NULL DEFAULT 0)").update();
-                    transaction.sql("CREATE TABLE effective_files (knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,file_id))").update();
-                    transaction.sql("CREATE TABLE index_switches (id TEXT PRIMARY KEY,task_id TEXT NOT NULL UNIQUE,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,previous_content_id TEXT,content_id TEXT NOT NULL,previous_index_id TEXT,index_id TEXT NOT NULL,config_id TEXT NOT NULL,switched_at TEXT NOT NULL)").update();
-                    transaction.sql("CREATE TABLE task_events (task_id TEXT PRIMARY KEY,sequence INTEGER NOT NULL,payload TEXT NOT NULL)").update();
-                    transaction.sql("CREATE TABLE search_identities (id TEXT PRIMARY KEY)").update();
-                    transaction.sql("CREATE TABLE search_evidence_identities (id TEXT PRIMARY KEY,request_id TEXT NOT NULL REFERENCES search_identities(id))").update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE index_runs (task_id TEXT PRIMARY KEY REFERENCES tasks(id),id TEXT NOT NULL UNIQUE,phase TEXT NOT NULL)")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE index_chunks (id TEXT PRIMARY KEY,index_id TEXT NOT NULL REFERENCES index_runs(id),ordinal INTEGER NOT NULL,text TEXT NOT NULL,location TEXT NOT NULL,vector TEXT,write_attempts INTEGER NOT NULL DEFAULT 0,embed_attempts INTEGER NOT NULL DEFAULT 0,verify_attempts INTEGER NOT NULL DEFAULT 0,write_completed INTEGER NOT NULL DEFAULT 0,written INTEGER NOT NULL DEFAULT 0)")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE effective_files (knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,file_id))")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE index_switches (id TEXT PRIMARY KEY,task_id TEXT NOT NULL UNIQUE,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,previous_content_id TEXT,content_id TEXT NOT NULL,previous_index_id TEXT,index_id TEXT NOT NULL,config_id TEXT NOT NULL,switched_at TEXT NOT NULL)")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE task_events (task_id TEXT PRIMARY KEY,sequence INTEGER NOT NULL,payload TEXT NOT NULL)")
+                            .update();
+                    transaction
+                            .sql("CREATE TABLE search_identities (id TEXT PRIMARY KEY)")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE search_evidence_identities (id TEXT PRIMARY KEY,request_id TEXT NOT NULL REFERENCES search_identities(id))")
+                            .update();
+                    var eventJson =
+                            tools.jackson.databind.json.JsonMapper.builder().build();
+                    for (String task : transaction
+                            .sql("SELECT payload FROM tasks")
+                            .query(String.class)
+                            .list()) {
+                        TaskEvents.record(transaction, eventJson, eventJson.readTree(task));
+                    }
                     transaction.sql("PRAGMA user_version=6").update();
                     return null;
                 });
