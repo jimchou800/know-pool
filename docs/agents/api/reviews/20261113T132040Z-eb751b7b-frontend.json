@@ -1,0 +1,24 @@
+{
+  "actor": "/root/frontend08",
+  "role": "frontend",
+  "conclusion": "通过",
+  "contractSha256": "9b81bdc9561a3e0cb8aaaf0172e0013c6e741f2aea8efe283f64e14cebd1c444",
+  "implementationSha256": "2b14d0fd72b224c26e4e66f7c74df91ad73836ba0cfc1d9be5f63049acb33b33",
+  "reportSha256": "953f3206d6139d5d080e4bc8f4397e411ce8c09ad448ba25c14d2e8eddba66e0",
+  "evidence": [
+    "本人独立读取第四轮不可变报告，重算报告、正式契约、当前实现快照、全部实现文件及七份提供方、累计消费方、真实浏览器源证据的摘要，逐项一致；未重生成报告。",
+    "本人遍历四十操作的全部约束，三千八百零三项适用约束均具有双方证据并通过；四千三百二十五项原始约束完整保留，五百二十二项条件保留与本人已确认映射一致，无失败或未验证项混入适用通过结论。全项目九十五操作及后续未完成范围仍保留，不宣称全项目完成。",
+    "本人独立检查前端原始结果八百二十六项、后端原始结果九十五项，零失败零错误零跳过；第四轮工具三十二项通过，根统一验证成功。前端行覆盖率百分之九十八点零五、分支百分之九十三点九一；后端行百分之九十七点一四、分支百分之八十二点零九，分别满足门禁。",
+    "本人审阅实际浏览器断流后查询原任务再恢复事件、合法恢复头、真实索引生效及未自动发布、单库检索与完整切片版本行定位、无命中及依赖失败区分、同源会话和四十条实际消费路由安全拒绝证据。事件错误严格消费正式十八错误码并保留可重试事实；没有以结构遍历代替业务行为。",
+    "本人逐张目视本轮一千二百八十、一千四百四十、一千九百二十像素的索引检索证据与知识库详情六张截图，长名称和版本标识可换行，行位置与实际正文可读，无横向溢出。一千二百八十像素证据正文靠视口底缘但仍可见，不承诺截图包含整页内容。",
+    "本次仅由前端领域代理签认同一报告，不代签后端或总协调。真实模型效果、真实加密部署、文档格式索引、普通多库服务及完整指定版本原文入口不在本票已验证范围；模型请求使用本机固定替身。"
+  ],
+  "screenshots": [
+    "front/artifacts/live-index-search-evidence-1280.png",
+    "front/artifacts/live-index-search-evidence-1440.png",
+    "front/artifacts/live-index-search-evidence-1920.png",
+    "front/artifacts/live-knowledge-base-detail-1280.png",
+    "front/artifacts/live-knowledge-base-detail-1440.png",
+    "front/artifacts/live-knowledge-base-detail-1920.png"
+  ]
+}
