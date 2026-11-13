@@ -5,6 +5,7 @@ const props = defineProps({
   text: { type: String, required: true },
   markdown: { type: Boolean, default: false },
   initialLine: { type: Number, default: null },
+  endLine: { type: Number, default: null },
 });
 const lines = computed(() => sourceLines(props.text));
 const html = computed(() =>
@@ -18,6 +19,10 @@ const source = ref(null);
 onMounted(() => {
   if (props.initialLine !== null) {
     line.value = props.initialLine;
+    if (props.endLine !== null && (!Number.isInteger(props.endLine) || props.endLine < props.initialLine || props.endLine > lines.value.length)) {
+      error.value = `证据源行范围越界，请核对1至${lines.value.length}行的实际原文。`;
+      return;
+    }
     void locate();
   }
 });

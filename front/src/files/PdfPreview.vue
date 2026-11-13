@@ -1,11 +1,13 @@
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { getDocument, GlobalWorkerOptions, TextLayer } from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import 'pdfjs-dist/web/pdf_viewer.css';
 const props = defineProps({
   bytes: { type: ArrayBuffer, required: true },
   initialPage: { type: Number, default: 1 },
+  endPage: { type: Number, default: null },
+  downloadAvailable: { type: Boolean, default: true },
 });
 GlobalWorkerOptions.workerSrc = workerUrl;
 const host = ref(null);
@@ -16,6 +18,7 @@ const pageNumber = ref(1);
 const pageInput = ref(1);
 const busy = ref(true);
 const error = ref('');
+const errorText = computed(() => props.downloadAvailable ? error.value : error.value.replace('下载原文件', '核对完整切片证据'));
 const fieldError = ref('');
 let loadingTask;
 let document;
@@ -171,6 +174,7 @@ onMounted(async () => {
       !Number.isInteger(props.initialPage) ||
       props.initialPage < 1 ||
       props.initialPage > total.value
+      || (props.endPage !== null && (!Number.isInteger(props.endPage) || props.endPage < props.initialPage || props.endPage > total.value))
     ) {
       clearTimeout(timer);
       busy.value = false;
@@ -240,7 +244,7 @@ onBeforeUnmount(() => {
       <p v-if="fieldError" role="alert">{{ fieldError }}</p>
     </form>
     <p v-if="busy" role="status">正在渲染页面…</p>
-    <p v-if="error" role="alert">{{ error }}</p>
+    <p v-if="error" role="alert">{{ errorText }}</p>
     <div
       v-show="!busy && !error"
       class="pdf-page"

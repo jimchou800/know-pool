@@ -29,6 +29,18 @@
   line-height: 1.6;
 }
 
+.evidence-location,
+.evidence-preview {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.evidence-preview > section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
 .knowledge-files {
   padding: 0;
   list-style: none;
