@@ -71,6 +71,11 @@ public final class SearchRequests {
                         .params(json.writeValueAsString(task), task.path("id").asText())
                         .update();
             }
+            for (String payload:jdbc.sql("SELECT payload FROM search_instances ORDER BY id").query(String.class).list()) {
+                ObjectNode instance=(ObjectNode)json.readTree(payload);
+                instance.putNull("currentRequestId").put("resultState",instance.path("lastSubmittedQuery").isNull()?"never_submitted":"rerun_required");
+                instances.put(instance.path("id").asText(),instance);
+            }
             return null;
         });
     }
@@ -80,8 +85,77 @@ public final class SearchRequests {
         ObjectNode instance=json.createObjectNode().put("id",id).put("name","新检索").put("manuallyNamed",false)
                 .putNull("lastSubmittedQuery").put("createdAt",now).put("updatedAt",now).putNull("currentRequestId").put("resultState","never_submitted");
         instance.set("knowledgeBaseIds",json.createArrayNode());
+        data.write(jdbc -> { saveInstance(jdbc,instance); return null; });
         instances.put(id,instance);
         return instance.deepCopy();
+    }
+
+    public synchronized JsonNode instance(String id) {
+        String valid=ModelSettingsService.identifier(id,"instanceId");
+        boolean exists=data.read(jdbc -> jdbc.sql("SELECT COUNT(*) FROM search_instances WHERE id=?").param(valid).query(Integer.class).single()>0);
+        if (!exists || !instances.containsKey(valid)) throw new ApiFailure(404,"NOT_FOUND","检索实例不存在。",null);
+        return instances.get(valid).deepCopy();
+    }
+
+    public synchronized KnowledgeBases.Page listInstances(int limit,String cursor) {
+        String after=cursor==null?"":ModelSettingsService.identifier(cursor,"cursor");
+        List<String> ids=data.read(jdbc -> jdbc.sql("SELECT id FROM search_instances WHERE id>? ORDER BY id LIMIT ?").params(after,limit+1).query(String.class).list());
+        return new KnowledgeBases.Page(ids.stream().limit(limit).map(id -> (JsonNode)instances.get(id).deepCopy()).toList(),ids.size()>limit?ids.get(limit-1):null);
+    }
+
+    public synchronized JsonNode renameInstance(String id,String name) {
+        ObjectNode updated=(ObjectNode)instance(id);
+        updated.put("name",name).put("manuallyNamed",true).put("updatedAt",Instant.now().toString());
+        data.write(jdbc -> { saveInstance(jdbc,updated); return null; });
+        instances.put(id,updated);
+        return updated.deepCopy();
+    }
+
+    public synchronized JsonNode updateScope(String id,JsonNode scope) {
+        ObjectNode updated=(ObjectNode)instance(id);
+        updated.set("knowledgeBaseIds",scope.deepCopy());updated.put("updatedAt",Instant.now().toString());
+        data.write(jdbc -> { saveInstance(jdbc,updated); return null; });
+        instances.put(id,updated);
+        return updated.deepCopy();
+    }
+
+    private void saveInstance(org.springframework.jdbc.core.simple.JdbcClient jdbc,ObjectNode instance) {
+        ObjectNode metadata=instance.deepCopy();metadata.remove("currentRequestId");metadata.remove("resultState");
+        jdbc.sql("INSERT INTO search_instances(id,payload) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload")
+                .params(instance.path("id").asText(),json.writeValueAsString(metadata)).update();
+    }
+
+    public synchronized JsonNode deleteInstance(String id,String session,String key) {
+        String valid=ModelSettingsService.identifier(id,"instanceId"),validKey=ModelSettingsService.identifier(key,"Idempotency-Key"),operation="deleteSearchInstance:"+valid;
+        JsonNode replay=data.read(jdbc -> jdbc.sql("SELECT payload FROM tasks WHERE session_id=? AND operation=? AND idempotency_key=?")
+                .params(session,operation,validKey).query(String.class).optional().map(json::readTree).orElse(null));
+        if (replay!=null) return json.createObjectNode().set("task",replay);
+        instance(valid);
+        List<String> owned=requests.entrySet().stream().filter(entry -> entry.getValue().path("instanceId").asText().equals(valid)).map(java.util.Map.Entry::getKey).toList();
+        var cancelled=new java.util.LinkedHashMap<String,ObjectNode>();
+        for (String request:owned) if (active(requests.get(request))) cancelled.put(request,cancelled((ObjectNode)requests.get(request).path("task")));
+        String taskId=UUID.randomUUID().toString(),now=Instant.now().toString();
+        ObjectNode task=json.createObjectNode().put("id",taskId).put("kind","cleanup").put("state","succeeded").put("phase","completed")
+                .put("createdAt",now).put("startedAt",now).put("finishedAt",now).put("attempt",1).put("progressCompleted",1).put("progressTotal",1);
+        for (String field:List.of("knowledgeBaseId","fileId","targetContentVersionId","targetConfigVersionId","retryOfTaskId","failure","resultResourceId")) task.putNull(field);
+        task.set("warnings",json.createArrayNode());
+        data.write(jdbc -> {
+            for (ObjectNode value:cancelled.values()) persist(jdbc,value);
+            jdbc.sql("DELETE FROM search_instances WHERE id=?").param(valid).update();
+            jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'cleanup','succeeded',?,?,?,?,?)")
+                    .params(taskId,json.writeValueAsString(task),session,operation,validKey,"{\"confirmed\":true}").update();
+            cn.knowpool.infrastructure.TaskEvents.record(jdbc,json,task);
+            return null;
+        });
+        for (var entry:cancelled.entrySet()) { requests.get(entry.getKey()).set("task",entry.getValue());interrupt(entry.getValue().path("id").asText()); }
+        instances.remove(valid);
+        for (String request:owned) { requests.remove(request);inputs.remove(request);selected.remove(request);scopeProgress.remove(request); }
+        keys.entrySet().removeIf(entry -> owned.contains(entry.getValue()));
+        return json.createObjectNode().set("task",task);
+    }
+
+    public synchronized JsonNode cancelRequest(String id) {
+        JsonNode request=get(id);cancel(request.at("/task/id").asText());return get(id);
     }
 
     public synchronized JsonNode submitInstance(String session,String instance,String key,JsonNode input) {
@@ -116,6 +190,16 @@ public final class SearchRequests {
         request.set("task",task);
         ObjectNode previous=instance==null?null:requests.get(instances.get(instance).path("currentRequestId").asText());
         ObjectNode cancelled=previous!=null && active(previous)?cancelled((ObjectNode)previous.path("task")):null;
+        ObjectNode owner=instance==null?null:instances.get(instance).deepCopy();
+        if (owner!=null) {
+            boolean first=owner.path("lastSubmittedQuery").isNull();
+            owner.put("currentRequestId",id).put("lastSubmittedQuery",input.path("query").asText()).put("updatedAt",Instant.now().toString()).put("resultState","running");
+            owner.set("knowledgeBaseIds",input.path("knowledgeBaseIds").deepCopy());
+            if (!owner.path("manuallyNamed").asBoolean() && first) {
+                String query=input.path("query").asText();
+                owner.put("name",query.substring(0,query.offsetByCodePoints(0,Math.min(30,query.codePointCount(0,query.length())))));
+            }
+        }
         boolean submitted=false;
         try {
             data.write(jdbc -> {
@@ -124,19 +208,14 @@ public final class SearchRequests {
                 jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'search','queued',?,'runtime','search',?,'')")
                         .params(taskId,json.writeValueAsString(task),taskId).update();
                 if (cancelled!=null) persist(jdbc,cancelled);
+                if (owner!=null) saveInstance(jdbc,owner);
                 return null;
             });
             if (cancelled!=null) { previous.set("task",cancelled); previous.putNull("result"); preserveScope(previous); interrupt(cancelled.path("id").asText()); }
             requests.put(id,request); keys.put(operation,id); inputs.put(id,fingerprint);
             if (instance!=null) {
                 selected.put(id,input.path("knowledgeBaseIds").valueStream().map(JsonNode::asText).toList());
-                ObjectNode owner=instances.get(instance);
-                owner.put("currentRequestId",id).put("lastSubmittedQuery",input.path("query").asText()).put("updatedAt",Instant.now().toString()).put("resultState","running");
-                owner.set("knowledgeBaseIds",input.path("knowledgeBaseIds").deepCopy());
-                if (!owner.path("manuallyNamed").asBoolean() && previous==null) {
-                    String query=input.path("query").asText();
-                    owner.put("name",query.substring(0,query.offsetByCodePoints(0,Math.min(30,query.codePointCount(0,query.length())))));
-                }
+                instances.put(instance,owner);
             }
             try {
                 worker.execute(() -> { try { run(id,kb,input.path("query").asText()); } finally {
@@ -157,7 +236,7 @@ public final class SearchRequests {
     private static boolean active(JsonNode request) { return List.of("queued","running").contains(request.at("/task/state").asText()); }
 
     private synchronized boolean cancelledRequest(String id) {
-        return stopping || !active(requests.get(id)) || !current(requests.get(id));
+        return stopping || !requests.containsKey(id) || !active(requests.get(id)) || !current(requests.get(id));
     }
 
     private boolean current(ObjectNode request) {
@@ -270,7 +349,7 @@ public final class SearchRequests {
         omitted.add(json.createObjectNode().put("knowledgeBaseId",kb).put("reason",reason).put("message",message));
     }
 
-    private synchronized void progress(String id,ObjectNode scope) { scopeProgress.put(id,scope.deepCopy()); }
+    private synchronized void progress(String id,ObjectNode scope) { if (requests.containsKey(id)) scopeProgress.put(id,scope.deepCopy()); }
 
     private void preserveScope(ObjectNode request) {
         ObjectNode progress=scopeProgress.get(request.path("id").asText());

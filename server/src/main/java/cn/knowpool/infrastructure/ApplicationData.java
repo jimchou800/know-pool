@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 11) {
+            if (version > 12) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 11) {
+            if (version > 0 && version < 12) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -230,6 +230,13 @@ public final class ApplicationData implements AutoCloseable {
                 write(transaction -> {
                     transaction.sql("CREATE TABLE knowledge_base_check_keys(session_id TEXT NOT NULL,knowledge_base_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,task_id TEXT NOT NULL,PRIMARY KEY(session_id,knowledge_base_id,idempotency_key))").update();
                     transaction.sql("PRAGMA user_version=11").update();
+                    return null;
+                });
+            }
+            if (version < 12) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE search_instances(id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
+                    transaction.sql("PRAGMA user_version=12").update();
                     return null;
                 });
             }
