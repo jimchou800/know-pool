@@ -122,8 +122,8 @@ def self_check():
 
 self_check()
 ticket = sys.argv[1] if len(sys.argv) > 1 else '06'
-assert ticket in ('06', '07')
-domain = {'06': '设置', '07': '知识库'}[ticket]
+assert ticket in ('06', '07', '08')
+domain = {'06': '设置', '07': '知识库', '08': '索引与管理检索'}[ticket]
 tests = []
 for index, item in enumerate(json.load(sys.stdin)):
     name = item['operationId']
@@ -136,6 +136,16 @@ for index, item in enumerate(json.load(sys.stdin)):
     assert all(left == right or left.startswith('{') for left, right in zip(expected, actual))
     definition = document['paths'][operation['path']][method]
     prefix = '#/paths/' + verification.escape(operation['path']) + '/' + method
+    if item.get('events') is not None:
+        found = {prefix + '/method', prefix + '/path', prefix + '/parameters', prefix + '/security', prefix + '/responses/200'}
+        for event in item['events']:
+            validate_response({'$ref': '#/components/schemas/TaskEvent'}, event)
+            reached({'$ref': '#/components/schemas/TaskEvent'}, prefix, event, found)
+        found.update(item['constraintIds'])
+        tests.append({'name': domain + '：事件真实客户端消费' + str(index + 1), 'passed': True,
+                      'operationIds': [name], 'constraintIds': sorted(found & set(operation['constraints'])),
+                      'assertions': item['assertions'], 'requests': [{'method': 'GET', 'path': '/api/v1' + item['url'], 'hasProtection': False}]})
+        continue
     if item.get('rejectedInput'):
         schema = definition['requestBody']['content']['application/json']['schema']
         assert not validator(schema).is_valid(item['input'])

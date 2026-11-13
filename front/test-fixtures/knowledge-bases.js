@@ -133,7 +133,8 @@ export async function setup(reply) {
     const status =
       result?.errorStatus ||
       (config.method === 'post'
-        ? config.url === '/knowledge-bases'
+        ? config.url === '/knowledge-bases' ||
+          config.url.endsWith('/search-test')
           ? 202
           : 201
         : 200);
