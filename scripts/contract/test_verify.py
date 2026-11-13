@@ -11,6 +11,25 @@ import verify
 
 
 class ContractGateTests(unittest.TestCase):
+    def test_snapshot_ignores_runtime_logs_but_tracks_source_changes(self):
+        """运行日志增写不改变实现快照，源码变化仍使证据失效。"""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'server/src/Application.java'
+            source.parent.mkdir(parents=True)
+            source.write_text('class Application {}', encoding='utf-8')
+            log = root / 'server/.runtime/logs/application.log'
+            log.parent.mkdir(parents=True)
+            log.write_text('首次启动', encoding='utf-8')
+            with patch.object(verify, 'ROOT', root):
+                initial, files = verify.snapshot()
+                self.assertEqual([item['path'] for item in files], ['server/src/Application.java'])
+                with log.open('a', encoding='utf-8') as output:
+                    output.write('后端测试完成')
+                self.assertEqual(verify.snapshot()[0], initial)
+                source.write_text('class Application { int version; }', encoding='utf-8')
+                self.assertNotEqual(verify.snapshot()[0], initial)
+
     def test_merges_provider_files_and_rejects_duplicate_or_stale_evidence(self):
         """独立证据均须有效，跨文件重名和过期不得被合并掩盖。"""
         with tempfile.TemporaryDirectory() as directory:

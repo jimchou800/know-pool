@@ -41,7 +41,7 @@ def digest(raw):
 def snapshot():
     """只绑定实现、测试及构建输入；报告和签认不会引发摘要循环。"""
     excluded = {'node_modules', 'target', 'dist', 'coverage', 'artifacts',
-                '.vite', '.codex', '__pycache__', 'playwright-report', 'test-results'}
+                '.vite', '.codex', '.runtime', '__pycache__', 'playwright-report', 'test-results'}
     files = []
     for base in ('front', 'server', 'verification', 'scripts/contract', '.github'):
         directory = ROOT / base
