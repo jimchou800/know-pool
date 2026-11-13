@@ -30,11 +30,13 @@ class IndexChunkingHttpTest {
     private static boolean associationsPassed;
     private static boolean versionsPassed;
     private static boolean publicationPassed;
+    private static boolean multiSearchPassed;
 
     @org.junit.jupiter.api.extension.RegisterExtension
     final org.junit.jupiter.api.extension.TestWatcher completed = new org.junit.jupiter.api.extension.TestWatcher() {
         @Override
         public void testSuccessful(org.junit.jupiter.api.extension.ExtensionContext context) {
+            if (context.getRequiredTestMethod().getName().startsWith("multiSearch")) multiSearchPassed = true;
             if (context.getRequiredTestMethod().getName().equals("publicationAndChecksKeepIndependentStates")) publicationPassed = true;
             if (context.getRequiredTestMethod().getName().equals("publicContractBranchesRemainReachable"))
                 gapsPassed = true;
@@ -46,6 +48,151 @@ class IndexChunkingHttpTest {
             if (context.getRequiredTestMethod().getName().equals("runningSearchAndRebuildCancellationRejectLateResults")) versionsPassed = true;
         }
     };
+
+    @Test
+    @DisplayName("最小实例多库独立阈值与融合、同配置单次嵌入、范围缺失及全不可用分别表达")
+    void multiSearchScopesFusionAndCostsAreExplicit() throws Exception {
+        var inputs=new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var emptyHits=new java.util.concurrent.atomic.AtomicBoolean();
+        HttpServer vector=indexedVector(inputs,() -> {},() -> {},"4",hits -> { if (emptyHits.get()) hits.removeAll(); });
+        Path directory=Files.createTempDirectory(Path.of("target"),"multi-search-http-").toAbsolutePath();
+        try (ConfigurableApplicationContext app=start(directory)) {
+            Client client=client(app);
+            String processing=processing(client,vector.getAddress().getPort(),0,"{}","[]");
+            String first=createIndexedBase(client,processing,"普通检索第一库","共同原文资料。");
+            JsonNode source=read(client,"/knowledge-bases/"+first+"/sources").path("items").get(0);
+            JsonNode creation=JSON.readTree(send(client,"/knowledge-bases","POST","{\"name\":\"普通检索第二库\",\"processing\":"+processing+",\"datasetIds\":[\""+source.path("resourceId").asText()+"\"]}",UUID.randomUUID().toString()).body());
+            String second=await(client,creation.at("/task/id").asText()).path("resultResourceId").asText();
+            for (JsonNode file:read(client,"/knowledge-bases/"+second+"/files").path("items")) assertThat(await(client,file.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+            for (String kb:java.util.List.of(first,second)) assertThat(send(client,"/knowledge-bases/"+kb+"/publish","POST",null,null).statusCode()).isEqualTo(200);
+            HttpResponse<String> created=send(client,"/search-instances","POST",null,null);
+            assertThat(created.statusCode()).isEqualTo(201);
+            JsonNode instance=JSON.readTree(created.body());
+            assertThat(instance.path("name").asText()).isEqualTo("新检索");
+            assertThat(instance.path("resultState").asText()).isEqualTo("never_submitted");
+            assertThat(instance.path("currentRequestId").isNull()).isTrue();
+            String endpoint="/search-instances/"+instance.path("id").asText()+"/requests";
+            HttpServer otherModel=indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(),() -> {});
+            String dependent;
+            try {
+                String alternative=processing(client,otherModel.getAddress().getPort(),0,"{}","[]");
+                configure(client,vector.getAddress().getPort());
+                dependent=createIndexedBase(client,alternative,"独立模型故障库","独立模型正文。");
+                assertThat(send(client,"/knowledge-bases/"+dependent+"/publish","POST",null,null).statusCode()).isEqualTo(200);
+            } finally { otherModel.stop(0); }
+            String separate="{\"query\":\"独立模型故障\",\"knowledgeBaseIds\":[\""+first+"\",\""+dependent+"\"]}";
+            JsonNode separateRequest=JSON.readTree(send(client,endpoint,"POST",separate,UUID.randomUUID().toString()).body());
+            assertThat(await(client,separateRequest.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+            separateRequest=read(client,"/search-requests/"+separateRequest.path("id").asText());
+            assertThat(separateRequest.at("/scope/usedKnowledgeBaseIds/0").asText()).isEqualTo(first);
+            assertThat(separateRequest.at("/scope/omitted/0/knowledgeBaseId").asText()).isEqualTo(dependent);
+            assertThat(separateRequest.at("/scope/omitted/0/reason").asText()).isEqualTo("unavailable");
+            String body="{\"query\":\"共同原文\",\"knowledgeBaseIds\":[\""+first+"\",\""+second+"\"]}",key=UUID.randomUUID().toString();
+            int before=inputs.size();
+            JsonNode accepted=JSON.readTree(send(client,endpoint,"POST",body,key).body());
+            assertThat(accepted.path("instanceId")).isEqualTo(instance.path("id"));
+            assertThat(accepted.at("/task/knowledgeBaseId").isNull()).isTrue();
+            assertThat(await(client,accepted.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+            JsonNode request=read(client,"/search-requests/"+accepted.path("id").asText());
+            assertThat(request.at("/result/outcome").asText()).isEqualTo("matches");
+            assertThat(request.at("/result/evidence").size()).isEqualTo(1);
+            assertThat(request.at("/scope/usedKnowledgeBaseIds").size()).isEqualTo(2);
+            assertThat(request.at("/scope/incomplete").asBoolean()).isFalse();
+            assertThat(request.at("/result/preprocessingState").asText()).isEqualTo("not_used");
+            assertThat(request.at("/result/additionalQueries").isEmpty()).isTrue();
+            JsonNode evidence=request.at("/result/evidence/0");
+            JsonNode effective=read(client,"/knowledge-bases/"+evidence.path("knowledgeBaseId").asText()+"/files").path("items").get(0);
+            assertThat(evidence.path("indexVersionId")).isEqualTo(effective.path("effectiveIndexVersionId"));
+            assertThat(evidence.path("contentVersionId")).isEqualTo(effective.path("effectiveContentVersionId"));
+            assertThat(read(client,"/search-requests/"+request.path("id").asText()+"/evidence/"+evidence.path("id").asText())).isEqualTo(evidence);
+            assertThat(JSON.readTree(send(client,endpoint,"POST",body,key).body()).path("id")).isEqualTo(request.path("id"));
+            assertThat(inputs.size()).isEqualTo(before+1);
+            assertThat(send(client,endpoint,"POST",body.replace("共同原文","另一查询"),key).statusCode()).isEqualTo(409);
+            assertThat(send(client,"/knowledge-bases/"+second+"/offline","POST",null,null).statusCode()).isEqualTo(200);
+            String missing=UUID.randomUUID().toString();
+            String partial="{\"query\":\"共同原文\",\"knowledgeBaseIds\":[\""+first+"\",\""+second+"\",\""+missing+"\"]}";
+            JsonNode partialRequest=JSON.readTree(send(client,endpoint,"POST",partial,UUID.randomUUID().toString()).body());
+            assertThat(await(client,partialRequest.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+            partialRequest=read(client,"/search-requests/"+partialRequest.path("id").asText());
+            assertThat(partialRequest.at("/scope/incomplete").asBoolean()).isTrue();
+            assertThat(partialRequest.at("/scope/usedKnowledgeBaseIds").size()).isEqualTo(1);
+            assertThat(partialRequest.at("/scope/omitted").valueStream().map(row -> row.path("reason").asText()).toList()).containsExactly("not_published","deleted");
+            assertThat(partialRequest.at("/result/warnings").isEmpty()).isFalse();
+            emptyHits.set(true);
+            JsonNode noMatches=JSON.readTree(send(client,endpoint,"POST",body,UUID.randomUUID().toString()).body());
+            assertThat(await(client,noMatches.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+            assertThat(read(client,"/search-requests/"+noMatches.path("id").asText()).at("/result/outcome").asText()).isEqualTo("no_matches");
+            vector.stop(0);
+            JsonNode failure=JSON.readTree(send(client,endpoint,"POST",body,UUID.randomUUID().toString()).body());
+            assertThat(await(client,failure.at("/task/id").asText()).path("state").asText()).isEqualTo("failed");
+            JsonNode failed=read(client,"/search-requests/"+failure.path("id").asText());
+            assertThat(failed.path("result").isNull()).isTrue();
+            assertThat(failed.at("/scope/usedKnowledgeBaseIds").isEmpty()).isTrue();
+            assertThat(failed.at("/scope/omitted").valueStream().map(row -> row.path("reason").asText()).toList()).contains("unavailable","not_published");
+            assertThat(send(client,"/search-instances/"+UUID.randomUUID()+"/requests","POST",body,UUID.randomUUID().toString()).statusCode()).isEqualTo(404);
+            assertThat(send(client,endpoint,"POST",body.replace(second,first),UUID.randomUUID().toString()).statusCode()).isEqualTo(400);
+            assertThat(send(client,"/search-instances","POST","{}",null).statusCode()).isEqualTo(400);
+            for (String route:java.util.List.of("/search-instances",endpoint)) {
+                String input=route.equals(endpoint)?body:null;
+                assertThat(send(new Client(client.base(),null,null),route,"POST",input,key).statusCode()).isEqualTo(401);
+                assertThat(send(new Client(client.base(),client.cookie(),null),route,"POST",input,key).statusCode()).isEqualTo(403);
+                assertThat(send(client,route+"?unknown=1","POST",input,key).statusCode()).isEqualTo(400);
+            }
+        } finally { vector.stop(0); }
+    }
+
+    @Test
+    @DisplayName("同实例新提交原子取消旧请求，排队发布资格重新检查且满队列不取消旧请求")
+    void multiSearchLatestRequestAndQueueStayAtomic() throws Exception {
+        var block=new java.util.concurrent.atomic.AtomicBoolean();
+        var entered=new java.util.concurrent.atomic.AtomicReference<>(new java.util.concurrent.CountDownLatch(1));
+        var release=new java.util.concurrent.atomic.AtomicReference<>(new java.util.concurrent.CountDownLatch(1));
+        HttpServer vector=indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(),() -> {
+            if (block.get()) {
+                entered.get().countDown();
+                boolean done=false;
+                while (!done) try { done=release.get().await(15,java.util.concurrent.TimeUnit.SECONDS); if (!done) throw new AssertionError("受控多库等待超时。"); }
+                catch (InterruptedException ignored) { }
+            }
+        });
+        Path directory=Files.createTempDirectory(Path.of("target"),"multi-latest-http-").toAbsolutePath();
+        try (ConfigurableApplicationContext app=start(directory)) {
+            Client client=client(app);String processing=processing(client,vector.getAddress().getPort(),0,"{}","[]");
+            String kb=createIndexedBase(client,processing,"普通检索取消库","迟到正文。");
+            assertThat(send(client,"/knowledge-bases/"+kb+"/publish","POST",null,null).statusCode()).isEqualTo(200);
+            String first=JSON.readTree(send(client,"/search-instances","POST",null,null).body()).path("id").asText();
+            String endpoint="/search-instances/"+first+"/requests",body="{\"query\":\"原查询\",\"knowledgeBaseIds\":[\""+kb+"\"]}";
+            block.set(true);
+            JsonNode old=JSON.readTree(send(client,endpoint,"POST",body,UUID.randomUUID().toString()).body());
+            assertThat(entered.get().await(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            JsonNode latest=null;
+            for (int n=0;n<16;n++) {
+                String instance=JSON.readTree(send(client,"/search-instances","POST",null,null).body()).path("id").asText();
+                HttpResponse<String> queued=send(client,"/search-instances/"+instance+"/requests","POST",body,UUID.randomUUID().toString());
+                assertThat(queued.statusCode()).isEqualTo(202); latest=JSON.readTree(queued.body());
+            }
+            String overflowKey=UUID.randomUUID().toString();
+            assertThat(send(client,endpoint,"POST",body,overflowKey).statusCode()).isEqualTo(429);
+            assertThat(read(client,"/search-requests/"+old.path("id").asText()).at("/task/state").asText()).isEqualTo("running");
+            assertThat(send(client,"/knowledge-bases/"+kb+"/offline","POST",null,null).statusCode()).isEqualTo(200);
+            block.set(false);release.get().countDown();
+            assertThat(await(client,latest.at("/task/id").asText()).path("state").asText()).isEqualTo("failed");
+            JsonNode failed=read(client,"/search-requests/"+latest.path("id").asText());
+            assertThat(failed.at("/scope/omitted/0/reason").asText()).isEqualTo("not_published");
+            assertThat(failed.path("result").isNull()).isTrue();
+            assertThat(read(client,"/search-requests/"+old.path("id").asText()).at("/task/state").asText()).isEqualTo("succeeded");
+            assertThat(send(client,"/knowledge-bases/"+kb+"/publish","POST",null,null).statusCode()).isEqualTo(200);
+            entered.set(new java.util.concurrent.CountDownLatch(1));release.set(new java.util.concurrent.CountDownLatch(1));block.set(true);
+            JsonNode replaced=JSON.readTree(send(client,endpoint,"POST",body,UUID.randomUUID().toString()).body());
+            assertThat(entered.get().await(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(send(client,"/knowledge-bases/"+kb+"/offline","POST",null,null).statusCode()).isEqualTo(200);
+            JsonNode replacement=JSON.readTree(send(client,endpoint,"POST",body.replace("原查询","新查询"),UUID.randomUUID().toString()).body());
+            assertThat(read(client,"/search-requests/"+replaced.path("id").asText()).at("/task/state").asText()).isEqualTo("cancelled");
+            block.set(false);release.get().countDown();
+            assertThat(await(client,replacement.at("/task/id").asText()).path("state").asText()).isEqualTo("failed");
+            assertThat(read(client,"/search-requests/"+replaced.path("id").asText()).path("result").isNull()).isTrue();
+        } finally { block.set(false);release.get().countDown();vector.stop(0); }
+    }
 
     @Test
     @DisplayName("发布门槛、主动与自动下线、恢复索引及固定输入幂等复查相互独立")
@@ -1317,7 +1464,7 @@ class IndexChunkingHttpTest {
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
         if (java.util.Arrays.stream(Thread.currentThread().getStackTrace())
-                .anyMatch(frame -> java.util.Set.of("publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "publicContractBranchesRemainReachable", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(frame.getMethodName()))) {
+                .anyMatch(frame -> java.util.Set.of("multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "publicContractBranchesRemainReachable", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(frame.getMethodName()))) {
             java.util.Map<String, Object> item = new java.util.LinkedHashMap<>();
             item.put("path", response.request().uri().getRawPath() + (response.request().uri().getRawQuery() == null ? "" : "?" + response.request().uri().getRawQuery()));
             item.put("method", method);
@@ -1334,8 +1481,9 @@ class IndexChunkingHttpTest {
             java.util.Map<String, String> parameters = new java.util.LinkedHashMap<>();
             response.request().headers().map().forEach((name, values) -> parameters.put(name, values.getFirst()));
             item.put("parameters", parameters);
-            String behavior = java.util.Arrays.stream(Thread.currentThread().getStackTrace()).map(StackTraceElement::getMethodName).filter(name -> java.util.Set.of("publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(name)).findFirst().orElse("publicContractBranchesRemainReachable");
+            String behavior = java.util.Arrays.stream(Thread.currentThread().getStackTrace()).map(StackTraceElement::getMethodName).filter(name -> java.util.Set.of("multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(name)).findFirst().orElse("publicContractBranchesRemainReachable");
             item.put("behavior", behavior);
+            if (behavior.startsWith("multiSearch")) item.put("behaviorChecks", java.util.List.of("multiSearchVersions", "multiSearchPublication", "multiSearchCost"));
             if (behavior.equals("publicationAndChecksKeepIndependentStates")) item.put("behaviorChecks", java.util.List.of("publicationStates", "checkDoesNotRepeatCalls"));
             if (behavior.equals("preflightAndRebuildKeepVersionsAtomic")) item.put("behaviorChecks", java.util.List.of("processingConfigurationSwitch"));
             if (behavior.equals("contentSwitchHistoryAndCancellationRemainBoundToVersions") || behavior.equals("runningSearchAndRebuildCancellationRejectLateResults")) item.put("behaviorChecks", java.util.List.of("contentVersionSwitch"));
@@ -1467,7 +1615,7 @@ class IndexChunkingHttpTest {
 
     @org.junit.jupiter.api.AfterAll
     static void gapEvidence() throws Exception {
-        if (!gapsPassed && !documentPassed && !pdfPassed && !previewPassed && !associationsPassed && !versionsPassed && !publicationPassed) return;
+        if (!gapsPassed && !documentPassed && !pdfPassed && !previewPassed && !associationsPassed && !versionsPassed && !publicationPassed && !multiSearchPassed) return;
         GAP_OBSERVATIONS.getFirst().put("routes", GAP_ROUTES);
         Path root = Path.of(System.getProperty("maven.multiModuleProjectDirectory", ".."))
                 .toAbsolutePath()

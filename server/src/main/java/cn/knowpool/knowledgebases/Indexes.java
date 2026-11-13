@@ -783,7 +783,9 @@ public final class Indexes {
     }
 
     public JsonNode retrieve(String kb, String query) {
-        return retrieve(kb,query,new QueryVectors(),Integer.MAX_VALUE,() -> false);
+        try (QueryVectors cache=new QueryVectors()) {
+            return retrieve(kb,query,cache,Integer.MAX_VALUE,() -> false);
+        }
     }
 
     public JsonNode retrieve(String kb, String query, QueryVectors cache, int candidateLimit, java.util.function.BooleanSupplier cancelled) {
@@ -869,14 +871,16 @@ public final class Indexes {
                 availability(kb, failure.getMessage());
             throw failure;
         } finally {
-            synchronized (data) {
+            cache.releases.add(() -> { synchronized (data) {
                 for (String index : snapshot.files().keySet()) readers.computeIfPresent(index,(key,count) -> count <= 1 ? null : count-1);
-            }
+            } });
         }
     }
 
-    public static final class QueryVectors {
+    public static final class QueryVectors implements AutoCloseable {
         private final java.util.Map<QueryVectorKey,float[]> values = new java.util.HashMap<>();
+        private final java.util.List<Runnable> releases=new java.util.ArrayList<>();
+        @Override public void close() { releases.forEach(Runnable::run);releases.clear();values.clear(); }
     }
 
     private record QueryVectorKey(ModelSettingsService.EmbeddingSnapshot model, int dimensions, String query) {}

@@ -22,6 +22,12 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'multiSearchVersions': ({'multiSearchScopesFusionAndCostsAreExplicit','multiSearchLatestRequestAndQueueStayAtomic'}, {'submitSearch','getSearchRequest','getSearchEvidence'},
+        '#/x-business-constraints/indexSwitch', '多库固定生效版本证据按来源位置去重融合，不比较跨模型原始分数；同实例新提交取消旧请求，旧响应不能覆盖新失败或复活结果。'),
+    'multiSearchPublication': ({'multiSearchScopesFusionAndCostsAreExplicit','multiSearchLatestRequestAndQueueStayAtomic'}, {'submitSearch'},
+        '#/x-business-constraints/publication', '只在实际开始时领取已发布范围，未知及下线库明确遗漏，排队中下线不可参与；部分继续且警示，全不可用任务失败不冒充空结果。'),
+    'multiSearchCost': ({'multiSearchScopesFusionAndCostsAreExplicit'}, {'submitSearch'},
+        '#/x-business-constraints/cost', '同配置同次请求只生成一次查询嵌入，同键恢复原请求不重复收费，异负载冲突不替换当前请求。'),
     'publicationStates': ({'publicationAndChecksKeepIndependentStates'}, {'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase'},
         '#/x-business-constraints/publication', '真实门槛、发布幂等、主动和自动下线、恢复不自动发布及外部故障只改可用性均由接口逐项断言。'),
     'checkDoesNotRepeatCalls': ({'publicationAndChecksKeepIndependentStates'}, {'checkKnowledgeBase'},
@@ -270,10 +276,12 @@ if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
                            'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig',
                            'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources',
                            'listIndexSwitches','cancelTask','downloadVersionFile','previewVersionFile',
-                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult',
+                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult','createSearchInstance','submitSearch',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'multiSearchScopesFusionAndCostsAreExplicit': ('真实最小实例和多库去重融合、固定身份、部分范围警示、全部故障与空命中区分、同键只嵌入一次及非法安全拒绝。', {'createSearchInstance','submitSearch','getSearchRequest','getSearchEvidence','getTask'}),
+        'multiSearchLatestRequestAndQueueStayAtomic': ('真实同实例新提交取消旧请求，满队列拒绝不取消当前请求，排队期间下线重新核资格，旧迟到不能恢复结果。', {'createSearchInstance','submitSearch','getSearchRequest','getTask'}),
         'publicationAndChecksKeepIndependentStates': ('真实发布门槛、幂等发布下线、排除后自动下线、恢复不自动发布；收费确认、固定输入及活动异键合并、同键不重复调用，外部失败正常探测且发布状态保持。', {'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getKnowledgeBase','getTask','getConnectionTestResult'}),
         'runningSearchAndRebuildCancellationRejectLateResults': ('运行中检索取消后等待后继请求完成，旧结果仍为空；整库父任务取消传播子任务，旧生效指针与切换记录保持，取消接口会话与保护令牌真实拒绝。', {'cancelTask','getTask','getSearchRequest','listIndexSwitches','listKnowledgeBaseTasks','getKnowledgeBase'}),
         'contentSwitchHistoryAndCancellationRemainBoundToVersions': ('实际内容版本、多库独立生效指针、完整前后切换关系、允许任务终态幂等取消与初始化类型拒绝，以及指定旧版下载正文和安全头均由真实接口断言。', {'listIndexSwitches','cancelTask','downloadVersionFile','listKnowledgeBaseFiles','getTask'}),

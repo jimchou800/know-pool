@@ -36,6 +36,7 @@ public final class SearchRequests {
     private boolean stopping;
     private final java.util.Map<String,ObjectNode> instances = new java.util.HashMap<>();
     private final java.util.Map<String,List<String>> selected = new java.util.HashMap<>();
+    private final java.util.Map<String,ObjectNode> scopeProgress = new java.util.HashMap<>();
     private final java.util.Map<String,Thread> running = new java.util.HashMap<>();
     @org.springframework.beans.factory.annotation.Value("${knowpool.search.candidate-budget:1000}")
     private int candidateBudget;
@@ -125,7 +126,7 @@ public final class SearchRequests {
                 if (cancelled!=null) persist(jdbc,cancelled);
                 return null;
             });
-            if (cancelled!=null) { previous.set("task",cancelled); previous.putNull("result"); interrupt(cancelled.path("id").asText()); }
+            if (cancelled!=null) { previous.set("task",cancelled); previous.putNull("result"); preserveScope(previous); interrupt(cancelled.path("id").asText()); }
             requests.put(id,request); keys.put(operation,id); inputs.put(id,fingerprint);
             if (instance!=null) {
                 selected.put(id,input.path("knowledgeBaseIds").valueStream().map(JsonNode::asText).toList());
@@ -192,6 +193,7 @@ public final class SearchRequests {
                 if (retrieval.scope().path("incomplete").asBoolean()) warnings.add("部分知识库未参与检索，结果范围不完整。");
                 result.set("warnings",warnings);
                 ObjectNode completed=task.deepCopy();
+                completed.set("warnings",warnings.deepCopy());
                 completed.put("state","succeeded").put("phase","completed").put("finishedAt",Instant.now().toString()).put("resultResourceId",id);
                 data.write(jdbc -> {
                     for (JsonNode item:retrieval.evidence()) jdbc.sql("INSERT INTO search_evidence_identities VALUES(?,?)").params(item.path("id").asText(),id).update();
@@ -205,6 +207,7 @@ public final class SearchRequests {
                 ObjectNode request=requests.get(id),task=(ObjectNode)request.path("task");
                 String code=failure instanceof ApiFailure api?api.code():"INTERNAL_ERROR";
                 if (kb!=null) request.set("scope",scope(kb,code.equals("NO_EFFECTIVE_INDEX")?"no_effective_index":"unavailable"));
+                else preserveScope(request);
                 task.put("state","failed").put("phase","completed").put("finishedAt",Instant.now().toString());
                 task.set("failure",json.createObjectNode().put("code",code).put("message",failure instanceof ApiFailure api?api.getMessage():"检索执行失败。").put("retryable",false));
                 save(task);updateInstance(request,"failed");
@@ -233,9 +236,9 @@ public final class SearchRequests {
             return result;
         });
         scope.put("incomplete",!omitted.isEmpty());
-        synchronized (this) { requests.get(id).set("scope",scope.deepCopy()); }
+        progress(id,scope);
         var lists=new java.util.LinkedHashMap<String,JsonNode>();
-        var cache=new Indexes.QueryVectors();
+        try (var cache=new Indexes.QueryVectors()) {
         int quota=Math.max(1,Math.max(100,Math.min(10000,candidateBudget))/Math.max(1,all.size()));
         for (String kb:eligible) {
             if (cancelledRequest(id)) return new Retrieval(json.createArrayNode(),scope);
@@ -248,7 +251,7 @@ public final class SearchRequests {
                         failure.code().equals("NO_EFFECTIVE_INDEX")?"知识库没有生效索引。":"知识库依赖或有效范围不可用。");
             }
             scope.put("incomplete",!omitted.isEmpty());
-            synchronized (this) { requests.get(id).set("scope",scope.deepCopy()); }
+            progress(id,scope);
         }
         for (var entry:new java.util.ArrayList<>(lists.entrySet())) {
             if (entry.getValue().valueStream().anyMatch(item -> !indexes.remainsEligible(item))) {
@@ -258,11 +261,20 @@ public final class SearchRequests {
         }
         used.removeAll();lists.keySet().forEach(used::add);
         scope.put("incomplete",!omitted.isEmpty());
+        progress(id,scope);
         return new Retrieval(fuse(lists),scope);
+        }
     }
 
     private void omit(tools.jackson.databind.node.ArrayNode omitted,String kb,String reason,String message) {
         omitted.add(json.createObjectNode().put("knowledgeBaseId",kb).put("reason",reason).put("message",message));
+    }
+
+    private synchronized void progress(String id,ObjectNode scope) { scopeProgress.put(id,scope.deepCopy()); }
+
+    private void preserveScope(ObjectNode request) {
+        ObjectNode progress=scopeProgress.get(request.path("id").asText());
+        if (progress!=null && request.path("scope").isNull()) request.set("scope",progress.deepCopy());
     }
 
     private JsonNode fuse(java.util.Map<String,JsonNode> lists) {
@@ -338,7 +350,7 @@ public final class SearchRequests {
         task=cancelled(task);
         save(task);
         for (ObjectNode request:requests.values()) if (request.at("/task/id").asText().equals(id)) {
-            request.set("task",task);request.putNull("result");updateInstance(request,"cancelled");
+            request.set("task",task);request.putNull("result");preserveScope(request);updateInstance(request,"cancelled");
         }
         interrupt(id);
         return task;
