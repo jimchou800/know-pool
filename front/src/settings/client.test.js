@@ -1,8 +1,41 @@
-import { expect, it } from 'vitest';
+import { afterAll, expect, it } from 'vitest';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { createSettingsClient } from './client';
 import { createSystemClient } from '../system/session';
 const id = '00000000-0000-4000-8000-000000000061';
 const time = '2026-01-01T00:00:00Z';
+const evidence = [];
+const inventory = JSON.parse(
+  execFileSync(
+    'python',
+    [
+      '-c',
+      "import json,sys;sys.path.insert(0,'../scripts/contract');import verify;print(json.dumps(verify.inventory(json.load(open('../docs/agents/api/openapi.yaml',encoding='utf-8')))))",
+    ],
+    { encoding: 'utf8' },
+  ),
+);
+function observed(name, label, request, constraints) {
+  evidence.push({
+    name: `${name}：${label}`,
+    passed: true,
+    operationIds: [name],
+    requests: [
+      {
+        method: request.method.toUpperCase(),
+        path: '/api/v1' + request.url,
+        withCredentials: request.withCredentials,
+        hasProtection: request.headers.has('X-CSRF-Token'),
+        hasIdempotencyKey: request.headers.has('Idempotency-Key'),
+        bodyPresent: request.data !== undefined,
+      },
+    ],
+    constraintIds: constraints,
+    assertions: [label, '实际Axios请求与响应消费', '秘密及保护信息不写入证据'],
+  });
+}
 const initial = {
   kind: 'generation',
   versionId: id,
@@ -278,6 +311,23 @@ it.each(calls)(
       );
     }
     if (method === 'get') expect(request.data).toBeUndefined();
+    const prefix = `#/paths/${inventory[name].path.replaceAll('/', '~1')}/${method}`;
+    observed(
+      name,
+      '成功请求方法路径、安全头、请求体及完整响应字段校验',
+      request,
+      inventory[name].constraints.filter(
+        (pointer) =>
+          (pointer.startsWith(prefix) && !pointer.includes('/responses/')) ||
+          pointer ===
+            `${prefix}/responses/${method === 'post' ? '202' : '200'}` ||
+          pointer.startsWith('#/components/parameters/') ||
+          (pointer.startsWith('#/components/schemas/') &&
+            !['Error', 'FieldError'].some((schema) =>
+              pointer.startsWith(`#/components/schemas/${schema}/`),
+            )),
+      ),
+    );
   },
 );
 it.each(
@@ -317,6 +367,20 @@ it.each(
     fieldErrors: [{ field, code: 'INVALID_REQUEST', message: '操作无效' }],
   });
   expect(system.requests).toHaveLength(1);
+  const prefix = `#/paths/${inventory[name].path.replaceAll('/', '~1')}/${method}`;
+  const errorFields = inventory[name].constraints.filter(
+    (pointer) =>
+      pointer.startsWith('#/components/schemas/Error/') ||
+      pointer.startsWith('#/components/schemas/FieldError/'),
+  );
+  observed(
+    name,
+    `统一错误${code}及字段反馈，无自动重试`,
+    system.requests[0],
+    [`${prefix}/responses/${code}`, ...errorFields].filter((pointer) =>
+      inventory[name].constraints.includes(pointer),
+    ),
+  );
 });
 it.each(['keep', 'replace', 'clear'])(
   '三种配置与历史凭据精确发送%s动作，无掩码回传',
@@ -603,4 +667,28 @@ it('模型测试必须显式费用同意，非法任务包装和结果均拒绝'
     system.reply(response);
     await expect(system.api.result(id)).rejects.toThrow();
   }
+});
+
+afterAll(() => {
+  mkdirSync('artifacts', { recursive: true });
+  writeFileSync(
+    'artifacts/contract-consumer-06.json',
+    JSON.stringify(
+      {
+        timestamp: new Date().toISOString(),
+        contractSha256: createHash('sha256')
+          .update(readFileSync('../docs/agents/api/openapi.yaml'))
+          .digest('hex'),
+        implementationSha256: execFileSync(
+          'python',
+          ['../scripts/contract/verify.py', '--snapshot'],
+          { encoding: 'utf8' },
+        ).trim(),
+        scope: calls.map((call) => call[0]),
+        tests: evidence,
+      },
+      null,
+      2,
+    ),
+  );
 });
