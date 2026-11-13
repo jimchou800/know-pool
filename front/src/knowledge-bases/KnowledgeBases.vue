@@ -6,6 +6,7 @@ import { createSettingsClient } from '../settings/client';
 import { createDatasetClient, trimName } from '../datasets/client';
 import { createFileClient } from '../files/client';
 import IndexTasks from './IndexTasks.vue';
+import ManagementSearch from './ManagementSearch.vue';
 import '../datasets/datasets.css';
 import './knowledge-bases.css';
 
@@ -1181,6 +1182,12 @@ loadPage(0);
               :client="client"
               :knowledge-base-id="selected.id"
               @completed="loadDetail"
+            />
+            <ManagementSearch
+              :key="`search-${selected.id}`"
+              :client="client"
+              :knowledge-base-id="selected.id"
+              :writable="writable"
             />
           </template>
           <p v-else-if="!detailLoading && !detailError" class="dataset-empty">

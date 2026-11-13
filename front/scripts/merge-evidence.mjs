@@ -16,6 +16,9 @@ const sixth = JSON.parse(
 const seventh = JSON.parse(
   await readFile('artifacts/contract-consumer-07.json', 'utf8'),
 );
+const eighth = JSON.parse(
+  await readFile('artifacts/contract-consumer-08.json', 'utf8'),
+);
 assert.equal(first.contractSha256, second.contractSha256);
 assert.equal(first.implementationSha256, second.implementationSha256);
 assert.equal(second.contractSha256, third.contractSha256);
@@ -24,12 +27,15 @@ assert.equal(third.contractSha256, sixth.contractSha256);
 assert.equal(third.implementationSha256, sixth.implementationSha256);
 assert.equal(sixth.contractSha256, seventh.contractSha256);
 assert.equal(sixth.implementationSha256, seventh.implementationSha256);
+assert.equal(seventh.contractSha256, eighth.contractSha256);
+assert.equal(seventh.implementationSha256, eighth.implementationSha256);
 const tests = [
   ...first.tests,
   ...second.tests,
   ...third.tests,
   ...sixth.tests,
   ...seventh.tests,
+  ...eighth.tests,
 ];
 assert.equal(
   new Set(tests.map((test) => test.name)).size,
@@ -47,6 +53,7 @@ await writeFile(
         ...third.scope,
         ...sixth.scope,
         ...seventh.scope,
+        ...eighth.scope,
       ],
       tests,
     },

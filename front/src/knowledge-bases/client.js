@@ -113,7 +113,7 @@ const taskFields = [
   'warnings',
   'resultResourceId',
 ];
-function validTask(v, kind = 'knowledge_base_create') {
+export function validTask(v, kind = 'knowledge_base_create') {
   if (
     !exact(v, taskFields) ||
     v.kind !== kind ||
@@ -356,7 +356,7 @@ export function createKnowledgeBaseClient(session) {
     async task(id, kind = 'knowledge_base_create') {
       if (
         !identifier(id) ||
-        !['knowledge_base_create', 'index_file'].includes(kind)
+        !['knowledge_base_create', 'index_file', 'search'].includes(kind)
       )
         throw new Error('任务标识或类型无效。');
       const value = await session.request({

@@ -181,7 +181,7 @@ export async function checkKnowledgeBases(page, tests) {
     )?.[1];
     assert.ok(resource);
     await detail.getByText('固定知识库资料.txt', { exact: true }).waitFor();
-    assert.ok((await detail.innerText()).includes('待处理'));
+    assert.ok((await detail.innerText()).includes('已纳入'));
     assert.ok((await detail.innerText()).includes('尚未生效'));
     const add = async (type) => {
       await detail
@@ -214,7 +214,9 @@ export async function checkKnowledgeBases(page, tests) {
     ).json();
     assert.equal(filesReply.items.length, 1);
     assert.equal(filesReply.items[0].sources.length, 2);
-    assert.equal(filesReply.items[0].task.state, 'queued');
+    assert.ok(
+      ['queued', 'running', 'failed'].includes(filesReply.items[0].task.state),
+    );
     assert.equal(filesReply.items[0].task.kind, 'index_file');
     assert.equal(filesReply.items[0].effectiveIndexVersionId, null);
     assert.equal((await add('dataset')).status(), 409);

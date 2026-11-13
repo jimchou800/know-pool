@@ -16,6 +16,7 @@ const rows = ref([]),
 const following = ref(null),
   followError = ref('');
 let sequence = 0,
+  followSequence = 0,
   controller,
   recoveryTimer,
   lastEventId;
@@ -65,6 +66,7 @@ async function load(more = false) {
   }
 }
 function stop() {
+  ++followSequence;
   controller?.abort();
   clearTimeout(recoveryTimer);
   following.value = null;
@@ -72,7 +74,7 @@ function stop() {
 }
 async function refreshTask(id, current) {
   const task = await api.task(id, 'index_file');
-  if (current !== sequence || following.value !== id) return null;
+  if (current !== followSequence || following.value !== id) return null;
   rows.value = rows.value.map((row) => (row.id === id ? task : row));
   if (!['queued', 'running'].includes(task.state)) {
     stop();
@@ -85,7 +87,7 @@ async function follow(id, recovering = false) {
     stop();
     following.value = id;
   }
-  const current = sequence;
+  const current = followSequence;
   followError.value = '';
   controller = new AbortController();
   try {
@@ -97,13 +99,14 @@ async function follow(id, recovering = false) {
       signal: controller.signal,
       lastEventId,
       onEvent: async (_, eventId) => {
+        if (current !== followSequence) return;
         lastEventId = eventId;
         await refreshTask(id, current);
       },
     });
   } catch (failure) {
     if (
-      current !== sequence ||
+      current !== followSequence ||
       following.value !== id ||
       failure.name === 'AbortError'
     )
@@ -115,7 +118,7 @@ async function follow(id, recovering = false) {
         recoveryTimer = setTimeout(() => follow(id, true), 1500);
       }
     } catch (queryFailure) {
-      if (current === sequence) followError.value = queryFailure.message;
+      if (current === followSequence) followError.value = queryFailure.message;
     }
   }
 }
