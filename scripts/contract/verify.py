@@ -277,7 +277,7 @@ def main():
         report['校验工具'] = {name: importlib.metadata.version(name)
                             for name in ('openapi-spec-validator', 'jsonschema', 'referencing')}
         for role in ('frontend', 'backend'):
-            approval = ROOT / f'docs/agents/api/reviews/contract-03-{role}.md'
+            approval = ROOT / f'docs/agents/api/reviews/contract-06-{role}.md'
             if contract_hash not in approval.read_text(encoding='utf-8'):
                 raise ValueError('缺少同一契约的设计签认：' + role)
         mapping, mapping_hash = scope_mapping(contract_hash)
