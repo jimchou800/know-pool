@@ -71,9 +71,11 @@ public final class ConnectionProbe {
                 OpenAiChatOptions chatOptions = OpenAiChatOptions.builder()
                         .model(snapshot.model())
                         .maxTokens((int) Math.min(16, snapshot.maxOutputTokens()))
+                        .extraBody(java.util.Map.of("stream", false))
                         .build();
                 var response = OpenAiChatModel.builder()
                         .openAiClient(client)
+                        .openAiClientAsync(client.async())
                         .options(chatOptions)
                         .build()
                         .call(new Prompt("请回复连接正常。"));
