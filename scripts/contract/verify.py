@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '07'
+TICKET = '08'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
@@ -23,7 +23,24 @@ SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset'
          'listEmbeddingModelVersions', 'getEmbeddingModelVersion', 'updateEmbeddingVersionCredential',
          'getConnectionTestResult', 'getVectorConfig', 'updateVectorConfig', 'testVectorConfig', 'getTask',
          'listKnowledgeBases', 'createKnowledgeBase', 'getKnowledgeBase', 'updateKnowledgeBase',
-         'getProcessingConfig', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources', 'listKnowledgeBaseFiles')
+         'getProcessingConfig', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources', 'listKnowledgeBaseFiles',
+         'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence')
+BUSINESS_OPERATIONS = {
+    'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'},
+    'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase'},
+    'cost': {'getTask', 'testKnowledgeBaseSearch'},
+    'sse': {'watchTask', 'getTask'},
+}
+SECURITY_BEHAVIORS = (
+    '仅回环监听及 Host 白名单',
+    'Origin 白名单与拒绝非法来源',
+    '会话 Cookie 的 HttpOnly、SameSite=Strict、Path=/ 属性',
+    'HTTP 不强制 Secure，HTTPS 安全请求设置 Secure',
+    '缺失或失效会话拒绝访问受保护读取与写入',
+    '非法写请求在业务路由前校验 CSRF，合法保护信息不绕过路由检查',
+    '会话令牌不进入 URL 或前端持久化，报告日志不保存真实值',
+    'SSE 使用 Cookie 会话，拒绝非法来源与失效会话，令牌不进入 URL，断线查询原任务不重新提交',
+)
 METHODS = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options'}
 KEYWORDS = {
     'type', 'required', 'additionalProperties', 'enum', 'const', 'format',
@@ -106,6 +123,16 @@ def inventory(document):
             if operation.get('description'):
                 constraints.add(prefix + '/description')
             constraints.add('#/x-business-constraints/security')
+            for rule, identifiers in BUSINESS_OPERATIONS.items():
+                if identifier in identifiers:
+                    reference = '#/x-business-constraints/' + rule
+                    resolve(document, reference)
+                    constraints.add(reference)
+            if identifier == 'watchTask':
+                for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
+                    reference = prefix + '/x-sse/' + suffix
+                    resolve(document, reference)
+                    constraints.add(reference)
             operations[identifier] = {'path': path, 'method': method.upper(),
                                       'constraints': sorted(constraints)}
     if not operations:
@@ -173,6 +200,7 @@ def scope_mapping(contract_hash):
     path = ROOT / f'scripts/contract/scope-{TICKET}.json'
     raw = path.read_bytes()
     mapping = json.loads(raw)
+    check_scope(mapping, inventory(json.loads(CONTRACT.read_bytes())))
     actors = set()
     for role in ('frontend', 'backend'):
         approval = json.loads((ROOT / f'docs/agents/api/reviews/scope-{TICKET}-{role}.json').read_text(encoding='utf-8'))
@@ -184,6 +212,21 @@ def scope_mapping(contract_hash):
     if len(actors) != 2:
         raise ValueError('适用映射不得由同一代理代签')
     return mapping, digest(raw)
+
+
+def check_scope(mapping, operations):
+    """适用映射只解释真实不可达分支，当前事件安全不得豁免。"""
+    if mapping.get('当前安全行为') != list(SECURITY_BEHAVIORS):
+        raise ValueError('当前安全基线必须包含八项行为及SSE会话验证')
+    if set(mapping.get('操作', {})) != set(SCOPE):
+        raise ValueError('适用映射操作范围不完整')
+    for identifier, conditions in mapping['操作'].items():
+        if not isinstance(conditions, dict) or not set(conditions).issubset(operations[identifier]['constraints']):
+            raise ValueError('适用映射引用未声明约束：' + identifier)
+        if '#/x-business-constraints/security' in conditions:
+            raise ValueError('当前安全规则不得作为后续SSE豁免：' + identifier)
+        if any(not isinstance(reason, str) or not reason.strip() for reason in conditions.values()):
+            raise ValueError('适用映射缺少逐指针理由：' + identifier)
 
 
 def check_routes(document, routes):
@@ -262,7 +305,8 @@ def main():
     args = parser.parse_args()
     providers = args.provider or [ROOT / 'server/target/contract/provider-evidence.json',
                                   ROOT / 'server/target/contract/provider-settings-evidence.json',
-                                  ROOT / 'server/target/contract/provider-knowledge-bases-evidence.json']
+                                  ROOT / 'server/target/contract/provider-knowledge-bases-evidence.json',
+                                  ROOT / 'server/target/contract/provider-indexing-evidence.json']
     if args.acceptance:
         try:
             print(acceptance(args.acceptance))
