@@ -27,7 +27,7 @@ SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset'
          'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence',
          'previewVersionFile', 'getChunkPreflight', 'updateProcessingConfig')
 BUSINESS_OPERATIONS = {
-    'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'},
+    'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig'},
     'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase'},
     'cost': {'getTask', 'testKnowledgeBaseSearch'},
     'sse': {'watchTask', 'getTask'},

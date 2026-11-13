@@ -101,7 +101,7 @@ class ContractGateTests(unittest.TestCase):
             self.assertIn(pointer, operations['watchTask']['constraints'])
             self.assertEqual(verify.coverage({'tests': []}, 'watchTask', pointer), [])
         rules = {
-            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'},
+            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig'},
             'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase'},
             'cost': {'getTask', 'testKnowledgeBaseSearch'},
             'sse': {'watchTask', 'getTask'},
