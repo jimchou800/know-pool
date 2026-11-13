@@ -39,3 +39,38 @@ it('清理失败可观察且不提供文件预检或未实现的重试入口', a
   ).toBe(false);
   wrapper.unmount();
 });
+it('绑定知识库的复查任务可观察，成功不等于依赖可用且无预检或取消入口', async () => {
+  for (const state of ['queued', 'succeeded', 'interrupted']) {
+    const terminal = state !== 'queued';
+    const check = {
+      ...task,
+      kind: 'model_test',
+      state,
+      phase: terminal ? 'completed' : 'queued',
+      startedAt: terminal ? time : null,
+      finishedAt: terminal ? time : null,
+      failure:
+        state === 'interrupted'
+          ? {
+              code: 'TASK_INTERRUPTED',
+              message: '固定复查中断',
+              retryable: false,
+            }
+          : null,
+      warnings:
+        state === 'interrupted' ? ['复查可能产生费用，请勿自动重新提交。'] : [],
+    };
+    const s = await setup(() => ({ items: [check], nextCursor: null }));
+    const wrapper = mount(IndexTasks, {
+      props: { client: s.client, knowledgeBaseId: id },
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain('类型：可用性复查');
+    expect(wrapper.text()).toContain('任务成功仅表示探测完成');
+    expect(
+      wrapper.findAll('button').some((b) => /预检|取消原任务/.test(b.text())),
+    ).toBe(false);
+    expect(s.requests.every((r) => r.method === 'get')).toBe(true);
+    wrapper.unmount();
+  }
+});

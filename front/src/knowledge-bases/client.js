@@ -164,6 +164,19 @@ export function validTask(v, kind = 'knowledge_base_create') {
     return false;
   const terminal = !['queued', 'running'].includes(v.state);
   return (
+    (kind === 'model_test'
+      ? ['queued', 'initializing', 'validating', 'completed'].includes(
+          v.phase,
+        ) &&
+        identifier(v.knowledgeBaseId) &&
+        identifier(v.targetConfigVersionId) &&
+        [
+          'fileId',
+          'targetContentVersionId',
+          'retryOfTaskId',
+          'resultResourceId',
+        ].every((field) => v[field] === null)
+      : true) &&
     (terminal ? v.phase === 'completed' && date(v.finishedAt) : true) &&
     (v.state === 'queued' ? v.startedAt === null : true) &&
     (['failed', 'interrupted'].includes(v.state)
@@ -316,6 +329,42 @@ export function createKnowledgeBaseClient(session) {
     );
   }
   return {
+    async publish(id) {
+      const value = await session.request({
+        method: 'post',
+        url: path(id) + '/publish',
+      });
+      return verify(
+        value,
+        validBase(value) && value.id.toLowerCase() === id.toLowerCase(),
+      );
+    },
+    async offline(id) {
+      const value = await session.request({
+        method: 'post',
+        url: path(id) + '/offline',
+      });
+      return verify(
+        value,
+        validBase(value) && value.id.toLowerCase() === id.toLowerCase(),
+      );
+    },
+    async check(id, key, consent) {
+      if (!identifier(key) || consent !== true)
+        throw new Error('请确认复查可能产生模型费用。');
+      const value = await session.request({
+        method: 'post',
+        url: path(id) + '/check',
+        data: { allowChargedCall: true },
+        headers: { 'Idempotency-Key': key },
+      });
+      return verify(
+        value,
+        exact(value, ['task']) &&
+          validTask(value.task, 'model_test') &&
+          value.task.knowledgeBaseId?.toLowerCase() === id.toLowerCase(),
+      );
+    },
     async switches(id, cursor) {
       return page(
         id,
@@ -486,6 +535,7 @@ export function createKnowledgeBaseClient(session) {
           'search',
           'rebuild_knowledge_base',
           'cleanup',
+          'model_test',
         ].includes(kind)
       )
         throw new Error('任务标识或类型无效。');
@@ -587,9 +637,12 @@ export function createKnowledgeBaseClient(session) {
         id,
         '/tasks',
         (value) =>
-          ['index_file', 'rebuild_knowledge_base', 'cleanup'].includes(
-            value?.kind,
-          ) && validTask(value, value.kind),
+          [
+            'index_file',
+            'rebuild_knowledge_base',
+            'cleanup',
+            'model_test',
+          ].includes(value?.kind) && validTask(value, value.kind),
         cursor,
       ),
   };

@@ -11,6 +11,7 @@ import ProcessingEditor from './ProcessingEditor.vue';
 import SourceAction from './SourceAction.vue';
 import Exclusions from './Exclusions.vue';
 import IndexSwitches from './IndexSwitches.vue';
+import PublicationControl from './PublicationControl.vue';
 import '../datasets/datasets.css';
 import './knowledge-bases.css';
 
@@ -88,6 +89,11 @@ const associating = ref(false),
 let sourceSequence = 0;
 let fileChoiceSequence = 0;
 const sourceFileLoading = ref(false);
+function updatePublication(base) {
+  if (selected.value?.id !== base.id) return;
+  selected.value = base;
+  rows.value = rows.value.map((item) => (item.id === base.id ? base : item));
+}
 async function loadNames() {
   const sequence = detailSequence;
   metadataError.value = '';
@@ -932,6 +938,13 @@ loadPage(0);
               纳入 {{ selected.includedFileCount }} 份，当前可检索
               {{ selected.searchableFileCount }} 份。关联成功不代表可检索。
             </p>
+            <PublicationControl
+              :key="selected.id"
+              :client="client"
+              :base="selected"
+              :writable="writable"
+              @updated="updatePublication"
+            />
             <section
               v-if="snapshot"
               class="knowledge-section"
