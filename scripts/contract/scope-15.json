@@ -629,9 +629,6 @@
       "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/format": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
       "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/type": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
       "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/format": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
-      "#/components/schemas/Task/properties/progressTotal/anyOf/0/type": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
-      "#/components/schemas/Task/properties/progressTotal/anyOf/0/minimum": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
-      "#/components/schemas/Task/properties/progressTotal/anyOf/0/maximum": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
       "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/0/type": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
       "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/0/format": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
       "#/components/schemas/Task/properties/warnings/items/type": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
@@ -654,7 +651,8 @@
       "#/components/schemas/TaskFailure/required": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
       "#/components/schemas/Task/allOf/0/then": "删除检索实例只返回本机事务完成的cleanup任务；不伪造其他任务类型、失败或外部处理工作量。当前完整结构、成功终态、全空业务身份及幂等任务仍须真实验证。",
       "#/components/schemas/Task/properties/startedAt/anyOf/1/type": "删除实例在本机事务内直接返回已完成cleanup任务，开始和结束时间非空，不返回排队或运行中的空时间；当前完整成功结果仍须真实验证。",
-      "#/components/schemas/Task/properties/finishedAt/anyOf/1/type": "删除实例在本机事务内直接返回已完成cleanup任务，开始和结束时间非空，不返回排队或运行中的空时间；当前完整成功结果仍须真实验证。"
+      "#/components/schemas/Task/properties/finishedAt/anyOf/1/type": "删除实例在本机事务内直接返回已完成cleanup任务，开始和结束时间非空，不返回排队或运行中的空时间；当前完整成功结果仍须真实验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/1/type": "本机实例清理完成项和总量均为一，不伪造未知工作量；总量整数结构及边界仍须实际验证。"
     },
     "cancelSearchRequest": {
       "#/paths/~1search-requests~1{requestId}~1cancel/post/responses/409": "本操作仅本机实例元数据或任务状态事务，无同步外部依赖或独立排队；实例允许重名，范围仅保存合法标识不发起检索，删除合法确认负载唯一，取消终态幂等。资源身份不存在仍真实验证，集合读取无指定资源；消费方共享错误仍须验证。",
