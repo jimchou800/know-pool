@@ -493,3 +493,49 @@ it('历史详情错误与迟到旧选择不会覆盖新选择', async () => {
     requests.filter((config) => config.url.includes('/versions/')),
   ).toHaveLength(2);
 });
+
+it('历史初始空版本可清除凭据，不要求补全不可编辑端点', async () => {
+  const { form, requests } = await page((config) =>
+    config.url.endsWith('/versions/' + id) || config.url.endsWith('/credential')
+      ? model('embedding')
+      : undefined,
+  );
+  await wrapper.get('.embedding-history li button').trigger('click');
+  await flushPromises();
+  const history = form('history');
+  expect(
+    history.get('[name="endpoint"]').attributes('required'),
+  ).toBeUndefined();
+  await history.get('[name="action"]').setValue('clear');
+  await history.get('form').trigger('submit');
+  await flushPromises();
+  expect(requests.some((config) => config.url.endsWith('/credential'))).toBe(
+    true,
+  );
+});
+it('另一配置成功保存也撤销当前旧测试标记，历史当前凭据轮换更新完整状态', async () => {
+  const { form } = await page((config) =>
+    config.url.endsWith('/credential')
+      ? {
+          ...configured('embedding'),
+          credential: { configured: false, mask: null },
+          complete: false,
+        }
+      : undefined,
+  );
+  const generation = form('generation');
+  await generation.get('[type="checkbox"]').setValue(true);
+  await button(generation, '测试已保存连接').trigger('click');
+  await flushPromises();
+  expect(generation.text()).toContain('本次连接可用');
+  await form('vector').get('form').trigger('submit');
+  await flushPromises();
+  expect(generation.text()).not.toContain('本次连接可用');
+  await wrapper.get('.embedding-history li button').trigger('click');
+  await flushPromises();
+  await form('history').get('[name="action"]').setValue('clear');
+  await form('history').get('form').trigger('submit');
+  await flushPromises();
+  expect(form('embedding').text()).toContain('配置未完整');
+  expect(form('embedding').text()).toContain('未设置');
+});

@@ -15,22 +15,24 @@ const versions = ref([]),
   loading = ref(false),
   error = ref('');
 let alive = true,
-  selection = 0;
+  selection = 0,
+  listing = 0;
 async function list(cursor) {
+  const identity = ++listing;
   loading.value = true;
   error.value = '';
   try {
     const value = await api.versions(cursor);
-    if (alive) {
+    if (alive && identity === listing) {
       versions.value = cursor
         ? [...versions.value, ...value.items]
         : value.items;
       nextCursor.value = value.nextCursor;
     }
   } catch (cause) {
-    if (alive) error.value = cause.message;
+    if (alive && identity === listing) error.value = cause.message;
   } finally {
-    if (alive) loading.value = false;
+    if (alive && identity === listing) loading.value = false;
   }
 }
 async function choose(id) {

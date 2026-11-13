@@ -263,7 +263,7 @@ onBeforeUnmount(() => {
               :aria-invalid="!!fieldError('endpoint')"
               :aria-describedby="`${kind}-endpoint-error`"
               placeholder="请填写兼容接口基础地址"
-              required
+              :required="!history"
             /><small :id="`${kind}-endpoint-error`">{{
               fieldError('endpoint')
             }}</small></label
