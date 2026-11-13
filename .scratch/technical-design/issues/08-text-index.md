@@ -8,7 +8,7 @@ Status: ready-for-agent
 
 Blocked by: 07: 创建空知识库并关联一份资料
 
-执行状态：进行中（技术设计与契约复核）
+执行状态：进行中
 
 前端负责人：`/root/frontend08`
 
@@ -32,7 +32,7 @@ Blocked by: 07: 创建空知识库并关联一份资料
 
 ## 契约与证据
 
-操作范围：`getTask`、`watchTask`、`listKnowledgeBaseTasks`、`testKnowledgeBaseSearch`、`getSearchRequest`、`getSearchEvidence`。正式契约 `1.0.3`，SHA-256 `8c94c7c52284c4bc7e4445bf1a2b175641e3f3c8d5d498a1d1afdfb512ec28ef`；实施前复核双方技术设计、适用映射及契约摘要，变更先双审再实现。
+操作范围：`getTask`、`watchTask`、`listKnowledgeBaseTasks`、`testKnowledgeBaseSearch`、`getSearchRequest`、`getSearchEvidence`。正式契约 `1.0.4`，SHA-256 `9b81bdc9561a3e0cb8aaaf0172e0013c6e741f2aea8efe283f64e14cebd1c444`；实施前复核双方技术设计、适用映射及契约摘要，变更先双审再实现。
 
 验收证据：待实现后记录命令、结果、报告摘要、双方确认和端到端证据。
 
