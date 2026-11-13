@@ -89,3 +89,7 @@
 按用户要求核对所有实施分支，均为主集成历史祖先或 `git cherry integration` 确认补丁等价已集成，无独有未集成补丁。已移除 14 个 `implement/05-*` 至 `implement/08-*` 任务分支及 13 个旧工作树，根工作区保留 `integration`，另保留 `main`。事件旧树四份未提交草稿已逐文件比对：现主线包含更完整的事务事件、并发保护、迁移及回归；旧文件逐字节备份至 `.runtime/worktree-cleanup-20261113/events08/`，原差异及分支等价清单同目录保留。后端旧树的 09 预检与主线原字节摘要一致，未重复合并。
 
 前后端及独立复审代理均已结束本票，遗留待启动审查代理已中断。原有未跟踪 `.scratch/ui-ux-design/handoff.md` 保留，未提交或删除。`AGENTS.md` 已按用户要求规定主集成分支、小批次验收后推送持续集成、核实远程结果，以及任务完成后及时保全独有内容并清理分支、工作树和子代理；替代过时的不推送限制。
+
+## 首次远程验证失败与修复中
+
+已推送 `5688da62aa471504a16a29dc9bd11cd0b90bcca9`，GitHub 运行 [43436130762](https://github.com/jimchou800/know-pool/actions/runs/43436130762) 失败。前端通过，后端 95 项中 `TaskEventsHttpTest.boundedSubscriptionsReleaseOnDisconnectAndEmitHeartbeat` 在第 261 行断言订阅容量重新可用失败，验证模块未执行。原始失败日志保存在 `.runtime/08-github-failed.log`。本地定点原代码两项通过，说明存在时序差异，不能以重跑通过代替修复或宣称远程绿色。协调派后端独立诊断客户端关闭、心跳与容量释放的真实时序；修复后重新完整验证、生成同快照报告并由两领域签认，再推送观察远程结果。09 暂继续设计，不提前业务编码。
