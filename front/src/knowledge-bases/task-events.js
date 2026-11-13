@@ -1,4 +1,4 @@
-import { exact, uuid, date } from '../system/session';
+import { exact, uuid, date, errorCodes } from '../system/session';
 
 const terminal = ['succeeded', 'failed', 'cancelled', 'interrupted'];
 const phases = [
@@ -63,14 +63,7 @@ export async function watchTask(
       ]) &&
       typeof detail.requestId === 'string' &&
       uuid.test(detail.requestId) &&
-      [
-        'INVALID_REQUEST',
-        'SESSION_EXPIRED',
-        'ORIGIN_REJECTED',
-        'NOT_FOUND',
-        'QUEUE_FULL',
-        'INTERNAL_ERROR',
-      ].includes(detail.code) &&
+      errorCodes.includes(detail.code) &&
       typeof detail.message === 'string' &&
       typeof detail.retryable === 'boolean' &&
       Array.isArray(detail.fieldErrors) &&
@@ -87,6 +80,7 @@ export async function watchTask(
       );
       failure.code = detail.code;
       failure.fieldErrors = detail.fieldErrors;
+      failure.retryable = detail.retryable;
       throw failure;
     }
     throw new Error('任务通知中断，请查询原任务。');

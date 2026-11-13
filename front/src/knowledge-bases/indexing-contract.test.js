@@ -12,6 +12,7 @@ import {
 import { search, evidence, scope } from '../../test-fixtures/indexing';
 import { createManagementSearchClient } from './search-client';
 import { watchTask } from './task-events';
+import { errorCodes } from '../system/session';
 const observations = [];
 function observed(operationId, request) {
   observations.push({
@@ -449,6 +450,28 @@ it('事件错误正文由实际订阅客户端校验并保留字段说明', asyn
       body: null,
       status,
       response: detail,
+    });
+  }
+});
+it('事件订阅复用全部正式共享错误码并保留可重试事实', async () => {
+  expect(errorCodes).toHaveLength(18);
+  for (const code of errorCodes) {
+    const detail = {
+      requestId: id,
+      code,
+      message: '固定共享错误',
+      retryable: true,
+      fieldErrors: [],
+    };
+    await expect(
+      watchTask(otherId, {
+        fetcher: async () => Response.json(detail, { status: 503 }),
+      }),
+    ).rejects.toMatchObject({
+      code,
+      retryable: true,
+      fieldErrors: [],
+      message: expect.stringContaining('固定共享错误'),
     });
   }
 });
