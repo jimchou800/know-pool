@@ -194,6 +194,10 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 || path.matches("/api/v1/search-instances/[^/]+/name") && request.getMethod().equals("PATCH")
                 || path.matches("/api/v1/search-instances/[^/]+/scope") && request.getMethod().equals("PUT")
                 || path.matches("/api/v1/search-requests/[^/]+/cancel") && request.getMethod().equals("POST");
+        cancellation = cancellation || path.matches("/api/v1/(?:datasets|files|knowledge-bases)/[^/]+/delete-impact") && request.getMethod().equals("GET")
+                || path.matches("/api/v1/(?:datasets|files|knowledge-bases)/[^/]+") && request.getMethod().equals("DELETE")
+                || path.equals("/api/v1/tasks") && request.getMethod().equals("GET")
+                || path.matches("/api/v1/tasks/[^/]+/retry-cleanup") && request.getMethod().equals("POST");
         if (collection || resource || fileOperation || settings || knowledgeBases || search || chunkPreflight || processingUpdate || cancellation) {
             request.setAttribute("localSession", session);
             chain.doFilter(request, response);

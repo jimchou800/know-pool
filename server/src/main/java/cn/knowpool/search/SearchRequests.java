@@ -473,7 +473,9 @@ public final class SearchRequests {
 
     public synchronized JsonNode get(String id) {
         String valid = ModelSettingsService.identifier(id, "requestId");
-        if (requests.containsKey(valid)) return requests.get(valid).deepCopy();
+        if (requests.containsKey(valid)) {
+            JsonNode value=requests.get(valid).deepCopy();for (JsonNode item:value.at("/result/evidence")) indexes.decorateEvidence(item);return value;
+        }
         boolean known = data.read(jdbc -> jdbc.sql("SELECT COUNT(*) FROM search_identities WHERE id=?")
                         .param(valid)
                         .query(Integer.class)

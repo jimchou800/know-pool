@@ -34,6 +34,8 @@ public final class Indexes {
     private final ChunkPlans chunkPlans;
     private final java.util.Map<String,Integer> readers = new java.util.HashMap<>();
     private volatile boolean stopping;
+    private boolean workerBusy;
+    private boolean deletionBusy;
     private long nextOriginalCleanup;
     private final java.util.concurrent.ScheduledExecutorService worker =
             Executors.newSingleThreadScheduledExecutor(r -> {
@@ -89,7 +91,7 @@ public final class Indexes {
     }
 
     private void next() {
-        if (stopping) return;
+        synchronized (data) { if (stopping || deletionBusy) return;workerBusy=true; }
         try {
             if (System.nanoTime() >= nextOriginalCleanup) {
                 nextOriginalCleanup = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
@@ -114,7 +116,15 @@ public final class Indexes {
             }
         } catch (RuntimeException failure) {
             // 持久任务保留现场，下一轮仅从安全检查点领取。
+        } finally { synchronized (data) { workerBusy=false; } }
+    }
+
+    public boolean cleanWhenIdle(List<String> indexes,Runnable action) {
+        synchronized (data) {
+            if (workerBusy || deletionBusy || !readers.isEmpty()) return false;
+            deletionBusy=true;
         }
+        try { action.run();return true; } finally { synchronized (data) { deletionBusy=false; } }
     }
 
     private ObjectNode task(JdbcClient jdbc, String id) {
@@ -234,8 +244,10 @@ public final class Indexes {
                         data.write(jdbc -> { requireRebuild(jdbc,id,kb,configId);ObjectNode value = task(jdbc,id); value.put("attempt",currentAttempt); persist(jdbc,value); return null; });
                         try {
                             JsonNode existing = vectors.request(connection.endpoint(), connection.secret(), collection,"GET",null);
-                            if (existing == null) vectors.request(connection.endpoint(), connection.secret(), collection,"PUT",
-                                    json.writeValueAsString(java.util.Map.of("vectors",java.util.Map.of("size",embedding.path("dimensions").asInt(),"distance",VectorCollections.distance(embedding.path("distance").asText())))));
+                            if (existing == null) {
+                                vectors.request(connection.endpoint(), connection.secret(), collection,"PUT",json.writeValueAsString(java.util.Map.of("vectors",java.util.Map.of("size",embedding.path("dimensions").asInt(),"distance",VectorCollections.distance(embedding.path("distance").asText())))));
+                                data.write(jdbc -> { jdbc.sql("INSERT OR IGNORE INTO owned_vector_collections VALUES(?,?,?)").params(kb,collection,connection.endpoint()).update();return null; });
+                            }
                             actual = vectors.request(connection.endpoint(), connection.secret(), collection,"GET",null);
                             break;
                         } catch (java.io.IOException failure) {
@@ -909,9 +921,15 @@ public final class Indexes {
 
     private record QueryVectorKey(ModelSettingsService.EmbeddingSnapshot model, int dimensions, String query) {}
 
+    public JsonNode decorateEvidence(JsonNode value) {
+        var state=files.referenceState(value.path("fileId").asText(),value.path("contentVersionId").asText());
+        ObjectNode item=(ObjectNode)value;if (state.filename()==null) item.putNull("currentFilename");else item.put("currentFilename",state.filename());item.put("originalAvailable",state.originalAvailable());return item;
+    }
+
     public boolean remainsEligible(JsonNode evidence) {
         return data.write(jdbc -> {
             String kb=evidence.path("knowledgeBaseId").asText(), file=evidence.path("fileId").asText();
+            if (readers.getOrDefault(evidence.path("indexVersionId").asText(),0)>0 && jdbc.sql("SELECT COUNT(*) FROM deleted_resources WHERE (kind='file' AND id=?) OR (kind='knowledge_base' AND id=?)").params(file,kb).query(Integer.class).single()>0) return true;
             var current=files.currentFiles(jdbc,List.of(file)).get(file);
             if (current==null || !current.available()) return false;
             return jdbc.sql("SELECT COUNT(*) FROM knowledge_base_sources WHERE knowledge_base_id=? AND ((type='file' AND resource_id=?) OR (type='dataset' AND resource_id=?))")
@@ -967,19 +985,20 @@ public final class Indexes {
                     return true;
                 })
                 .list();
-        JsonNode base = bases.get(kb);
+        JsonNode base = json.readTree(jdbc.sql("SELECT payload FROM knowledge_bases WHERE id=?").param(kb).query(String.class).single());
         for (String id : ids) {
             JsonNode chunk = chunks.get(id);
             if (chunk == null) continue;
             CapturedFile captured = snapshot.files().get(chunk.path("index").asText());
             var file = current.get(captured.fileId());
-            if (file == null
+            boolean retained=readers.getOrDefault(chunk.path("index").asText(),0)>0 && jdbc.sql("SELECT COUNT(*) FROM deleted_resources WHERE (kind='file' AND id=?) OR (kind='knowledge_base' AND id=?)").params(captured.fileId(),kb).query(Integer.class).single()>0;
+            if (!retained && (file == null
                     || !file.available()
                     || !states.containsKey(captured.fileId())
                     || jdbc.sql("SELECT COUNT(*) FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?").params(kb,captured.fileId()).query(Integer.class).single() > 0
-                    || !fileSources.contains(captured.fileId()) && !datasetSources.contains(file.datasetId()))
+                    || !fileSources.contains(captured.fileId()) && !datasetSources.contains(file.datasetId())))
                 throw new ApiFailure(409, "SCOPE_UNAVAILABLE", "资料已不在当前知识库的有效范围中，请重新检索。", null);
-            String state = states.get(captured.fileId());
+            String state = states.getOrDefault(captured.fileId(),"succeeded");
             ObjectNode value = json.createObjectNode()
                     .put("id", UUID.randomUUID().toString())
                     .put("chunkId", id)
@@ -990,11 +1009,11 @@ public final class Indexes {
                     .put("configVersionId", captured.configVersionId())
                     .put("indexVersionId", chunk.path("index").asText())
                     .put("filenameAtCapture", captured.filename())
-                    .put("currentFilename", file.filename())
+                    .put("currentFilename", file==null?null:file.filename())
                     .put("originalAvailable", true)
                     .put(
                             "usingPreviousVersion",
-                            !file.contentVersionId().equals(captured.contentVersionId())
+                            file!=null && !file.contentVersionId().equals(captured.contentVersionId())
                                     || !base.path("targetConfigVersionId")
                                             .asText()
                                             .equals(captured.configVersionId()))
@@ -1016,6 +1035,7 @@ public final class Indexes {
 
     private void availability(String kb, String reason) {
         data.write(jdbc -> {
+            if (jdbc.sql("SELECT COUNT(*) FROM knowledge_bases WHERE id=? AND visible=1").param(kb).query(Integer.class).single()==0) return null;
             ObjectNode value = (ObjectNode) bases.get(kb);
             value.put("availability", reason == null ? "available" : "unavailable")
                     .put("lastCheckedAt", Instant.now().toString());

@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 @Component
 public final class DatasetRepository {
     private static final String SELECT =
-            "SELECT d.*, (SELECT COUNT(*) FROM files f WHERE f.dataset_id=d.id) AS file_count, (SELECT COALESCE(SUM(v.size_bytes),0) FROM files f JOIN file_versions v ON f.latest_version=v.id WHERE f.dataset_id=d.id) AS total_bytes FROM datasets d ";
+            "SELECT d.*, (SELECT COUNT(*) FROM files f WHERE f.dataset_id=d.id AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=f.id)) AS file_count, (SELECT COALESCE(SUM(v.size_bytes),0) FROM files f JOIN file_versions v ON f.latest_version=v.id WHERE f.dataset_id=d.id AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=f.id)) AS total_bytes FROM datasets d ";
     private final ApplicationData data;
 
     public DatasetRepository(ApplicationData data) {
@@ -20,7 +20,7 @@ public final class DatasetRepository {
     public List<Dataset> list(int count, String beforeTime, String beforeId) {
         return data.read(jdbc -> jdbc.sql(
                         SELECT
-                                + "WHERE (? IS NULL OR created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?")
+                                + "WHERE NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='dataset' AND x.id=d.id) AND (? IS NULL OR created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?")
                 .param(beforeTime)
                 .param(beforeTime)
                 .param(beforeTime)
@@ -82,7 +82,7 @@ public final class DatasetRepository {
     }
 
     private static Dataset find(JdbcClient jdbc, String id) {
-        return jdbc.sql(SELECT + "WHERE id=?")
+        return jdbc.sql(SELECT + "WHERE id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='dataset' AND x.id=d.id)")
                 .param(id)
                 .query((row, index) -> new Dataset(
                         row.getString("id"),

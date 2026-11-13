@@ -30,12 +30,12 @@ public final class FileService {
         String valid = cn.knowpool.system.ModelSettingsService.identifier(id, "/resourceId");
         if (type.equals("dataset")) {
             datasets.get(valid);
-            return jdbc.sql("SELECT id, dataset_id, latest_version FROM files WHERE dataset_id=? ORDER BY id")
+            return jdbc.sql("SELECT id, dataset_id, latest_version FROM files WHERE dataset_id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=files.id) ORDER BY id")
                     .param(valid)
                     .query((row, index) -> new SourceFile(row.getString(1), row.getString(2), row.getString(3)))
                     .list();
         }
-        return List.of(jdbc.sql("SELECT id,dataset_id,latest_version FROM files WHERE id=?")
+        return List.of(jdbc.sql("SELECT id,dataset_id,latest_version FROM files WHERE id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=files.id)")
                 .param(valid)
                 .query((row, index) -> new SourceFile(row.getString(1), row.getString(2), row.getString(3)))
                 .optional()
@@ -47,7 +47,7 @@ public final class FileService {
         if (ids.isEmpty()) return java.util.Map.of();
         var result = new java.util.HashMap<String, CurrentFile>();
         jdbc.sql(
-                        "SELECT f.id,f.dataset_id,f.latest_version,f.name,v.available FROM files f JOIN file_versions v ON v.id=f.latest_version WHERE f.id IN (:ids)")
+                        "SELECT f.id,f.dataset_id,f.latest_version,f.name,v.available FROM files f JOIN file_versions v ON v.id=f.latest_version WHERE f.id IN (:ids) AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=f.id)")
                 .param("ids", ids)
                 .query((row, n) -> {
                     result.put(
@@ -66,8 +66,36 @@ public final class FileService {
     public record ReferenceState(String filename,boolean originalAvailable) {}
 
     public ReferenceState referenceState(String file,String version) {
-        return data.read(jdbc -> jdbc.sql("SELECT name,EXISTS(SELECT 1 FROM file_versions v WHERE v.file_id=files.id AND v.id=? AND v.available=1) AS original_available FROM files WHERE id=?")
+        return data.read(jdbc -> jdbc.sql("SELECT CASE WHEN EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=files.id) THEN NULL ELSE name END,EXISTS(SELECT 1 FROM file_versions v WHERE v.file_id=files.id AND v.id=? AND v.available=1) AS original_available FROM files WHERE id=?")
                 .params(version,file).query((row,n) -> new ReferenceState(row.getString(1),row.getInt(2)==1)).optional().orElse(new ReferenceState(null,false)));
+    }
+
+    public List<String> deletionFiles(String kind,String id) {
+        if (kind.equals("dataset")) { datasets.get(id);return data.read(jdbc -> sourceFiles(jdbc,"dataset",id).stream().map(SourceFile::id).toList()); }
+        get(id);return List.of(id);
+    }
+
+    public void markDeleted(org.springframework.jdbc.core.simple.JdbcClient jdbc,String kind,String id,List<String> ids) {
+        for (String file:ids) {
+            jdbc.sql("INSERT OR IGNORE INTO deleted_resources VALUES('file',?)").param(file).update();
+            jdbc.sql("UPDATE files SET name_key=? WHERE id=?").params("deleted:"+file,file).update();
+        }
+        if (kind.equals("dataset")) {
+            jdbc.sql("INSERT OR IGNORE INTO deleted_resources VALUES('dataset',?)").param(id).update();
+            jdbc.sql("UPDATE datasets SET name_key=? WHERE id=?").params("deleted:"+id,id).update();
+        }
+    }
+
+    public tools.jackson.databind.JsonNode deletionCopies(List<String> ids) {
+        var result=tools.jackson.databind.json.JsonMapper.builder().build().createArrayNode();
+        if (!ids.isEmpty()) data.read(jdbc -> jdbc.sql("SELECT id,file_id,relative_path FROM file_versions WHERE file_id IN (:ids) AND available=1")
+                .param("ids",ids).query((row,n) -> { result.addObject().put("type","copy").put("versionId",row.getString(1)).put("fileId",row.getString(2)).put("path",row.getString(3));return true; }).list());
+        return result;
+    }
+
+    public void deleteCopy(String version,String relative) throws IOException {
+        Path target=cleanupPath(version,relative);validateStoragePath(target);Files.deleteIfExists(target);
+        data.write(jdbc -> { jdbc.sql("UPDATE file_versions SET available=0 WHERE id=? AND relative_path=?").params(version,relative).update();return null; });
     }
 
     public FileService(
@@ -115,6 +143,7 @@ public final class FileService {
                 output.write(bytes);
             }
             Saved saved = data.write(jdbc -> {
+                datasets.get(datasetId);
                 var existing = jdbc.sql("SELECT id FROM files WHERE dataset_id=? AND name_key=?")
                         .param(datasetId)
                         .param(nameKey(name))
@@ -358,7 +387,7 @@ public final class FileService {
     public FileView get(String id) {
         String fileId = identifier(id);
         return data.read(jdbc -> jdbc.sql(
-                        "SELECT f.*,v.id AS version_id,v.uploaded_name,v.file_type,v.media_type,v.size_bytes,v.content_hash,v.uploaded_by,v.available FROM files f JOIN file_versions v ON f.latest_version=v.id WHERE f.id=?")
+                        "SELECT f.*,v.id AS version_id,v.uploaded_name,v.file_type,v.media_type,v.size_bytes,v.content_hash,v.uploaded_by,v.available FROM files f JOIN file_versions v ON f.latest_version=v.id WHERE f.id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=f.id)")
                 .param(fileId)
                 .query((row, index) -> new FileView(
                         row.getString("id"),
@@ -427,7 +456,7 @@ public final class FileService {
         }
         String timestamp = time, lastId = before;
         var rows = data.read(jdbc -> jdbc.sql(
-                        "SELECT id FROM files WHERE dataset_id=? AND (created_at<? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT ?")
+                        "SELECT id FROM files WHERE dataset_id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=files.id) AND (created_at<? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT ?")
                 .param(canonicalId)
                 .param(timestamp)
                 .param(timestamp)

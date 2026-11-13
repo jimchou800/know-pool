@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 15) {
+            if (version > 16) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 15) {
+            if (version > 0 && version < 16) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -261,6 +261,15 @@ public final class ApplicationData implements AutoCloseable {
                 write(transaction -> {
                     transaction.sql("CREATE TABLE index_retry_requests(session_id TEXT NOT NULL,operation TEXT NOT NULL,idempotency_key TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(session_id,operation,idempotency_key))").update();
                     transaction.sql("PRAGMA user_version=15").update();return null;
+                });
+            }
+            if (version < 16) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE deleted_resources(kind TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(kind,id))").update();
+                    transaction.sql("CREATE TABLE deletion_cleanup(task_id TEXT PRIMARY KEY,targets TEXT NOT NULL,endpoint TEXT)").update();
+                    transaction.sql("CREATE TABLE owned_vector_collections(knowledge_base_id TEXT NOT NULL,collection_name TEXT NOT NULL,endpoint TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,collection_name))").update();
+                    transaction.sql("INSERT OR IGNORE INTO owned_vector_collections SELECT json_extract(t.payload,'$.knowledgeBaseId'),c.collection_name,c.endpoint FROM knowledge_base_creations c JOIN tasks t ON t.id=c.task_id WHERE c.ownership='owned' AND c.endpoint IS NOT NULL").update();
+                    transaction.sql("PRAGMA user_version=16").update();return null;
                 });
             }
 

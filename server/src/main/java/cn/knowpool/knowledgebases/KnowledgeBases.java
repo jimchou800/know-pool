@@ -207,6 +207,7 @@ public final class KnowledgeBases {
                 jdbc.sql("UPDATE knowledge_base_creations SET ownership='owned',phase='created' WHERE task_id=?")
                         .param(task.id())
                         .update();
+                jdbc.sql("INSERT OR IGNORE INTO owned_vector_collections VALUES(?,?,?)").params(task.knowledgeBaseId(),collection,endpoint).update();
                 return null;
             });
             JsonNode actual = vectors.request(endpoint, secret, collection, "GET", null);
@@ -357,6 +358,7 @@ public final class KnowledgeBases {
     }
 
     public void refreshProcessing(JdbcClient jdbc, String id) {
+        if (jdbc.sql("SELECT COUNT(*) FROM knowledge_bases WHERE id=? AND visible=1").param(id).query(Integer.class).single()==0) return;
         ObjectNode value = (ObjectNode) get(jdbc, id);
         String state = jdbc.sql(
                         """
@@ -462,6 +464,52 @@ public final class KnowledgeBases {
             }
             return new ConnectionTests.Accepted(parent);
         });
+    }
+
+    public List<String> deletionBases(String kind,String id,List<String> fileIds) {
+        return data.read(jdbc -> {
+            if (kind.equals("knowledge_base")) { get(jdbc,id);return List.of(id); }
+            var result=new java.util.TreeSet<String>();
+            if (kind.equals("dataset")) result.addAll(jdbc.sql("SELECT DISTINCT knowledge_base_id FROM knowledge_base_sources WHERE type='dataset' AND resource_id=?").param(id).query(String.class).list());
+            if (!fileIds.isEmpty()) result.addAll(jdbc.sql("SELECT DISTINCT knowledge_base_id FROM knowledge_base_sources WHERE type='file' AND resource_id IN (:ids) UNION SELECT knowledge_base_id FROM knowledge_base_files WHERE file_id IN (:ids) UNION SELECT knowledge_base_id FROM effective_files WHERE file_id IN (:ids) UNION SELECT knowledge_base_id FROM knowledge_base_exclusions WHERE file_id IN (:ids)").param("ids",fileIds).query(String.class).list());
+            return List.copyOf(result);
+        });
+    }
+
+    public List<String> includedFiles(String kb) { return data.read(jdbc -> { get(jdbc,kb);return jdbc.sql("SELECT file_id FROM knowledge_base_files WHERE knowledge_base_id=? ORDER BY file_id").param(kb).query(String.class).list(); }); }
+
+    public JsonNode deletionTargets(String kind,String id,List<String> fileIds,List<String> baseIds) {
+        var targets=json.createArrayNode();
+        data.read(jdbc -> {
+            for (String kb:baseIds) {
+                jdbc.sql("SELECT r.id,json_extract(t.payload,'$.targetConfigVersionId'),json_extract(t.payload,'$.fileId') FROM index_runs r JOIN tasks t ON t.id=r.task_id WHERE json_extract(t.payload,'$.knowledgeBaseId')=?")
+                        .param(kb).query((row,n) -> {
+                            if (kind.equals("knowledge_base") || fileIds.contains(row.getString(3))) targets.addObject().put("type","index").put("indexId",row.getString(1)).put("collection",collection(kb,row.getString(2)));
+                            return true;
+                        }).list();
+                if (kind.equals("knowledge_base")) jdbc.sql("SELECT collection_name,endpoint FROM owned_vector_collections WHERE knowledge_base_id=?")
+                        .param(kb).query((row,n) -> { targets.addObject().put("type","collection").put("collection",row.getString(1)).put("endpoint",row.getString(2));return true; }).list();
+            }
+            return null;
+        });return targets;
+    }
+
+    public void deleteLinks(JdbcClient jdbc,String kind,String id,List<String> fileIds,List<String> baseIds) {
+        for (String kb:baseIds) {
+            if (kind.equals("knowledge_base")) {
+                jdbc.sql("DELETE FROM knowledge_base_sources WHERE knowledge_base_id=?").param(kb).update();jdbc.sql("DELETE FROM knowledge_base_exclusions WHERE knowledge_base_id=?").param(kb).update();
+                jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=?").param(kb).update();jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=?").param(kb).update();jdbc.sql("DELETE FROM knowledge_base_files WHERE knowledge_base_id=?").param(kb).update();
+                jdbc.sql("UPDATE knowledge_bases SET visible=0,name_key=? WHERE id=?").params("deleted:"+kb,kb).update();jdbc.sql("INSERT OR IGNORE INTO deleted_resources VALUES('knowledge_base',?)").param(kb).update();
+            } else {
+                if (kind.equals("dataset")) jdbc.sql("DELETE FROM knowledge_base_sources WHERE knowledge_base_id=? AND type='dataset' AND resource_id=?").params(kb,id).update();
+                for (String file:fileIds) {
+                    jdbc.sql("DELETE FROM knowledge_base_sources WHERE knowledge_base_id=? AND type='file' AND resource_id=?").params(kb,file).update();
+                    jdbc.sql("DELETE FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
+                    jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();jdbc.sql("DELETE FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
+                }
+                updateCounts(jdbc,kb);
+            }
+        }
     }
 
     public JsonNode retryFiles(String kb,String file,String session,String key) {
