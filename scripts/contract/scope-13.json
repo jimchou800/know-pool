@@ -301,14 +301,6 @@
       "#/paths/~1knowledge-bases/get/responses/404": "集合级列表无按标识资源缺失分支；空列表为200，单库不存在和半初始化隐藏404仍须验证。",
       "#/paths/~1knowledge-bases/get/responses/429": "当前同步本地读写没有排队容量分支；创建任务的真实队列429仍适用。",
       "#/paths/~1knowledge-bases/get/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。",
-      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/enum": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBase/properties/lastCheckedAt/anyOf/1/type": "公开实体必须先完成集合初始化核验，已保存核验时间；半初始化实体按404隐藏，未核验空值不作为成功响应。"
     },
     "createKnowledgeBase": {
@@ -337,14 +329,6 @@
     "getKnowledgeBase": {
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}/get/responses/429": "当前同步本地读写没有排队容量分支；创建任务的真实队列429仍适用。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}/get/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。",
-      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/enum": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
-      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
       "#/components/schemas/KnowledgeBase/properties/lastCheckedAt/anyOf/1/type": "公开实体必须先完成集合初始化核验，已保存核验时间；半初始化实体按404隐藏，未核验空值不作为成功响应。"
     },
     "updateKnowledgeBase": {
@@ -545,9 +529,20 @@
       "#/paths/~1tasks~1{taskId}~1cancel/post/responses/503": "本操作无同步外部依赖，后台任务依赖失败通过原任务表达；全局维护暂停留数据迁移票，消费方共享错误仍须验证。",
       "#/paths/~1tasks~1{taskId}~1cancel/post/responses/422": "取消仅检查任务身份、种类与状态，没有配置或资源的额外业务前置拒绝；不支持种类409、非法标识400、不存在404仍真实验证。"
     },
-    "publishKnowledgeBase": {},
-    "offlineKnowledgeBase": {},
-    "checkKnowledgeBase": {}
+    "publishKnowledgeBase": {
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1publish/post/responses/503": "受理或本地状态修改不依赖同步外部服务；复查依赖故障通过原任务结果表达，维护暂停留数据迁移票。消费方共享错误仍须验证。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1publish/post/responses/429": "发布与下线仅本地事务变更，不独立排队外发，无此操作容量拒绝；异步复查队列容量仍须真实验证。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1publish/post/responses/409": "已发布且仍符合门槛时幂等返回原发布结果，无其他合法冲突前置；不满足发布门槛422真实适用。"
+    },
+    "offlineKnowledgeBase": {
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1offline/post/responses/503": "受理或本地状态修改不依赖同步外部服务；复查依赖故障通过原任务结果表达，维护暂停留数据迁移票。消费方共享错误仍须验证。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1offline/post/responses/429": "发布与下线仅本地事务变更，不独立排队外发，无此操作容量拒绝；异步复查队列容量仍须真实验证。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1offline/post/responses/422": "下线只按当前发布状态判断，未发布409、已下线幂等，无配置或资源额外前置拒绝；不伪造422。"
+    },
+    "checkKnowledgeBase": {
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1check/post/responses/503": "受理或本地状态修改不依赖同步外部服务；复查依赖故障通过原任务结果表达，维护暂停留数据迁移票。消费方共享错误仍须验证。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1check/post/responses/409": "合法复查负载只有allowChargedCall=true，同键同负载恢复原任务；非法负载400，无不同合法业务负载触发幂等冲突。消费方共享冲突仍须验证。"
+    }
   },
   "当前安全行为": [
     "仅回环监听及 Host 白名单",
@@ -561,7 +556,7 @@
   ],
   "后续保留": [
     "真实TLS部署不属于11已验证范围，Secure属性仍由安全请求边界验证；SSE Cookie会话与八项当前安全行为已经可达，不再保留或豁免。",
-    "普通多库检索、知识库删除、发布下线与显式失败重试由后续切片实现。11继承管理单库路径，不生成回答，不调用查询预处理；Markdown与文字PDF解析及定位已属本票适用范围，不能继续保留。枚举整体、必填及当前值条件仍须验证。",
+    "普通多库检索、知识库删除、显式失败重试由后续切片实现。11继承管理单库路径，不生成回答，不调用查询预处理；Markdown与文字PDF解析及定位已属本票适用范围，不能继续保留。枚举整体、必填及当前值条件仍须验证。",
     "Task新增索引及search成功resultResourceId、实际生效版本、索引终态、失败、开始结束和已知总量均已可达；不得沿用07排队意图豁免。恢复索引不自动收费重嵌入、取消及版本资格保护必须有真实行为证据。",
     "ScopeOmission的unavailable和no_effective_index在单库失败范围检查后可达，仍必须验证。not_published不作为管理检索失败理由；deleted与多库部分范围保留后续公开入口，不能直接修改数据库冒充行为证据。",
     "普通检索实例的非空instanceId、预处理completed或fallback及additionalQueries非空仍留后续普通检索。PDF与Markdown定位、标题、真实结构身份、表格代码及任务降级警告已在09适用，不因缺测保留。"
