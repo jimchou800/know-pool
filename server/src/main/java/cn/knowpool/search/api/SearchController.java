@@ -18,6 +18,35 @@ public final class SearchController {
         this.searches = searches;
     }
 
+    @PostMapping("/api/v1/search-instances")
+    @ResponseStatus(HttpStatus.CREATED)
+    public JsonNode create(@RequestBody(required=false) String body,HttpServletRequest request) {
+        noQuery(request);
+        if (body!=null && !body.isEmpty()) throw ApiFailure.invalid(null,"创建检索实例不接受正文。");
+        return searches.createInstance();
+    }
+
+    @PostMapping(value="/api/v1/search-instances/{instanceId}/requests",consumes="application/json")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public JsonNode ordinary(@PathVariable String instanceId,@RequestBody JsonNode input,HttpServletRequest request) {
+        noQuery(request);
+        if (!input.isObject() || input.size()!=2 || !input.has("query") || !input.has("knowledgeBaseIds"))
+            throw ApiFailure.invalid(null,"请求只允许查询和知识库范围。");
+        JsonNode query=input.path("query"),ids=input.path("knowledgeBaseIds");
+        if (!query.isTextual() || query.asText().isBlank() || query.asText().codePointCount(0,query.asText().length())>20000)
+            throw ApiFailure.invalid("/query","查询须为一至两万字符的非空文本。");
+        if (!ids.isArray() || ids.isEmpty() || ids.size()>100) throw ApiFailure.invalid("/knowledgeBaseIds","须选择一至一百个知识库。");
+        var unique=new java.util.HashSet<String>();
+        for (JsonNode id:ids) {
+            if (!id.isTextual() || !unique.add(ModelSettingsService.identifier(id.asText(),"/knowledgeBaseIds")))
+                throw ApiFailure.invalid("/knowledgeBaseIds","知识库标识须合法且不能重复。");
+        }
+        List<String> keys=java.util.Collections.list(request.getHeaders("Idempotency-Key"));
+        if (keys.size()!=1) throw ApiFailure.invalid("Idempotency-Key","须提供唯一幂等键。");
+        var session=(LocalSessionFilter.Session)request.getAttribute("localSession");
+        return searches.submitInstance(session.sessionId(),instanceId,keys.getFirst(),input);
+    }
+
     @PostMapping(value = "/api/v1/knowledge-bases/{knowledgeBaseId}/search-test", consumes = "application/json")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public JsonNode submit(

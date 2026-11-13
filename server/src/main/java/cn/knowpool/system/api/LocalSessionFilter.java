@@ -176,6 +176,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 || path.matches("/api/v1/search-requests/[^/]+(?:/evidence/[^/]+)?")
                         && request.getMethod().equals("GET");
         boolean cancellation = path.matches("/api/v1/tasks/[^/]+/cancel") && request.getMethod().equals("POST");
+        search = search || request.getMethod().equals("POST") && (path.equals("/api/v1/search-instances") || path.matches("/api/v1/search-instances/[^/]+/requests"));
         if (collection || resource || fileOperation || settings || knowledgeBases || search || chunkPreflight || processingUpdate || cancellation) {
             request.setAttribute("localSession", session);
             chain.doFilter(request, response);

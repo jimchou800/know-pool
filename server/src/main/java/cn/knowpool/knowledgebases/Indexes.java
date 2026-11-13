@@ -783,6 +783,10 @@ public final class Indexes {
     }
 
     public JsonNode retrieve(String kb, String query) {
+        return retrieve(kb,query,new QueryVectors(),Integer.MAX_VALUE,() -> false);
+    }
+
+    public JsonNode retrieve(String kb, String query, QueryVectors cache, int candidateLimit, java.util.function.BooleanSupplier cancelled) {
         SearchSnapshot snapshot = data.write(jdbc -> {
             JsonNode base = bases.get(kb);
             String effective = base.path("effectiveConfigVersionId").asText();
@@ -812,17 +816,21 @@ public final class Indexes {
         List<String> indexes = List.copyOf(snapshot.files().keySet());
         if (indexes.isEmpty()) throw new ApiFailure(422, "NO_EFFECTIVE_INDEX", "请先完成资料处理，再检索生效索引。", null);
         try {
+            if (cancelled.getAsBoolean()) throw new ApiFailure(409,"TASK_CANCELLED","检索已被取消。",null);
             var connection = settings.vectorConnection();
-            float[] vector = embeddings
-                    .embed(
-                            settings.embeddingSnapshot(
-                                    config.path("modelConfigVersionId").asText()),
-                            query,
-                            config.path("dimensions").asInt())
-                    .vector();
+            var model = settings.embeddingSnapshot(config.path("modelConfigVersionId").asText());
+            QueryVectorKey key = new QueryVectorKey(model,config.path("dimensions").asInt(),query);
+            float[] vector = cache.values.get(key);
+            if (vector == null) {
+                if (cache.values.size() >= 100) throw new ApiFailure(422,"MODEL_CONFIG_INVALID","本次检索嵌入空间数量超过安全预算。",null);
+                vector = embeddings.embed(model,query,config.path("dimensions").asInt()).vector();
+                cache.values.put(key,vector);
+            }
+            if (cancelled.getAsBoolean()) throw new ApiFailure(409,"TASK_CANCELLED","检索已被取消。",null);
+            int limit = Math.min(config.path("candidatesPerQuery").asInt(),candidateLimit);
             ObjectNode body = json.createObjectNode();
             body.set("query", json.valueToTree(vector));
-            body.put("limit", config.path("candidatesPerQuery").asInt()).put("with_payload", true);
+            body.put("limit", limit).put("with_payload", true);
             body.set(
                     "filter",
                     json.valueToTree(java.util.Map.of(
@@ -837,17 +845,19 @@ public final class Indexes {
             if (!response.at("/result/points").isArray())
                 throw new ApiFailure(500, "INTEGRITY_FAILED", "向量检索响应不完整。", null);
             JsonNode points = response.at("/result/points");
-            if (points.size() > config.path("candidatesPerQuery").asInt())
+            if (points.size() > limit)
                 throw new ApiFailure(500, "INTEGRITY_FAILED", "向量检索候选数量超过请求上限。", null);
             var ids = new java.util.LinkedHashSet<String>();
             for (JsonNode hit : points) {
                 if (!hit.path("score").isNumber()
                         || !Double.isFinite(hit.path("score").asDouble()))
                     throw new ApiFailure(500, "INTEGRITY_FAILED", "向量检索分数无效。", null);
-                if (hit.path("score").asDouble()
-                        >= config.path("similarityThreshold").asDouble())
+                if (config.path("distance").asText().equals("euclidean")
+                        ? hit.path("score").asDouble() <= config.path("similarityThreshold").asDouble()
+                        : hit.path("score").asDouble() >= config.path("similarityThreshold").asDouble())
                     ids.add(hit.path("id").asText());
             }
+            if (cancelled.getAsBoolean()) throw new ApiFailure(409,"TASK_CANCELLED","检索已被取消。",null);
             JsonNode result = data.write(jdbc -> evidence(jdbc, kb, snapshot, List.copyOf(ids)));
             availability(kb, null);
             return result;
@@ -863,6 +873,23 @@ public final class Indexes {
                 for (String index : snapshot.files().keySet()) readers.computeIfPresent(index,(key,count) -> count <= 1 ? null : count-1);
             }
         }
+    }
+
+    public static final class QueryVectors {
+        private final java.util.Map<QueryVectorKey,float[]> values = new java.util.HashMap<>();
+    }
+
+    private record QueryVectorKey(ModelSettingsService.EmbeddingSnapshot model, int dimensions, String query) {}
+
+    public boolean remainsEligible(JsonNode evidence) {
+        return data.write(jdbc -> {
+            String kb=evidence.path("knowledgeBaseId").asText(), file=evidence.path("fileId").asText();
+            var current=files.currentFiles(jdbc,List.of(file)).get(file);
+            if (current==null || !current.available()) return false;
+            return jdbc.sql("SELECT COUNT(*) FROM knowledge_base_sources WHERE knowledge_base_id=? AND ((type='file' AND resource_id=?) OR (type='dataset' AND resource_id=?))")
+                    .params(kb,file,current.datasetId()).query(Integer.class).single()>0
+                    && jdbc.sql("SELECT COUNT(*) FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?").params(kb,file).query(Integer.class).single()==0;
+        });
     }
 
     private JsonNode evidence(JdbcClient jdbc, String kb, SearchSnapshot snapshot, List<String> ids) {
