@@ -141,7 +141,22 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         && request.getMethod().equals("PATCH")
                 || path.matches("/api/v1/files/[^/]+/versions")
                         && request.getMethod().equals("GET");
-        if (collection || resource || fileOperation) {
+        boolean settings = path.matches("/api/v1/settings/models/(?:generation|embedding)")
+                        && Set.of("GET", "PUT").contains(request.getMethod())
+                || path.equals("/api/v1/settings/vector-store")
+                        && Set.of("GET", "PUT").contains(request.getMethod())
+                || path.matches("/api/v1/settings/models/embedding/versions(?:/[^/]+)?")
+                        && request.getMethod().equals("GET")
+                || path.matches("/api/v1/settings/models/embedding/versions/[^/]+/credential")
+                        && request.getMethod().equals("PUT")
+                || path.matches("/api/v1/settings/models/(?:generation|embedding)/test")
+                        && request.getMethod().equals("POST")
+                || path.equals("/api/v1/settings/vector-store/test")
+                        && request.getMethod().equals("POST")
+                || path.matches("/api/v1/tasks/[^/]+(?:/connection-test)?")
+                        && request.getMethod().equals("GET");
+        if (collection || resource || fileOperation || settings) {
+            request.setAttribute("localSession", session);
             chain.doFilter(request, response);
             return;
         }

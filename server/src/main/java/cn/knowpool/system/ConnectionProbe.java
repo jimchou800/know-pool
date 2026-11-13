@@ -1,0 +1,191 @@
+package cn.knowpool.system;
+
+import com.openai.client.OpenAIClient;
+import com.openai.client.OpenAIClientImpl;
+import com.openai.core.ClientOptions;
+import com.openai.core.LogLevel;
+import com.openai.core.RequestOptions;
+import com.openai.core.http.Headers;
+import com.openai.core.http.HttpRequest;
+import com.openai.core.http.HttpResponse;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.embedding.Embedding;
+import org.springframework.ai.embedding.EmbeddingRequest;
+import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.OpenAiEmbeddingModel;
+import org.springframework.ai.openai.OpenAiEmbeddingOptions;
+import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+@Component
+public final class ConnectionProbe {
+    private static final int RESPONSE_LIMIT = 262144;
+    private final JsonMapper json;
+
+    public ConnectionProbe(JsonMapper json) {
+        this.json = json;
+    }
+
+    boolean test(ConnectionTests.ProbeSnapshot snapshot) {
+        try (Transport transport = new Transport()) {
+            if (snapshot.kind().equals("vector")) {
+                Request.Builder request = new Request.Builder()
+                        .url(base(snapshot.endpoint()) + "/collections")
+                        .get();
+                if (snapshot.secret() != null) request.header("api-key", snapshot.secret());
+                try (Response response = transport.http.newCall(request.build()).execute()) {
+                    byte[] body = bounded(response);
+                    if (response.code() != 200) return false;
+                    JsonNode payload = json.readTree(body);
+                    return payload.isObject()
+                            && payload.path("result").isObject()
+                            && payload.path("result").path("collections").isArray()
+                            && payload.path("status").asText().equals("ok");
+                }
+            }
+            ClientOptions options = ClientOptions.builder()
+                    .httpClient(transport)
+                    .baseUrl(base(snapshot.endpoint()))
+                    .apiKey(snapshot.secret())
+                    .maxRetries(0)
+                    .logLevel(LogLevel.OFF)
+                    .responseValidation(true)
+                    .timeout(Duration.ofSeconds(5))
+                    .build();
+            OpenAIClient client = new OpenAIClientImpl(options);
+            if (snapshot.kind().equals("generation")) {
+                OpenAiChatOptions chatOptions = OpenAiChatOptions.builder()
+                        .model(snapshot.model())
+                        .maxTokens((int) Math.min(16, snapshot.maxOutputTokens()))
+                        .build();
+                var response = OpenAiChatModel.builder()
+                        .openAiClient(client)
+                        .options(chatOptions)
+                        .build()
+                        .call(new Prompt("请回复连接正常。"));
+                return response.getResults() != null
+                        && !response.getResults().isEmpty()
+                        && response.getResults().stream()
+                                .anyMatch(result -> result.getOutput() != null
+                                        && result.getOutput().getText() != null
+                                        && !result.getOutput().getText().isBlank());
+            }
+            OpenAiEmbeddingOptions embeddingOptions = OpenAiEmbeddingOptions.builder()
+                    .model(snapshot.model())
+                    .encodingFormat(OpenAiEmbeddingOptions.EncodingFormat.FLOAT)
+                    .build();
+            var response = OpenAiEmbeddingModel.builder()
+                    .openAiClient(client)
+                    .options(embeddingOptions)
+                    .build()
+                    .call(new EmbeddingRequest(List.of("连接测试"), embeddingOptions));
+            if (response.getResults().size() != 1) return false;
+            Embedding embedding = response.getResults().getFirst();
+            if (embedding.getIndex() != 0 || embedding.getOutput() == null || embedding.getOutput().length == 0)
+                return false;
+            for (float value : embedding.getOutput()) if (!Float.isFinite(value)) return false;
+            return true;
+        } catch (IOException | RuntimeException failure) {
+            return false;
+        }
+    }
+
+    private static String base(String endpoint) {
+        return endpoint.replaceAll("/+$", "");
+    }
+
+    private static byte[] bounded(Response response) throws IOException {
+        if (response.body() == null) throw new IOException("连接响应正文缺失。");
+        if (response.body().contentLength() > RESPONSE_LIMIT) throw new IOException("连接响应超出大小限制。");
+        try (InputStream stream = response.body().byteStream()) {
+            byte[] body = stream.readNBytes(RESPONSE_LIMIT + 1);
+            if (body.length > RESPONSE_LIMIT) throw new IOException("连接响应超出大小限制。");
+            return body;
+        }
+    }
+
+    private static final class Transport implements com.openai.core.http.HttpClient {
+        private final OkHttpClient http = new OkHttpClient.Builder()
+                .retryOnConnectionFailure(false)
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .connectTimeout(Duration.ofSeconds(2))
+                .readTimeout(Duration.ofSeconds(3))
+                .writeTimeout(Duration.ofSeconds(3))
+                .callTimeout(Duration.ofSeconds(5))
+                .build();
+
+        @Override
+        public HttpResponse execute(HttpRequest request, RequestOptions options) {
+            try {
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                request.body().writeTo(bytes);
+                Request.Builder outgoing = new Request.Builder().url(request.url());
+                for (String header : request.headers().names()) {
+                    for (String value : request.headers().values(header)) outgoing.addHeader(header, value);
+                }
+                outgoing.method(
+                        request.method().toString(),
+                        RequestBody.create(bytes.toByteArray(), MediaType.get("application/json")));
+                try (Response response = http.newCall(outgoing.build()).execute()) {
+                    byte[] body = bounded(response);
+                    Headers headers = Headers.builder()
+                            .putAll(response.headers().toMultimap())
+                            .build();
+                    int status = response.code();
+                    return new HttpResponse() {
+                        @Override
+                        public int statusCode() {
+                            return status;
+                        }
+
+                        @Override
+                        public Headers headers() {
+                            return headers;
+                        }
+
+                        @Override
+                        public InputStream body() {
+                            return new ByteArrayInputStream(body);
+                        }
+
+                        @Override
+                        public void close() {}
+                    };
+                }
+            } catch (IOException failure) {
+                throw new IllegalStateException("远端连接失败。");
+            }
+        }
+
+        @Override
+        public CompletableFuture<HttpResponse> executeAsync(HttpRequest request, RequestOptions options) {
+            try {
+                return CompletableFuture.completedFuture(execute(request, options));
+            } catch (RuntimeException failure) {
+                return CompletableFuture.failedFuture(failure);
+            }
+        }
+
+        @Override
+        public void close() {
+            http.dispatcher().cancelAll();
+            http.connectionPool().evictAll();
+            http.dispatcher().executorService().shutdownNow();
+        }
+    }
+}

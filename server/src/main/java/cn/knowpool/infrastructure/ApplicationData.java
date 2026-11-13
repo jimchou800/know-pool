@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 3) {
+            if (version > 4) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 3) {
+            if (version > 0 && version < 4) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -87,6 +87,43 @@ public final class ApplicationData implements AutoCloseable {
                                     "CREATE TABLE file_versions (id TEXT PRIMARY KEY, file_id TEXT NOT NULL REFERENCES files(id), uploaded_name TEXT NOT NULL, file_type TEXT NOT NULL, media_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, content_hash TEXT NOT NULL, uploaded_by TEXT, uploaded_at TEXT NOT NULL, relative_path TEXT NOT NULL, available INTEGER NOT NULL)")
                             .update();
                     transaction.sql("PRAGMA user_version=3").update();
+                    return null;
+                });
+            }
+            if (version < 4) {
+                write(transaction -> {
+                    transaction
+                            .sql(
+                                    "CREATE TABLE model_configs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, endpoint TEXT, model TEXT, context_tokens INTEGER, output_tokens INTEGER, credential TEXT, updated_at TEXT NOT NULL)")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE active_configs (kind TEXT PRIMARY KEY, config_id TEXT NOT NULL REFERENCES model_configs(id))")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE vector_config (id INTEGER PRIMARY KEY CHECK(id=1), endpoint TEXT, credential TEXT, updated_at TEXT NOT NULL)")
+                            .update();
+                    for (String kind : List.of("generation", "embedding")) {
+                        String id = java.util.UUID.randomUUID().toString();
+                        transaction
+                                .sql("INSERT INTO model_configs(id,kind,updated_at) VALUES(?,?,?)")
+                                .params(id, kind, startedAt.toString())
+                                .update();
+                        transaction
+                                .sql("INSERT INTO active_configs(kind,config_id) VALUES(?,?)")
+                                .params(kind, id)
+                                .update();
+                    }
+                    transaction
+                            .sql("INSERT INTO vector_config(id,updated_at) VALUES(1,?)")
+                            .param(startedAt.toString())
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE tasks (id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, result TEXT, session_id TEXT NOT NULL, operation TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_fingerprint TEXT NOT NULL, UNIQUE(session_id,operation,idempotency_key))")
+                            .update();
+                    transaction.sql("PRAGMA user_version=4").update();
                     return null;
                 });
             }
