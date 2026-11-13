@@ -157,7 +157,7 @@ public final class ApplicationData implements AutoCloseable {
                             .update();
                     transaction
                             .sql(
-                                    "CREATE TABLE index_chunks (id TEXT PRIMARY KEY,index_id TEXT NOT NULL REFERENCES index_runs(id),ordinal INTEGER NOT NULL,text TEXT NOT NULL,location TEXT NOT NULL,vector TEXT,write_attempts INTEGER NOT NULL DEFAULT 0,embed_attempts INTEGER NOT NULL DEFAULT 0,verify_attempts INTEGER NOT NULL DEFAULT 0,write_completed INTEGER NOT NULL DEFAULT 0,written INTEGER NOT NULL DEFAULT 0)")
+                                    "CREATE TABLE index_chunks (id TEXT PRIMARY KEY,index_id TEXT NOT NULL REFERENCES index_runs(id),ordinal INTEGER NOT NULL,text TEXT NOT NULL,location TEXT NOT NULL,vector TEXT,input_upper_bound INTEGER,prompt_tokens INTEGER,meter_version TEXT,write_attempts INTEGER NOT NULL DEFAULT 0,embed_attempts INTEGER NOT NULL DEFAULT 0,verify_attempts INTEGER NOT NULL DEFAULT 0,write_completed INTEGER NOT NULL DEFAULT 0,written INTEGER NOT NULL DEFAULT 0)")
                             .update();
                     transaction
                             .sql(

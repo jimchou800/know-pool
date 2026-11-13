@@ -170,21 +170,48 @@ class IndexChunkingHttpTest {
     @Test
     @DisplayName("检索外发期间切换生效版本，当前请求仍返回捕获版本的完整证据")
     void searchRetainsCapturedVersionDuringSwitch() throws Exception {
+        checkSearchSnapshot(false);
+    }
+
+    @Test
+    @DisplayName("覆盖更新尚在运行时旧索引证据使用契约updating状态且知识库聚合保持运行")
+    void updatingEvidenceUsesContractState() throws Exception {
+        checkSearchSnapshot(true);
+    }
+
+    private void checkSearchSnapshot(boolean updating) throws Exception {
+        var updatingEntered = new java.util.concurrent.CountDownLatch(1);
+        var updatingRelease = new java.util.concurrent.CountDownLatch(1);
+        var embeddingCalls = new java.util.concurrent.atomic.AtomicInteger();
         var entered = new java.util.concurrent.CountDownLatch(1);
         var release = new java.util.concurrent.CountDownLatch(1);
         var first = new java.util.concurrent.atomic.AtomicBoolean(true);
-        HttpServer vector = indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {}, () -> {
-            if (first.compareAndSet(true, false)) {
-                entered.countDown();
-                try {
-                    assertThat(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
-                            .isTrue();
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    throw new AssertionError("受控检索等待被中断。", interrupted);
-                }
-            }
-        });
+        HttpServer vector = indexedVector(
+                new java.util.concurrent.CopyOnWriteArrayList<>(),
+                () -> {
+                    if (updating && embeddingCalls.incrementAndGet() == 3) {
+                        updatingEntered.countDown();
+                        try {
+                            assertThat(updatingRelease.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                                    .isTrue();
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError("受控更新等待被中断。", interrupted);
+                        }
+                    }
+                },
+                () -> {
+                    if (first.compareAndSet(true, false)) {
+                        entered.countDown();
+                        try {
+                            assertThat(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                                    .isTrue();
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError("受控检索等待被中断。", interrupted);
+                        }
+                    }
+                });
         Path directory =
                 Files.createTempDirectory(Path.of("target"), "search-snapshot-").toAbsolutePath();
         try (ConfigurableApplicationContext app = start(directory)) {
@@ -221,9 +248,22 @@ class IndexChunkingHttpTest {
                     .body());
             assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             JsonNode replacement = uploadText(client, dataset, "后续生效正文");
-            JsonNode newTask =
-                    await(client, replacement.at("/items/0/indexTaskIds/0").asText());
-            assertThat(newTask.path("state").asText()).as(newTask.toString()).isEqualTo("succeeded");
+            String replacementTask = replacement.at("/items/0/indexTaskIds/0").asText();
+            if (updating)
+                assertThat(updatingEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                        .isTrue();
+            JsonNode newTask = updating ? read(client, "/tasks/" + replacementTask) : await(client, replacementTask);
+            assertThat(newTask.path("state").asText())
+                    .as(newTask.toString())
+                    .isEqualTo(updating ? "running" : "succeeded");
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo(updating ? "running" : "idle");
+            assertThat(read(client, "/knowledge-bases")
+                            .at("/items/0/processingState")
+                            .asText())
+                    .isEqualTo(updating ? "running" : "idle");
             assertThat(newTask.path("targetContentVersionId").asText())
                     .isNotEqualTo(oldTask.path("targetContentVersionId").asText());
             release.countDown();
@@ -242,14 +282,223 @@ class IndexChunkingHttpTest {
                     .isEqualTo(oldTask.path("targetContentVersionId").asText());
             assertThat(result.at("/result/evidence/0/indexVersionId").asText())
                     .isEqualTo(oldTask.path("resultResourceId").asText());
-            assertThat(read(client, "/knowledge-bases/" + kb + "/files")
-                            .at("/items/0/effectiveIndexVersionId")
-                            .asText())
-                    .isEqualTo(newTask.path("resultResourceId").asText());
+            assertThat(result.at("/result/evidence/0/updateState").asText()).isEqualTo(updating ? "updating" : "ready");
+            assertThat(result.at("/result/evidence/0/usingPreviousVersion").asBoolean())
+                    .isTrue();
+            updatingRelease.countDown();
+            assertThat(await(client, replacementTask).path("state").asText()).isEqualTo("succeeded");
         } finally {
             release.countDown();
+            updatingRelease.countDown();
             vector.stop(0);
         }
+    }
+
+    @Test
+    @DisplayName("供应商原始用量小数和整数溢出均不得产生生效索引")
+    void malformedUsageCannotPublish() throws Exception {
+        for (String usage :
+                java.util.List.of("4.5", "4294967300", "-1", "null", "\"4\"", "9007199254740992", "100", "missing")) {
+            assertThat(index("固定正文", 0, "{}", "[]", "failed", usage, "INTEGRITY_FAILED"))
+                    .hasSize(1);
+        }
+    }
+
+    @Test
+    @DisplayName("索引成功持久保存独立实际用量字节上界和计量器版本")
+    void successfulIndexRecordsMeasuredUsage() throws Exception {
+        assertThat(index("😀甲e\u0301\t正文", 0, "{}", "[]")).containsExactly("😀甲e\u0301\t正文");
+    }
+
+    @Test
+    @DisplayName("完整输入恰好字节预算可运行，超一字节拒绝外发，零实际用量合法")
+    void exactInputBudgetAndZeroUsage() throws Exception {
+        String text = "正".repeat(2000);
+        String metadata = "元".repeat(726) + "a";
+        assertThat(index(text, 0, "{\"user_label\":\"" + metadata + "\"}", "[\"user_label\"]"))
+                .containsExactly(text + "\nuser_label: " + metadata);
+        assertThat(index(text, 0, "{\"user_label\":\"" + metadata + "b\"}", "[\"user_label\"]", "failed"))
+                .isEmpty();
+        assertThat(index("固定正文", 0, "{}", "[]", "succeeded", "0", "")).containsExactly("固定正文");
+    }
+
+    @Test
+    @DisplayName("多文件一项成功但另一项仍运行时知识库列表与详情保持运行状态")
+    void multipleFilesKeepAggregateRunning() throws Exception {
+        var firstEntered = new java.util.concurrent.CountDownLatch(1);
+        var firstRelease = new java.util.concurrent.CountDownLatch(1);
+        var secondEntered = new java.util.concurrent.CountDownLatch(1);
+        var secondRelease = new java.util.concurrent.CountDownLatch(1);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        HttpServer vector = indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {
+            int call = calls.incrementAndGet();
+            (call == 1 ? firstEntered : secondEntered).countDown();
+            try {
+                assertThat((call == 1 ? firstRelease : secondRelease).await(5, java.util.concurrent.TimeUnit.SECONDS))
+                        .isTrue();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("受控多文件等待被中断。", interrupted);
+            }
+        });
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "aggregate-http-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String dataset = readCreatedDataset(client, "多文件聚合");
+            uploadText(client, dataset, "甲资料");
+            uploadText(client, dataset, "乙资料", "second.txt");
+            JsonNode accepted = JSON.readTree(send(
+                            client,
+                            "/knowledge-bases",
+                            "POST",
+                            "{\"name\":\"多文件聚合\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                    + "\"]}",
+                            UUID.randomUUID().toString())
+                    .body());
+            String kb = await(client, accepted.at("/task/id").asText())
+                    .path("resultResourceId")
+                    .asText();
+            assertThat(firstEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    .isTrue();
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo("running");
+            firstRelease.countDown();
+            assertThat(secondEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    .isTrue();
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("searchableFileCount")
+                            .asInt())
+                    .isEqualTo(1);
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo("running");
+            assertThat(read(client, "/knowledge-bases")
+                            .at("/items/0/processingState")
+                            .asText())
+                    .isEqualTo("running");
+            secondRelease.countDown();
+            for (JsonNode file :
+                    read(client, "/knowledge-bases/" + kb + "/files").path("items"))
+                assertThat(await(client, file.at("/task/id").asText())
+                                .path("state")
+                                .asText())
+                        .isEqualTo("succeeded");
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo("idle");
+        } finally {
+            firstRelease.countDown();
+            secondRelease.countDown();
+            vector.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("批量命中按召回顺序去重并排除越库切片，超候选上限失败")
+    void retrievedCandidatesAreBoundedOrderedAndScoped() throws Exception {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var foreign = new java.util.concurrent.atomic.AtomicReference<JsonNode>();
+        var orderedIds = new java.util.ArrayList<String>();
+        HttpServer vector =
+                indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {}, () -> {}, "4", hits -> {
+                    int call = calls.incrementAndGet();
+                    if (call == 1) foreign.set(hits.get(0).deepCopy());
+                    else if (call == 2) {
+                        var reversed = new java.util.ArrayList<JsonNode>();
+                        hits.forEach(reversed::add);
+                        java.util.Collections.reverse(reversed);
+                        hits.removeAll();
+                        for (JsonNode hit : reversed) {
+                            hits.add(hit);
+                            orderedIds.add(hit.path("id").asText());
+                        }
+                        hits.add(reversed.getFirst());
+                        hits.add(foreign.get());
+                        hits.add(JSON.createObjectNode()
+                                .put("id", UUID.randomUUID().toString())
+                                .put("score", 0.9));
+                    } else {
+                        JsonNode hit = hits.get(0).deepCopy();
+                        hits.removeAll();
+                        for (int i = 0; i < 11; i++) hits.add(hit);
+                    }
+                });
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "retrieval-batch-").toAbsolutePath();
+        try (ConfigurableApplicationContext app = start(directory)) {
+            Client client = client(app);
+            String processing = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String other = createIndexedBase(client, processing, "另一知识库", "越库资料");
+            JsonNode foreignRequest = search(client, other);
+            assertThat(await(client, foreignRequest.at("/task/id").asText())
+                            .path("state")
+                            .asText())
+                    .isEqualTo("succeeded");
+            String kb = createIndexedBase(client, processing, "当前知识库", "甲".repeat(2000) + "乙".repeat(2000));
+            JsonNode request = search(client, kb);
+            assertThat(await(client, request.at("/task/id").asText())
+                            .path("state")
+                            .asText())
+                    .isEqualTo("succeeded");
+            JsonNode result = read(
+                            client, "/search-requests/" + request.path("id").asText())
+                    .at("/result/evidence");
+            var actual = new java.util.ArrayList<String>();
+            for (JsonNode value : result) {
+                actual.add(value.path("chunkId").asText());
+                assertThat(value.path("knowledgeBaseId").asText()).isEqualTo(kb);
+            }
+            assertThat(actual).containsExactlyElementsOf(orderedIds).hasSize(2);
+            JsonNode overflow = search(client, kb);
+            JsonNode failed = await(client, overflow.at("/task/id").asText());
+            assertThat(failed.path("state").asText()).isEqualTo("failed");
+            assertThat(failed.at("/failure/code").asText()).isEqualTo("INTEGRITY_FAILED");
+        } finally {
+            vector.stop(0);
+        }
+    }
+
+    private String readCreatedDataset(Client client, String name) throws Exception {
+        return JSON.readTree(send(client, "/datasets", "POST", "{\"name\":\"" + name + "\"}", null)
+                        .body())
+                .path("id")
+                .asText();
+    }
+
+    private String createIndexedBase(Client client, String processing, String name, String text) throws Exception {
+        String dataset = readCreatedDataset(client, name);
+        uploadText(client, dataset, text);
+        JsonNode accepted = JSON.readTree(send(
+                        client,
+                        "/knowledge-bases",
+                        "POST",
+                        "{\"name\":\"" + name + "\",\"processing\":" + processing + ",\"datasetIds\":[\"" + dataset
+                                + "\"]}",
+                        UUID.randomUUID().toString())
+                .body());
+        String kb = await(client, accepted.at("/task/id").asText())
+                .path("resultResourceId")
+                .asText();
+        for (JsonNode file : read(client, "/knowledge-bases/" + kb + "/files").path("items"))
+            assertThat(await(client, file.at("/task/id").asText()).path("state").asText())
+                    .isEqualTo("succeeded");
+        return kb;
+    }
+
+    private JsonNode search(Client client, String kb) throws Exception {
+        return JSON.readTree(send(
+                        client,
+                        "/knowledge-bases/" + kb + "/search-test",
+                        "POST",
+                        "{\"query\":\"固定查询\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                        UUID.randomUUID().toString())
+                .body());
     }
 
     private java.util.List<String> index(String text, int overlap, String metadata, String fields) throws Exception {
@@ -258,8 +507,20 @@ class IndexChunkingHttpTest {
 
     private java.util.List<String> index(String text, int overlap, String metadata, String fields, String expectedState)
             throws Exception {
+        return index(text, overlap, metadata, fields, expectedState, "4", "MODEL_CONFIG_INVALID");
+    }
+
+    private java.util.List<String> index(
+            String text,
+            int overlap,
+            String metadata,
+            String fields,
+            String expectedState,
+            String usage,
+            String failureCode)
+            throws Exception {
         var inputs = new java.util.concurrent.CopyOnWriteArrayList<String>();
-        HttpServer vector = indexedVector(inputs);
+        HttpServer vector = indexedVector(inputs, () -> {}, () -> {}, usage);
         Path directory =
                 Files.createTempDirectory(Path.of("target"), "chunking-http-").toAbsolutePath();
         try (ConfigurableApplicationContext app = start(directory)) {
@@ -287,11 +548,30 @@ class IndexChunkingHttpTest {
             JsonNode indexed = await(client, file.at("/task/id").asText());
             assertThat(indexed.path("state").asText()).as(indexed.toString()).isEqualTo(expectedState);
             if (expectedState.equals("failed")) {
-                assertThat(indexed.at("/failure/code").asText()).isEqualTo("MODEL_CONFIG_INVALID");
+                assertThat(indexed.at("/failure/code").asText()).isEqualTo(failureCode);
                 assertThat(read(client, "/knowledge-bases/" + kb)
                                 .path("searchableFileCount")
                                 .asInt())
                         .isZero();
+            }
+            assertThat(read(client, "/knowledge-bases/" + kb)
+                            .path("processingState")
+                            .asText())
+                    .isEqualTo(expectedState.equals("failed") ? "failed" : "idle");
+            if (expectedState.equals("succeeded")) {
+                var measurements = app.getBean(cn.knowpool.infrastructure.ApplicationData.class)
+                        .read(jdbc -> jdbc.sql(
+                                        "SELECT input_upper_bound,prompt_tokens,meter_version FROM index_chunks ORDER BY ordinal")
+                                .query((row, n) -> java.util.List.of(row.getInt(1), row.getInt(2), row.getString(3)))
+                                .list());
+                assertThat(measurements).hasSize(inputs.size());
+                for (int i = 0; i < inputs.size(); i++) {
+                    assertThat(measurements.get(i))
+                            .containsExactly(
+                                    inputs.get(i).getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                                    Integer.parseInt(usage),
+                                    "qwen-byte-upper-bound-1");
+                }
             }
             return java.util.List.copyOf(inputs);
         } finally {
@@ -331,9 +611,14 @@ class IndexChunkingHttpTest {
     }
 
     private JsonNode uploadText(Client client, String dataset, String text) throws Exception {
+        return uploadText(client, dataset, text, "source.txt");
+    }
+
+    private JsonNode uploadText(Client client, String dataset, String text, String filename) throws Exception {
         String boundary = "knowledge-boundary";
         String body = "--" + boundary
-                + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"source.txt\"\r\nContent-Type: text/plain\r\n\r\n"
+                + "\r\nContent-Disposition: form-data; name=\"files\"; filename=\"" + filename
+                + "\"\r\nContent-Type: text/plain\r\n\r\n"
                 + text + "\r\n--"
                 + boundary + "--\r\n";
         HttpRequest request = HttpRequest.newBuilder(
@@ -401,6 +686,22 @@ class IndexChunkingHttpTest {
 
     private HttpServer indexedVector(java.util.List<String> inputs, Runnable beforeEmbedding, Runnable beforeQuery)
             throws Exception {
+        return indexedVector(inputs, beforeEmbedding, beforeQuery, "4");
+    }
+
+    private HttpServer indexedVector(
+            java.util.List<String> inputs, Runnable beforeEmbedding, Runnable beforeQuery, String usage)
+            throws Exception {
+        return indexedVector(inputs, beforeEmbedding, beforeQuery, usage, hits -> {});
+    }
+
+    private HttpServer indexedVector(
+            java.util.List<String> inputs,
+            Runnable beforeEmbedding,
+            Runnable beforeQuery,
+            String usage,
+            java.util.function.Consumer<tools.jackson.databind.node.ArrayNode> adjustHits)
+            throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.setExecutor(command -> Thread.ofVirtual().start(command));
         java.util.Set<String> collections = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -414,8 +715,11 @@ class IndexChunkingHttpTest {
             if (path.equals("/v1/embeddings")) {
                 inputs.add(body.at("/input/0").asText());
                 beforeEmbedding.run();
+                String usageBody =
+                        usage.equals("missing") ? "{}" : "{\"prompt_tokens\":" + usage + ",\"total_tokens\":4}";
                 response =
-                        "{\"object\":\"list\",\"data\":[{\"object\":\"embedding\",\"index\":0,\"embedding\":[1,0,0]}],\"model\":\"text-embedding-v4\",\"usage\":{\"prompt_tokens\":4,\"total_tokens\":4}}";
+                        "{\"object\":\"list\",\"data\":[{\"object\":\"embedding\",\"index\":0,\"embedding\":[1,0,0]}],\"model\":\"text-embedding-v4\",\"usage\":"
+                                + usageBody + "}";
             } else if (path.endsWith("/points") && exchange.getRequestMethod().equals("PUT")) {
                 for (JsonNode point : body.path("points"))
                     points.put(point.path("id").asText(), point);
@@ -423,7 +727,18 @@ class IndexChunkingHttpTest {
             } else if (path.endsWith("/points") && exchange.getRequestMethod().equals("POST")) {
                 var result = JSON.createArrayNode();
                 for (JsonNode id : body.path("ids"))
-                    if (points.containsKey(id.asText())) result.add(points.get(id.asText()));
+                    if (points.containsKey(id.asText())) {
+                        var point = (tools.jackson.databind.node.ObjectNode)
+                                points.get(id.asText()).deepCopy();
+                        var normalized = JSON.createArrayNode();
+                        for (JsonNode component : point.path("vector")) {
+                            if (component.doubleValue() == Math.rint(component.doubleValue()))
+                                normalized.add(component.intValue());
+                            else normalized.add(component.doubleValue());
+                        }
+                        point.set("vector", normalized);
+                        result.add(point);
+                    }
                 response = JSON.writeValueAsString(java.util.Map.of("status", "ok", "result", result));
             } else if (path.endsWith("/points/query")) {
                 beforeQuery.run();
@@ -432,6 +747,7 @@ class IndexChunkingHttpTest {
                     for (JsonNode index : body.at("/filter/must/0/match/any"))
                         if (point.at("/payload/index_id").asText().equals(index.asText()))
                             result.add(((tools.jackson.databind.node.ObjectNode) point.deepCopy()).put("score", 0.9));
+                adjustHits.accept(result);
                 response = JSON.writeValueAsString(
                         java.util.Map.of("status", "ok", "result", java.util.Map.of("points", result)));
             } else if (exchange.getRequestMethod().equals("PUT")) {

@@ -356,6 +356,27 @@ public final class KnowledgeBases {
                 .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "知识库不存在。", null));
     }
 
+    public void refreshProcessing(JdbcClient jdbc, String id) {
+        ObjectNode value = (ObjectNode) get(jdbc, id);
+        String state = jdbc.sql(
+                        """
+                SELECT CASE
+                  WHEN SUM(t.state='running')>0 THEN 'running'
+                  WHEN SUM(t.state='queued')>0 THEN 'queued'
+                  WHEN SUM(t.state IN ('failed','interrupted'))>0 THEN 'failed'
+                  ELSE 'idle' END
+                FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id
+                WHERE f.knowledge_base_id=?
+                """)
+                .param(id)
+                .query(String.class)
+                .single();
+        value.put("processingState", state);
+        jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
+                .params(json.writeValueAsString(value), id)
+                .update();
+    }
+
     public JsonNode config(String id) {
         return data.read(jdbc -> {
             get(jdbc, id);
@@ -471,6 +492,7 @@ public final class KnowledgeBases {
             jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
                     .params(json.writeValueAsString(value), kb)
                     .update();
+            refreshProcessing(jdbc, kb);
             event.addTaskId(taskId);
         }
     }
@@ -546,6 +568,7 @@ public final class KnowledgeBases {
         jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
                 .params(json.writeValueAsString(kb), id)
                 .update();
+        refreshProcessing(jdbc, id);
         return source;
     }
 

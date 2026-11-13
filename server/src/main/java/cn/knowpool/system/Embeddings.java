@@ -16,7 +16,13 @@ import org.springframework.stereotype.Component;
 public final class Embeddings {
     private final java.util.concurrent.Semaphore capacity = new java.util.concurrent.Semaphore(1, true);
 
-    public float[] embed(ModelSettingsService.EmbeddingSnapshot snapshot, String text, int dimensions) {
+    private final tools.jackson.databind.json.JsonMapper json;
+
+    public Embeddings(tools.jackson.databind.json.JsonMapper json) {
+        this.json = json.rebuild().build();
+    }
+
+    public Result embed(ModelSettingsService.EmbeddingSnapshot snapshot, String text, int dimensions) {
         if (!"text-embedding-v4".equals(snapshot.model()))
             throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "当前模型没有已验证的输入计量能力。", null);
         int upper;
@@ -35,7 +41,17 @@ public final class Embeddings {
         try {
             capacity.acquire();
             acquired = true;
-            try (var transport = new ConnectionProbe.Transport()) {
+            var actual = new java.util.concurrent.atomic.AtomicInteger(-1);
+            try (var transport = new ConnectionProbe.Transport(body -> {
+                var usage = json.readTree(body).at("/usage/prompt_tokens");
+                if (!usage.isIntegralNumber()
+                        || !usage.canConvertToLong()
+                        || usage.longValue() < 0
+                        || usage.longValue() > 9007199254740991L
+                        || usage.longValue() > upper)
+                    throw new ApiFailure(500, "INTEGRITY_FAILED", "嵌入实际用量必须是预算内的非负安全整数。", null);
+                actual.set(usage.intValue());
+            })) {
                 var client = new OpenAIClientImpl(ClientOptions.builder()
                         .httpClient(transport)
                         .baseUrl(snapshot.endpoint())
@@ -60,7 +76,8 @@ public final class Embeddings {
                         || usage == null
                         || usage.getPromptTokens() == null
                         || usage.getPromptTokens() < 0
-                        || usage.getPromptTokens() > upper)
+                        || usage.getPromptTokens() > upper
+                        || usage.getPromptTokens() != actual.get())
                     throw new ApiFailure(500, "INTEGRITY_FAILED", "嵌入数量或实际用量核验失败。", null);
                 var value = response.getResults().getFirst();
                 float[] vector = value.getOutput();
@@ -68,7 +85,7 @@ public final class Embeddings {
                     throw new ApiFailure(500, "INTEGRITY_FAILED", "嵌入维度或位置核验失败。", null);
                 for (float component : vector)
                     if (!Float.isFinite(component)) throw new ApiFailure(500, "INTEGRITY_FAILED", "嵌入包含无效数值。", null);
-                return vector;
+                return new Result(vector, upper, actual.get(), "qwen-byte-upper-bound-1");
             }
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
@@ -84,6 +101,17 @@ public final class Embeddings {
             throw new ApiFailure(503, "MODEL_UNAVAILABLE", "嵌入服务调用失败，请检查连接及配置。", null);
         } finally {
             if (acquired) capacity.release();
+        }
+    }
+
+    public record Result(float[] vector, int inputUpperBound, int promptTokens, String meterVersion) {
+        public Result {
+            vector = vector.clone();
+        }
+
+        @Override
+        public float[] vector() {
+            return vector.clone();
         }
     }
 }

@@ -42,6 +42,25 @@ public final class FileService {
                 .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "资料不存在。", null)));
     }
 
+    public java.util.Map<String, CurrentFile> currentFiles(
+            org.springframework.jdbc.core.simple.JdbcClient jdbc, List<String> ids) {
+        if (ids.isEmpty()) return java.util.Map.of();
+        var result = new java.util.HashMap<String, CurrentFile>();
+        jdbc.sql(
+                        "SELECT f.id,f.dataset_id,f.latest_version,f.name,v.available FROM files f JOIN file_versions v ON v.id=f.latest_version WHERE f.id IN (:ids)")
+                .param("ids", ids)
+                .query((row, n) -> {
+                    result.put(
+                            row.getString(1),
+                            new CurrentFile(row.getString(2), row.getString(3), row.getString(4), row.getBoolean(5)));
+                    return true;
+                })
+                .list();
+        return java.util.Map.copyOf(result);
+    }
+
+    public record CurrentFile(String datasetId, String contentVersionId, String filename, boolean available) {}
+
     public record SourceFile(String id, String datasetId, String contentVersionId) {}
 
     public FileService(

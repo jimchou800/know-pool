@@ -222,12 +222,13 @@ class KnowledgeBasesTest {
                             .path("searchableFileCount")
                             .asInt())
                     .isEqualTo(1);
+            String searchKey = UUID.randomUUID().toString();
             HttpResponse<String> search = send(
                     client,
                     "/knowledge-bases/" + kb + "/search-test",
                     "POST",
                     "{\"query\":\"固定资料\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
-                    UUID.randomUUID().toString());
+                    searchKey);
             assertThat(search.statusCode()).as(search.body()).isEqualTo(202);
             JsonNode request = JSON.readTree(search.body());
             await(client, request.at("/task/id").asText());
@@ -236,6 +237,14 @@ class KnowledgeBasesTest {
             assertThat(result.at("/result/outcome").asText())
                     .as(result.toString())
                     .isEqualTo("matches");
+            HttpResponse<String> replayed = send(
+                    client,
+                    "/knowledge-bases/" + kb + "/search-test",
+                    "POST",
+                    "{\"query\":\"固定资料\",\"knowledgeBaseIds\":[\"" + kb + "\"]}",
+                    searchKey);
+            assertThat(replayed.statusCode()).as(replayed.body()).isEqualTo(202);
+            assertThat(JSON.readTree(replayed.body())).isEqualTo(result);
             JsonNode evidence = result.at("/result/evidence/0");
             assertThat(evidence.path("text").asText()).isEqualTo("固定资料");
             assertThat(evidence.path("knowledgeBaseId").asText()).isEqualTo(kb);
@@ -1068,6 +1077,7 @@ class KnowledgeBasesTest {
                 .build();
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        observed(response, null);
         return JSON.readTree(response.body());
     }
 
