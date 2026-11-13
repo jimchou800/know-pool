@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import Icon from '../Icon.vue';
 import { createSystemClient } from './session';
 import Datasets from '../datasets/Datasets.vue';
+import Settings from '../settings/Settings.vue';
 
 const props = defineProps({
   client: { type: Object, default: () => createSystemClient() },
@@ -175,6 +176,11 @@ onMounted(connect);
             :client="client"
             :writable="status.writeState === 'ready'"
         /></template>
+        <Settings
+          v-else-if="route.path === '/settings' && status && !loading"
+          :client="client"
+          :writable="status.writeState === 'ready'"
+        />
         <section v-else class="welcome-content">
           <h1>{{ pageNames[route.path] || '页面不存在' }}</h1>
           <p>
