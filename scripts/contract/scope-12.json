@@ -532,9 +532,19 @@
       "#/paths/~1files~1{fileId}~1knowledge-bases/get/responses/429": "本操作为本地事务读取或修改，不独立入队执行外部调用；后台清理通过持久意图处理，无该操作专属队列容量拒绝。消费方共享错误处理仍适用。",
       "#/paths/~1files~1{fileId}~1knowledge-bases/get/responses/503": "本操作同步部分不依赖外部模型或向量服务；后台清理失败记录在任务，不冒充受理或读取503。全局维护暂停留数据迁移票。"
     },
-    "listIndexSwitches": {},
-    "downloadVersionFile": {},
-    "cancelTask": {}
+    "listIndexSwitches": {
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1switches/get/responses/429": "本操作仅本地读取或持久状态修改，不独立排队或外发，无专属容量拒绝；消费方共享错误仍须验证。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1switches/get/responses/503": "本操作无同步外部依赖，后台任务依赖失败通过原任务表达；全局维护暂停留数据迁移票，消费方共享错误仍须验证。"
+    },
+    "downloadVersionFile": {
+      "#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1download/get/responses/429": "本操作仅本地读取或持久状态修改，不独立排队或外发，无专属容量拒绝；消费方共享错误仍须验证。",
+      "#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1download/get/responses/503": "本操作无同步外部依赖，后台任务依赖失败通过原任务表达；全局维护暂停留数据迁移票，消费方共享错误仍须验证。"
+    },
+    "cancelTask": {
+      "#/paths/~1tasks~1{taskId}~1cancel/post/responses/429": "本操作仅本地读取或持久状态修改，不独立排队或外发，无专属容量拒绝；消费方共享错误仍须验证。",
+      "#/paths/~1tasks~1{taskId}~1cancel/post/responses/503": "本操作无同步外部依赖，后台任务依赖失败通过原任务表达；全局维护暂停留数据迁移票，消费方共享错误仍须验证。",
+      "#/paths/~1tasks~1{taskId}~1cancel/post/responses/422": "取消仅检查任务身份、种类与状态，没有配置或资源的额外业务前置拒绝；不支持种类409、非法标识400、不存在404仍真实验证。"
+    }
   },
   "当前安全行为": [
     "仅回环监听及 Host 白名单",
