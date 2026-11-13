@@ -172,6 +172,17 @@ class ContractGateTests(unittest.TestCase):
             self.assertNotIn('#/components/schemas/Task/properties/' + field + '/anyOf/1/type',
                              mapping['操作']['listKnowledgeBaseTasks'])
 
+    def test_excluded_files_require_nullable_target_and_task_evidence(self):
+        """排除可保留无来源条目，三个空目标分支须有实际证据。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-11.json').read_bytes())
+        for field in ('targetConfigVersionId', 'targetContentVersionId', 'task'):
+            self.assertNotIn('#/components/schemas/KnowledgeBaseFile/properties/' + field + '/anyOf/1/type',
+                             mapping['操作']['listKnowledgeBaseFiles'])
+        for operation in ('removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions',
+                          'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases'):
+            for pointer in mapping['操作'][operation]:
+                self.assertIn(pointer.rsplit('/', 1)[-1], {'409', '422', '429', '503'})
+
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])
