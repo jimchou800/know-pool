@@ -8,6 +8,7 @@ import { createFileClient } from '../files/client';
 import IndexTasks from './IndexTasks.vue';
 import ManagementSearch from './ManagementSearch.vue';
 import ProcessingEditor from './ProcessingEditor.vue';
+import ProcessingVersions from './ProcessingVersions.vue';
 import SourceAction from './SourceAction.vue';
 import Exclusions from './Exclusions.vue';
 import IndexSwitches from './IndexSwitches.vue';
@@ -951,7 +952,9 @@ loadPage(0);
               aria-label="目标处理配置"
             >
               <h3>目标处理配置</h3>
-              <p>此快照独立保存，当前只读。</p>
+              <p>
+                此目标快照独立保存；当前服务可能仍使用下方旧生效配置，不能把目标配置当作已切换。
+              </p>
               <dl>
                 <div>
                   <dt>嵌入模型</dt>
@@ -1249,6 +1252,11 @@ loadPage(0);
               :config="snapshot"
               :writable="writable"
               @completed="loadDetail"
+            />
+            <ProcessingVersions
+              :key="`versions-${selected.id}`"
+              :client="client"
+              :base="selected"
             />
             <IndexTasks
               :key="selected.id"
