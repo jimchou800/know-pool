@@ -10,6 +10,7 @@ import {
 import { createFileClient } from './client';
 import { decodePreviewText } from './preview-text';
 import FileKnowledgeBases from './FileKnowledgeBases.vue';
+import VersionDownload from './VersionDownload.vue';
 import './files.css';
 
 const props = defineProps({
@@ -611,6 +612,12 @@ onBeforeUnmount(() => {
         <ul>
           <li v-for="version in versions" :key="version.id">
             <strong>{{ version.uploadedName }}</strong>
+            <VersionDownload
+              :client="client"
+              :file-id="selected.id"
+              :version-id="version.id"
+              :available="version.originalAvailable"
+            />
             <dl>
               <div>
                 <dt>内容版本</dt>

@@ -10,6 +10,7 @@ import ManagementSearch from './ManagementSearch.vue';
 import ProcessingEditor from './ProcessingEditor.vue';
 import SourceAction from './SourceAction.vue';
 import Exclusions from './Exclusions.vue';
+import IndexSwitches from './IndexSwitches.vue';
 import '../datasets/datasets.css';
 import './knowledge-bases.css';
 
@@ -1240,7 +1241,13 @@ loadPage(0);
               :key="selected.id"
               :client="client"
               :knowledge-base-id="selected.id"
+              :writable="writable"
               @completed="loadDetail"
+            />
+            <IndexSwitches
+              :key="`switches-${selected.id}`"
+              :client="client"
+              :knowledge-base-id="selected.id"
             />
             <ManagementSearch
               :key="`search-${selected.id}`"

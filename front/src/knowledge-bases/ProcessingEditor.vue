@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue';
 import { createKnowledgeBaseClient } from './client';
+import CancelTask from './CancelTask.vue';
 const props = defineProps({
   client: { type: Object, required: true },
   config: { type: Object, required: true },
@@ -31,6 +32,13 @@ const states = {
   cancelled: '重建已取消',
   interrupted: '重建已中断',
 };
+function cancelled(value) {
+  ++sequence;
+  clearTimeout(timer);
+  busy.value = false;
+  task.value = value;
+  emit('completed');
+}
 let sequence = 0,
   timer,
   key,
@@ -263,6 +271,12 @@ onBeforeUnmount(() => {
       </form>
       <p v-if="busy" role="status">正在查询或保存处理配置…</p>
       <div v-if="task" role="status">
+        <CancelTask
+          :client="client"
+          :task="task"
+          :writable="writable"
+          @updated="cancelled"
+        />
         <p>
           {{ states[task.state] }}；任务：{{ task.id }}；目标配置：{{
             task.targetConfigVersionId

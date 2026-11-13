@@ -3,13 +3,20 @@ import { ref, watch, onBeforeUnmount } from 'vue';
 import { createKnowledgeBaseClient } from './client';
 import { watchTask } from './task-events';
 import ChunkPreflight from './ChunkPreflight.vue';
+import CancelTask from './CancelTask.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },
   knowledgeBaseId: { type: String, required: true },
+  writable: { type: Boolean, default: true },
 });
 const api = createKnowledgeBaseClient(props.client);
 const emit = defineEmits(['completed']);
+function cancelled(value) {
+  rows.value = rows.value.map((item) => (item.id === value.id ? value : item));
+  if (following.value === value.id) stop();
+  emit('completed');
+}
 const rows = ref([]),
   cursor = ref(null),
   loading = ref(false),
@@ -186,6 +193,12 @@ onBeforeUnmount(() => {
           v-if="item.kind === 'index_file'"
           :client="client"
           :task="item"
+        />
+        <CancelTask
+          :client="client"
+          :task="item"
+          :writable="writable"
+          @updated="cancelled"
         />
         <button
           v-if="['queued', 'running'].includes(item.state)"

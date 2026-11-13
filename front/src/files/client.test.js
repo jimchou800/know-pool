@@ -39,6 +39,7 @@ const operations = [
   'renameFile',
   'listFileVersions',
   'previewVersionFile',
+  'downloadVersionFile',
 ];
 const prefixes = [
   '#/paths/~1datasets~1{datasetId}~1files/get',
@@ -49,6 +50,7 @@ const prefixes = [
   '#/paths/~1files~1{fileId}~1name/patch',
   '#/paths/~1files~1{fileId}~1versions/get',
   '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get',
+  '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1download/get',
 ];
 const evidence = [];
 const schema = (
@@ -739,33 +741,38 @@ it('缺少或危险文件名的下载头不可当作成功响应', async () => {
   };
   await expect(api.download(id)).rejects.toThrow('资料响应格式');
 });
-it.each([3, 4, 7])('三媒体原字节与完整二进制响应头%d', async (index) => {
+it.each([3, 4, 7, 8])('三媒体原字节与完整二进制响应头%d', async (index) => {
   for (const mediaType of ['application/pdf', 'text/markdown', 'text/plain']) {
     response = new Uint8Array([239, 187, 191, 60, 62, 13, 10]).buffer;
     headers = {
       'content-type':
         mediaType + (mediaType.startsWith('text/') ? ';charset=UTF-8' : ''),
-      'content-disposition': `${index !== 4 ? 'inline' : 'attachment'}; filename*=UTF-8''%E8%B5%84%E6%96%99.txt`,
+      'content-disposition': `${[4, 8].includes(index) ? 'attachment' : 'inline'}; filename*=UTF-8''%E8%B5%84%E6%96%99.txt`,
       'x-content-type-options': 'nosniff',
       'cache-control': 'no-store',
       'content-security-policy': "sandbox; default-src 'none'",
     };
-    const result = await (index === 7
-      ? api.previewVersion(id, id)
-      : index === 3
-        ? api.preview(id)
-        : api.download(id));
+    const result = await (index === 8
+      ? api.downloadVersion(id, id)
+      : index === 7
+        ? api.previewVersion(id, id)
+        : index === 3
+          ? api.preview(id)
+          : api.download(id));
     expect(new Uint8Array(result.bytes)).toEqual(
       new Uint8Array([239, 187, 191, 60, 62, 13, 10]),
     );
     expect(result.mediaType).toBe(mediaType);
+    expect(result.filename).toBe('资料.txt');
     expect(requests.at(-1).method).toBe('get');
     expect(requests.at(-1).withCredentials).toBe(true);
     if (index === 7)
       expect(requests.at(-1).url).toBe(`/files/${id}/versions/${id}/preview`);
+    if (index === 8)
+      expect(requests.at(-1).url).toBe(`/files/${id}/versions/${id}/download`);
   }
   observed(index, '三媒体二进制原字节与安全响应头', [
-    ...(index === 7
+    ...([7, 8].includes(index)
       ? ['required', 'schema/type', 'schema/format'].map(
           (part) => `${prefixes[index]}/parameters/1/${part}`,
         )
@@ -847,6 +854,7 @@ const invoke = (index) =>
     () => api.rename(id, '资料.txt'),
     () => api.versions(id),
     () => api.previewVersion(id, id),
+    () => api.downloadVersion(id, id),
   ][index]();
 const statuses = [
   [400, 401, 403, 404, 429, 500, 503],
@@ -856,6 +864,7 @@ const statuses = [
   [400, 401, 403, 404, 410, 429, 500, 503],
   [400, 401, 403, 404, 409, 422, 429, 500, 503],
   [400, 401, 403, 404, 429, 500, 503],
+  [400, 401, 403, 404, 410, 429, 500, 503],
   [400, 401, 403, 404, 410, 429, 500, 503],
 ];
 it.each(
@@ -880,7 +889,7 @@ it.each(
   failure = new Error();
   failure.response = {
     status,
-    data: [3, 4, 7].includes(index)
+    data: [3, 4, 7, 8].includes(index)
       ? new TextEncoder().encode(JSON.stringify(detail)).buffer
       : detail,
   };

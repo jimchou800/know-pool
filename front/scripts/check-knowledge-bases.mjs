@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import { checkDocumentIndex } from './check-document-index.mjs';
 import { checkChunkPreflight } from './check-chunk-preflight.mjs';
 import { checkSourceAssociations } from './check-source-associations.mjs';
+import { checkContentSwitch } from './check-content-switch.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -627,6 +628,22 @@ export async function checkKnowledgeBases(page, tests) {
       headers,
       datasetId: dataset.id,
       knowledgeBaseId: resource,
+    });
+    await checkContentSwitch(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
     });
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
