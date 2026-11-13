@@ -20,7 +20,14 @@
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
-            <version>3.49.1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -30,40 +37,14 @@
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit-junit5</artifactId>
-            <version>1.4.1</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
     <build>
         <plugins>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-enforcer-plugin</artifactId>
-                <version>3.6.2</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>enforce</goal>
-                        </goals>
-                        <configuration>
-                            <rules>
-                                <requireJavaVersion>
-                                    <version>[21,22)</version>
-                                    <message>构建须使用 Java 21。</message>
-                                </requireJavaVersion>
-                                <requireMavenVersion>
-                                    <version>[3.9,4)</version>
-                                    <message>构建须使用 Maven 3.9。</message>
-                                </requireMavenVersion>
-                            </rules>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
                 <groupId>com.diffplug.spotless</groupId>
                 <artifactId>spotless-maven-plugin</artifactId>
-                <version>3.0.0</version>
                 <configuration>
                     <java>
                         <palantirJavaFormat>
@@ -84,7 +65,6 @@
             <plugin>
                 <groupId>com.github.spotbugs</groupId>
                 <artifactId>spotbugs-maven-plugin</artifactId>
-                <version>4.9.3.0</version>
                 <configuration>
                     <effort>Max</effort>
                     <threshold>Low</threshold>
@@ -103,7 +83,6 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.13</version>
                 <executions>
                     <execution>
                         <goals>
@@ -167,61 +146,6 @@
                                     <directory>${maven.multiModuleProjectDirectory}/front/dist</directory>
                                 </resource>
                             </resources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.5.1</version>
-                <executions>
-                    <execution>
-                        <id>test-contract-tools</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
-                            <executable>python</executable>
-                            <arguments>
-                                <argument>-m</argument>
-                                <argument>unittest</argument>
-                                <argument>discover</argument>
-                                <argument>-s</argument>
-                                <argument>scripts/contract</argument>
-                                <argument>-p</argument>
-                                <argument>test_*.py</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>verify-live-integration</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
-                            <executable>python</executable>
-                            <arguments>
-                                <argument>scripts/contract/run_live.py</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>generate-contract-report</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
-                            <executable>python</executable>
-                            <arguments>
-                                <argument>scripts/contract/verify.py</argument>
-                            </arguments>
                         </configuration>
                     </execution>
                 </executions>

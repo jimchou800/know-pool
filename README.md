@@ -51,6 +51,8 @@ java -jar server/target/server-0.1.0-SNAPSHOT.jar
 
 根验证包含格式、静态检查、前后端测试与覆盖率、生产构建、接口证据门禁及真实同源 Edge 联调；使用独立临时数据目录，结束关闭自建进程。自动报告和截图已忽略，双方独立签认在报告生成后执行。完整 Windows 运行时发行包与远程 GitHub 工作流尚未验收。
 
+Maven 职责分为四层：根 POM 管理公共版本、工具版本门禁及模块聚合，`front/pom.xml` 执行前端工具链，`server/pom.xml` 执行后端检查与发行包装配，`verification/pom.xml` 在前后端产物就绪后运行联调和契约检查。全量检查仍从根目录执行上述 `mvn verify`。
+
 ## 阅读入口
 
 - [前端规格契约](.scratch/ui-ux-design/spec.md)：统一前端业务、已采纳视觉、交互状态、接口消费、验收与后续桌面封装边界，映射已有技术切片。

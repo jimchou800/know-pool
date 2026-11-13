@@ -37,7 +37,7 @@ def snapshot():
     excluded = {'node_modules', 'target', 'dist', 'coverage', 'artifacts',
                 '.vite', '.codex', '__pycache__', 'playwright-report', 'test-results'}
     files = []
-    for base in ('front', 'server', 'scripts/contract', '.github'):
+    for base in ('front', 'server', 'verification', 'scripts/contract', '.github'):
         directory = ROOT / base
         if directory.exists():
             for parent, directories, names in os.walk(directory):
