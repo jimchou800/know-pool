@@ -38,6 +38,8 @@ def reached(schema, pointer, value, found, visited=None):
         if key == 'properties' and isinstance(value, dict):
             for name, part in child.items():
                 if name in value:
+                    if name in verification.KEYWORDS:
+                        found.add(here + '/' + verification.escape(name))
                     reached(part, here + '/' + verification.escape(name), value[name], found, visited)
         elif key == 'propertyNames' and isinstance(value, dict):
             for name in value:
@@ -80,6 +82,14 @@ def validate_response(schema, response):
 
 
 def self_check():
+    found = set()
+    schema = {'type': 'object', 'properties': {'type': {'type': 'string', 'enum': ['file', 'dataset']}}}
+    reached(schema, '#/test', {'type': 'file'}, found)
+    assert '#/test/properties/type' in found
+    assert '#/test/properties/type/enum' in found
+    found = set()
+    reached(schema, '#/test', {}, found)
+    assert not any(pointer.startswith('#/test/properties/type') for pointer in found)
     found = set()
     reached({'type': 'object', 'propertyNames': {'pattern': '^user_'}, 'additionalProperties': {'type': 'string', 'maxLength': 2000}}, '#/test', {'user_topic': '内容'}, found)
     assert '#/test/propertyNames/pattern' in found

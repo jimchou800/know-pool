@@ -26,6 +26,22 @@ function observed(operationId, request) {
     response: request.observed.data,
   });
 }
+for (const [operationId, method, item] of [
+  ['listKnowledgeBases', 'list', record],
+  ['listKnowledgeBaseSources', 'sources', source],
+  ['listKnowledgeBaseFiles', 'files', file],
+]) {
+  it(`${operationId}实际消费有后续游标和末页空游标`, async () => {
+    for (const nextCursor of ['下一页', null]) {
+      const result = { items: [item], nextCursor };
+      const s = await setup(() => result);
+      expect(
+        await (method === 'list' ? s.api.list() : s.api[method](id)),
+      ).toEqual(result);
+      observed(operationId, s.requests.at(-1));
+    }
+  });
+}
 it('列表及详情消费三个独立状态，真实请求携带分页与规范标识', async () => {
   const s = await setup(() => ({ items: [record], nextCursor: null }));
   expect(await s.api.list('下一页 +/')).toEqual({
