@@ -418,8 +418,6 @@
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1tasks/get/responses/429": "此操作仅本地分页或读取运行期请求、证据及身份墓碑，不入执行队列、不外发，当前没有独立容量拒绝机制；后续全局资源限额或维护能力建立对应拒绝机制时再验证此状态，不能挪用提交或事件订阅的429。异步任务失败及不存在、失效身份仍须按本操作真实查询验证。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1tasks/get/responses/503": "此操作只读本地任务或运行期事实，不调用模型及向量服务，依赖故障由原任务失败表达而非查询503；数据迁移等全局维护暂停能力由后续运行数据切片提供，届时验证对应503。原任务失败、404和适用410仍须真实验证，消费方共享故障处理不豁免。",
       "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。",
-      "#/components/schemas/Task/properties/fileId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。",
-      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。",
       "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。"
     },
     "testKnowledgeBaseSearch": {
@@ -507,7 +505,10 @@
       "#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/429": "指定版本读取不入任务队列且没有独立容量分支；共享队列声明保留，不伪造业务拒绝。",
       "#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/503": "指定版本副本本地读取不依赖外部服务；后续维护暂停规则仍留21。读取故障500、清理410、安全拒绝及非法标识400继续适用。"
     },
-    "getChunkPreflight": {},
+    "getChunkPreflight": {
+      "#/paths/~1tasks~1{taskId}~1chunk-preflight/get/responses/429": "预检读取只访问已持久化本地结果，不独立入队或外发；任务受理容量拒绝仍由配置更新真实验证，消费方错误处理仍适用。",
+      "#/paths/~1tasks~1{taskId}~1chunk-preflight/get/responses/503": "预检读取本地结果，维护暂停能力留后续数据迁移票；嵌入失败不删除已生成预检，原任务失败及缺失404仍适用。"
+    },
     "updateProcessingConfig": {}
   },
   "当前安全行为": [
@@ -521,8 +522,8 @@
     "SSE 使用 Cookie 会话，拒绝非法来源与失效会话，令牌不进入 URL，断线查询原任务不重新提交"
   ],
   "后续保留": [
-    "真实TLS部署不属于09已验证范围，Secure属性仍由安全请求边界验证；SSE Cookie会话与八项当前安全行为已经可达，不再保留或豁免。",
-    "普通多库检索、知识库删除、发布下线与显式失败重试由后续切片实现。09继承管理单库路径，不生成回答，不调用查询预处理；Markdown与文字PDF解析及定位已属本票适用范围，不能继续保留。枚举整体、必填及当前值条件仍须验证。",
+    "真实TLS部署不属于10已验证范围，Secure属性仍由安全请求边界验证；SSE Cookie会话与八项当前安全行为已经可达，不再保留或豁免。",
+    "普通多库检索、知识库删除、发布下线与显式失败重试由后续切片实现。10继承管理单库路径，不生成回答，不调用查询预处理；Markdown与文字PDF解析及定位已属本票适用范围，不能继续保留。枚举整体、必填及当前值条件仍须验证。",
     "Task新增索引及search成功resultResourceId、实际生效版本、索引终态、失败、开始结束和已知总量均已可达；不得沿用07排队意图豁免。恢复索引不自动收费重嵌入、取消及版本资格保护必须有真实行为证据。",
     "ScopeOmission的unavailable和no_effective_index在单库失败范围检查后可达，仍必须验证。not_published不作为管理检索失败理由；deleted与多库部分范围保留后续公开入口，不能直接修改数据库冒充行为证据。",
     "普通检索实例的非空instanceId、预处理completed或fallback及additionalQueries非空仍留后续普通检索。PDF与Markdown定位、标题、真实结构身份、表格代码及任务降级警告已在09适用，不因缺测保留。"
