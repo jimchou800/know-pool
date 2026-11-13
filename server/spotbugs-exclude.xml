@@ -9,4 +9,8 @@
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.ConnectionTests"/><Field name="data"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.ConnectionTests"/><Field name="json"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.ConnectionProbe"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.KnowledgeBases"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.KnowledgeBases"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.VectorCollections"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.api.KnowledgeBaseController"/><Field name="service"/></Match>
 </FindBugsFilter>

@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 4) {
+            if (version > 5) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 4) {
+            if (version > 0 && version < 5) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -124,6 +124,28 @@ public final class ApplicationData implements AutoCloseable {
                                     "CREATE TABLE tasks (id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, result TEXT, session_id TEXT NOT NULL, operation TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_fingerprint TEXT NOT NULL, UNIQUE(session_id,operation,idempotency_key))")
                             .update();
                     transaction.sql("PRAGMA user_version=4").update();
+                    return null;
+                });
+            }
+            if (version < 5) {
+                write(transaction -> {
+                    transaction
+                            .sql(
+                                    "CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, name_key TEXT NOT NULL UNIQUE, visible INTEGER NOT NULL, payload TEXT NOT NULL, config TEXT NOT NULL)")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE knowledge_base_creations (task_id TEXT PRIMARY KEY REFERENCES tasks(id), knowledge_base_id TEXT NOT NULL, collection_name TEXT NOT NULL, endpoint TEXT NOT NULL, ownership TEXT NOT NULL, phase TEXT NOT NULL, datasets TEXT NOT NULL, cleanup_error TEXT, cleanup_attempts INTEGER NOT NULL DEFAULT 0)")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE knowledge_base_sources (id TEXT PRIMARY KEY, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id), type TEXT NOT NULL, resource_id TEXT NOT NULL, payload TEXT NOT NULL, UNIQUE(knowledge_base_id,type,resource_id))")
+                            .update();
+                    transaction
+                            .sql(
+                                    "CREATE TABLE knowledge_base_files (knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id), file_id TEXT NOT NULL, content_version_id TEXT NOT NULL, config_version_id TEXT NOT NULL, task_id TEXT NOT NULL REFERENCES tasks(id), PRIMARY KEY(knowledge_base_id,file_id))")
+                            .update();
+                    transaction.sql("PRAGMA user_version=5").update();
                     return null;
                 });
             }
