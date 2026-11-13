@@ -101,7 +101,11 @@
       "#/paths/~1settings~1models~1generation/put/responses/422": "保存允许不完整配置且没有条件版本或收费同意前置；非法输入和跨源保持按400原子拒绝。异步测试的完整性422和幂等冲突409仍适用。",
       "#/paths/~1settings~1models~1generation/put/responses/429": "同步配置及任务读取没有外发或入队，不伪造排队繁忙分支；三种异步测试的真实队列429仍适用。",
       "#/paths/~1settings~1models~1generation/put/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/ModelConfig/properties/endpoint/anyOf/1/type": "成功保存要求对应字段齐全，响应该字段恒非空；初始未设空值由GET及历史读取验证。",
+      "#/components/schemas/ModelConfig/properties/model/anyOf/1/type": "成功保存要求对应字段齐全，响应该字段恒非空；初始未设空值由GET及历史读取验证。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/1/type": "成功保存要求对应字段齐全，响应该字段恒非空；初始未设空值由GET及历史读取验证。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/1/type": "成功保存要求对应字段齐全，响应该字段恒非空；初始未设空值由GET及历史读取验证。"
     },
     "testGenerationModel": {
       "#/components/schemas/Task/properties/fileId/anyOf/0/format": "连接测试不关联知识库、文件、内容版本、重试任务或新建业务资源，此字段实际为null；必填、anyOf及null分支仍适用，非空子项留给对应后续任务。",
@@ -116,13 +120,24 @@
       "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "连接测试不关联知识库、文件、内容版本、重试任务或新建业务资源，此字段实际为null；必填、anyOf及null分支仍适用，非空子项留给对应后续任务。",
       "#/paths/~1settings~1models~1generation~1test/post/responses/404": "初始化持久配置始终存在且没有按标识选取的路径资源；不把完整初始空配置伪装成404，历史指定版本与任务不存在404仍适用。",
       "#/paths/~1settings~1models~1generation~1test/post/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/type": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/minimum": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/maximum": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type": "模型测试固定完整配置身份，恒非空；getTask 混合读取，两分支均保留。",
+      "#/paths/~1settings~1models~1generation~1test/post/responses/409": "共享幂等不同负载冲突条件保留；当前模型有效正文只有 allowChargedCall=true，向量无正文，同操作同键没有不同合法业务负载。非法正文在接收前400，不篡改存储伪造409。"
     },
     "getEmbeddingModel": {
       "#/paths/~1settings~1models~1embedding/get/responses/404": "初始化持久配置始终存在且没有按标识选取的路径资源；不把完整初始空配置伪装成404，历史指定版本与任务不存在404仍适用。",
       "#/paths/~1settings~1models~1embedding/get/responses/429": "同步配置及任务读取没有外发或入队，不伪造排队繁忙分支；三种异步测试的真实队列429仍适用。",
       "#/paths/~1settings~1models~1embedding/get/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。"
     },
     "updateEmbeddingModel": {
       "#/paths/~1settings~1models~1embedding/put/responses/404": "初始化持久配置始终存在且没有按标识选取的路径资源；不把完整初始空配置伪装成404，历史指定版本与任务不存在404仍适用。",
@@ -130,7 +145,21 @@
       "#/paths/~1settings~1models~1embedding/put/responses/422": "保存允许不完整配置且没有条件版本或收费同意前置；非法输入和跨源保持按400原子拒绝。异步测试的完整性422和幂等冲突409仍适用。",
       "#/paths/~1settings~1models~1embedding/put/responses/429": "同步配置及任务读取没有外发或入队，不伪造排队繁忙分支；三种异步测试的真实队列429仍适用。",
       "#/paths/~1settings~1models~1embedding/put/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfigInput/properties/contextWindowTokens/anyOf/0/type": "嵌入预算必须 null，非空输入400；必填、anyOf、null及拒绝行为仍适用。",
+      "#/components/schemas/ModelConfigInput/properties/contextWindowTokens/anyOf/0/minimum": "嵌入预算必须 null，非空输入400；必填、anyOf、null及拒绝行为仍适用。",
+      "#/components/schemas/ModelConfigInput/properties/contextWindowTokens/anyOf/0/maximum": "嵌入预算必须 null，非空输入400；必填、anyOf、null及拒绝行为仍适用。",
+      "#/components/schemas/ModelConfigInput/properties/maxOutputTokens/anyOf/0/type": "嵌入预算必须 null，非空输入400；必填、anyOf、null及拒绝行为仍适用。",
+      "#/components/schemas/ModelConfigInput/properties/maxOutputTokens/anyOf/0/minimum": "嵌入预算必须 null，非空输入400；必填、anyOf、null及拒绝行为仍适用。",
+      "#/components/schemas/ModelConfigInput/properties/maxOutputTokens/anyOf/0/maximum": "嵌入预算必须 null，非空输入400；必填、anyOf、null及拒绝行为仍适用。",
+      "#/components/schemas/ModelConfig/properties/endpoint/anyOf/1/type": "成功保存要求对应字段齐全，响应该字段恒非空；初始未设空值由GET及历史读取验证。",
+      "#/components/schemas/ModelConfig/properties/model/anyOf/1/type": "成功保存要求对应字段齐全，响应该字段恒非空；初始未设空值由GET及历史读取验证。"
     },
     "testEmbeddingModel": {
       "#/components/schemas/Task/properties/fileId/anyOf/0/format": "连接测试不关联知识库、文件、内容版本、重试任务或新建业务资源，此字段实际为null；必填、anyOf及null分支仍适用，非空子项留给对应后续任务。",
@@ -145,25 +174,48 @@
       "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "连接测试不关联知识库、文件、内容版本、重试任务或新建业务资源，此字段实际为null；必填、anyOf及null分支仍适用，非空子项留给对应后续任务。",
       "#/paths/~1settings~1models~1embedding~1test/post/responses/404": "初始化持久配置始终存在且没有按标识选取的路径资源；不把完整初始空配置伪装成404，历史指定版本与任务不存在404仍适用。",
       "#/paths/~1settings~1models~1embedding~1test/post/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/type": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/minimum": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/maximum": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type": "模型测试固定完整配置身份，恒非空；getTask 混合读取，两分支均保留。",
+      "#/paths/~1settings~1models~1embedding~1test/post/responses/409": "共享幂等不同负载冲突条件保留；当前模型有效正文只有 allowChargedCall=true，向量无正文，同操作同键没有不同合法业务负载。非法正文在接收前400，不篡改存储伪造409。"
     },
     "listEmbeddingModelVersions": {
       "#/paths/~1settings~1models~1embedding~1versions/get/responses/404": "初始化持久配置始终存在且没有按标识选取的路径资源；不把完整初始空配置伪装成404，历史指定版本与任务不存在404仍适用。",
       "#/paths/~1settings~1models~1embedding~1versions/get/responses/429": "同步配置及任务读取没有外发或入队，不伪造排队繁忙分支；三种异步测试的真实队列429仍适用。",
       "#/paths/~1settings~1models~1embedding~1versions/get/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。"
     },
     "getEmbeddingModelVersion": {
       "#/paths/~1settings~1models~1embedding~1versions~1{modelConfigVersionId}/get/responses/429": "同步配置及任务读取没有外发或入队，不伪造排队繁忙分支；三种异步测试的真实队列429仍适用。",
       "#/paths/~1settings~1models~1embedding~1versions~1{modelConfigVersionId}/get/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。"
     },
     "updateEmbeddingVersionCredential": {
       "#/paths/~1settings~1models~1embedding~1versions~1{modelConfigVersionId}~1credential/put/responses/409": "保存允许不完整配置且没有条件版本或收费同意前置；非法输入和跨源保持按400原子拒绝。异步测试的完整性422和幂等冲突409仍适用。",
       "#/paths/~1settings~1models~1embedding~1versions~1{modelConfigVersionId}~1credential/put/responses/422": "保存允许不完整配置且没有条件版本或收费同意前置；非法输入和跨源保持按400原子拒绝。异步测试的完整性422和幂等冲突409仍适用。",
       "#/paths/~1settings~1models~1embedding~1versions~1{modelConfigVersionId}~1credential/put/responses/429": "同步配置及任务读取没有外发或入队，不伪造排队繁忙分支；三种异步测试的真实队列429仍适用。",
       "#/paths/~1settings~1models~1embedding~1versions~1{modelConfigVersionId}~1credential/put/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/contextWindowTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/type": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/minimum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。",
+      "#/components/schemas/ModelConfig/properties/maxOutputTokens/anyOf/0/maximum": "嵌入响应的两预算恒为 null；必填、anyOf、null分支仍适用，不伪造生成预算。"
     },
     "getConnectionTestResult": {
       "#/paths/~1tasks~1{taskId}~1connection-test/get/responses/429": "同步配置及任务读取没有外发或入队，不伪造排队繁忙分支；三种异步测试的真实队列429仍适用。",
@@ -182,7 +234,8 @@
       "#/paths/~1settings~1vector-store/put/responses/422": "保存允许不完整配置且没有条件版本或收费同意前置；非法输入和跨源保持按400原子拒绝。异步测试的完整性422和幂等冲突409仍适用。",
       "#/paths/~1settings~1vector-store/put/responses/429": "同步配置及任务读取没有外发或入队，不伪造排队繁忙分支；三种异步测试的真实队列429仍适用。",
       "#/paths/~1settings~1vector-store/put/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/VectorConfig/properties/endpoint/anyOf/1/type": "成功保存要求对应字段齐全，响应该字段恒非空；初始未设空值由GET及历史读取验证。"
     },
     "testVectorConfig": {
       "#/components/schemas/Task/properties/fileId/anyOf/0/format": "连接测试不关联知识库、文件、内容版本、重试任务或新建业务资源，此字段实际为null；必填、anyOf及null分支仍适用，非空子项留给对应后续任务。",
@@ -197,7 +250,14 @@
       "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "连接测试不关联知识库、文件、内容版本、重试任务或新建业务资源，此字段实际为null；必填、anyOf及null分支仍适用，非空子项留给对应后续任务。",
       "#/paths/~1settings~1vector-store~1test/post/responses/404": "初始化持久配置始终存在且没有按标识选取的路径资源；不把完整初始空配置伪装成404，历史指定版本与任务不存在404仍适用。",
       "#/paths/~1settings~1vector-store~1test/post/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/type": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/minimum": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/maximum": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/type": "向量测试不使用模型版本，此字段恒为null；必填、anyOf与null分支仍适用，getTask混合读取保留两个分支。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/format": "向量测试不使用模型版本，此字段恒为null；必填、anyOf与null分支仍适用，getTask混合读取保留两个分支。",
+      "#/components/schemas/Task/properties/warnings/items/type": "向量不调用模型，当前警示数组为空；getTask 及模型失败中断非空警示仍适用。",
+      "#/paths/~1settings~1vector-store~1test/post/responses/409": "共享幂等不同负载冲突条件保留；当前模型有效正文只有 allowChargedCall=true，向量无正文，同操作同键没有不同合法业务负载。非法正文在接收前400，不篡改存储伪造409。"
     },
     "getTask": {
       "#/components/schemas/Task/properties/fileId/anyOf/0/format": "连接测试不关联知识库、文件、内容版本、重试任务或新建业务资源，此字段实际为null；必填、anyOf及null分支仍适用，非空子项留给对应后续任务。",
@@ -212,7 +272,10 @@
       "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "连接测试不关联知识库、文件、内容版本、重试任务或新建业务资源，此字段实际为null；必填、anyOf及null分支仍适用，非空子项留给对应后续任务。",
       "#/paths/~1tasks~1{taskId}/get/responses/429": "同步配置及任务读取没有外发或入队，不伪造排队繁忙分支；三种异步测试的真实队列429仍适用。",
       "#/paths/~1tasks~1{taskId}/get/responses/503": "配置和任务存储在本机；远端探测不可用属于成功完成的不可用结果，不冒充HTTP503。后续维护与迁移暂停分支保留，消费方仍验证共享错误。",
-      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。"
+      "#/x-business-constraints/security": "完整安全规则包含后续SSE；当前七项安全行为仍须分别真实验证，不以全局声明代替。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/type": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/minimum": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/maximum": "连接测试总量未知，恒为 null；必填、anyOf 和 null 分支仍适用。"
     }
   },
   "当前安全行为": [
@@ -227,6 +290,7 @@
   "后续保留": [
     "SSE 的 Cookie 会话兼容性待事件操作切片验证",
     "真实 TLS 部署不属于本票已验证范围，Secure 属性由安全请求边界测试验证",
-    "连接测试不产生知识库、文件、内容版本、原任务重试或新建资源的关联；Task相应字段的非空分支待对应业务任务，当前必填与null分支仍验证。"
+    "连接测试不产生知识库、文件、内容版本、原任务重试或新建资源的关联；Task相应字段的非空分支待对应业务任务，当前必填与null分支仍验证。",
+    "生成成功保存的地址、模型及预算必非空；嵌入预算恒空，连接测试总量未知，目标版本按模型或向量测试区分。只细化各操作不可达子项，不删除必填、联合类型与实际值分支；通用任务查询保留模型目标版本的空及非空。测试接口当前无不同合法业务负载，幂等冲突状态保留给出现不同合法负载时，同键返回原任务仍验证。"
   ]
 }
