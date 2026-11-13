@@ -42,9 +42,9 @@ Blocked by: [技术任务 09：索引 Markdown 与文字 PDF 并验证原文定�
 
 ## 契约与证据
 
-契约版本：`1.0.0`。
+契约版本：`1.0.5`。
 
-契约 SHA-256：`48f98810322f07e3b8380359f37d43ade7fac221ff056f34f05383c9a0b04fcb`。
+契约 SHA-256：`2eba1980d9e62318edfece692e46c977d9e55191f06c59e4629285f29f66f5fd`。
 
 操作范围：`getChunkPreflight`、`updateProcessingConfig`，复用配置及任务读取。
 
