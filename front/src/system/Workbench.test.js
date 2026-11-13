@@ -27,7 +27,18 @@ async function setup(adapter) {
   });
   await router.push('/');
   wrapper = mount(Workbench, {
-    props: { client: createSystemClient(adapter) },
+    props: {
+      client: createSystemClient((config) =>
+        config.url === '/conversations'
+          ? {
+              data: { items: [], nextCursor: null },
+              status: 200,
+              headers: {},
+              config,
+            }
+          : adapter(config),
+      ),
+    },
     global: { plugins: [router] },
   });
   await flushPromises();

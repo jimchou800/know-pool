@@ -8,6 +8,7 @@ import Settings from '../settings/Settings.vue';
 import KnowledgeBases from '../knowledge-bases/KnowledgeBases.vue';
 import Search from '../search/SearchInstances.vue';
 import Answers from '../answers/Answers.vue';
+import RecentAnswers from '../answers/RecentAnswers.vue';
 
 const props = defineProps({
   client: { type: Object, default: () => createSystemClient() },
@@ -162,12 +163,7 @@ onMounted(connect);
                 /></RouterLink>
               </div>
             </section>
-            <section>
-              <h2>最近问答</h2>
-              <p class="empty-history">
-                尚无问答记录。创建问答后，可在这里继续交流。
-              </p>
-            </section>
+            <RecentAnswers v-if="status && !loading" :client="client" />
           </div>
         </section>
         <template
@@ -202,6 +198,11 @@ onMounted(connect);
         <Answers
           v-else-if="route.path === '/answers' && status && !loading"
           :client="client"
+          :initial-id="
+            typeof route.query.conversation === 'string'
+              ? route.query.conversation
+              : null
+          "
           :writable="status.writeState === 'ready'"
         />
         <section v-else class="welcome-content">

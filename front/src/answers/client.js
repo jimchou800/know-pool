@@ -86,6 +86,10 @@ function answer(v, selected) {
   );
 }
 function validQuestion(v, input, conversationId) {
+  input ||= {
+    question: v?.question,
+    knowledgeBaseIds: v?.selectedKnowledgeBaseIds,
+  };
   if (
     !exact(v, [
       'task',
@@ -98,6 +102,7 @@ function validQuestion(v, input, conversationId) {
     !task(v.task) ||
     !id(v.conversationId) ||
     (conversationId && v.conversationId !== conversationId) ||
+    !question(v.question) ||
     v.question !== input.question ||
     !ids(v.selectedKnowledgeBaseIds, 1) ||
     !same(v.selectedKnowledgeBaseIds, input.knowledgeBaseIds) ||
@@ -136,8 +141,128 @@ function conversation(v) {
     nullable(v.lastTask, task)
   );
 }
+function conversationPath(value) {
+  if (!id(value)) throw new Error('问答实例标识无效。');
+  return `/conversations/${value}`;
+}
+function page(value, check) {
+  return (
+    exact(value, ['items', 'nextCursor']) &&
+    Array.isArray(value.items) &&
+    value.items.every(check) &&
+    nullable(value.nextCursor, text) &&
+    new Set(value.items.map((item) => item.id)).size === value.items.length
+  );
+}
 export function createAnswerClient(session) {
   return {
+    async list(cursor) {
+      const value = await session.request({
+        method: 'get',
+        url: '/conversations',
+        params: { limit: 20, ...(cursor === undefined ? {} : { cursor }) },
+      });
+      return verify(value, page(value, conversation));
+    },
+    async getConversation(conversationId) {
+      const value = await session.request({
+        method: 'get',
+        url: conversationPath(conversationId),
+      });
+      return verify(value, conversation(value) && value.id === conversationId);
+    },
+    async rename(conversationId, name) {
+      if (!question(name) || Array.from(name).length > 120)
+        throw new Error('名称不能为空，最多120个码点。');
+      const value = await session.request({
+        method: 'patch',
+        url: conversationPath(conversationId) + '/name',
+        data: { name },
+      });
+      return verify(
+        value,
+        conversation(value) &&
+          value.id === conversationId &&
+          value.name === name &&
+          value.manuallyNamed,
+      );
+    },
+    async scope(conversationId, knowledgeBaseIds) {
+      if (!ids(knowledgeBaseIds))
+        throw new Error('后续范围最多选择一百个知识库。');
+      const value = await session.request({
+        method: 'put',
+        url: conversationPath(conversationId) + '/scope',
+        data: { knowledgeBaseIds },
+      });
+      return verify(
+        value,
+        conversation(value) &&
+          value.id === conversationId &&
+          same(value.knowledgeBaseIds, knowledgeBaseIds),
+      );
+    },
+    async turns(conversationId, cursor) {
+      const value = await session.request({
+        method: 'get',
+        url: conversationPath(conversationId) + '/turns',
+        params: { limit: 20, ...(cursor === undefined ? {} : { cursor }) },
+      });
+      return verify(
+        value,
+        page(
+          value,
+          (turn) =>
+            exact(turn, ['id', 'questionTask']) &&
+            id(turn.id) &&
+            validQuestion(turn.questionTask, null, conversationId),
+        ),
+      );
+    },
+    async submit(conversationId, input, key) {
+      if (
+        !exact(input, ['question', 'knowledgeBaseIds']) ||
+        !question(input.question) ||
+        !ids(input.knowledgeBaseIds, 1) ||
+        !id(key)
+      )
+        throw new Error('请填写有效问题和范围。');
+      const value = await session.request({
+        method: 'post',
+        url: conversationPath(conversationId) + '/questions',
+        headers: { 'Idempotency-Key': key },
+        data: input,
+      });
+      return verify(value, validQuestion(value, input, conversationId));
+    },
+    async remove(conversationId, key) {
+      if (!id(key)) throw new Error('删除操作标识无效。');
+      const value = await session.request({
+        method: 'delete',
+        url: conversationPath(conversationId),
+        headers: { 'Idempotency-Key': key },
+        data: { confirmed: true },
+      });
+      return verify(
+        value,
+        exact(value, ['task']) &&
+          validTask(value.task, 'cleanup') &&
+          value.task.state === 'succeeded' &&
+          date(value.task.startedAt) &&
+          date(value.task.finishedAt) &&
+          value.task.attempt === 1 &&
+          value.task.progressCompleted === 1 &&
+          value.task.progressTotal === 1 &&
+          [
+            'knowledgeBaseId',
+            'fileId',
+            'targetContentVersionId',
+            'targetConfigVersionId',
+            'retryOfTaskId',
+            'resultResourceId',
+          ].every((field) => value.task[field] === null),
+      );
+    },
     async first(input, key) {
       if (
         !input ||

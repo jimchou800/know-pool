@@ -1,6 +1,6 @@
 import { expect, it, vi, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import Answers from './Answers.vue';
+import Answers from './AnswerWindow.vue';
 import { setup, record, otherId } from '../../test-fixtures/knowledge-bases';
 import { accepted, questionTask, answer } from '../../test-fixtures/answers';
 import { evidence } from '../../test-fixtures/indexing';
@@ -32,7 +32,7 @@ it('空白问答不保存，首问前手名与费用确认后展示终态回答�
       : { httpStatus: 202, body: accepted },
   );
   expect(s.requests.every((r) => r.method === 'get')).toBe(true);
-  await w.get('#answer-name').setValue('手动问答名');
+  await w.get('#name-first').setValue('手动问答名');
   await button(w, '提交首问').trigger('click');
   await flushPromises();
   expect(w.text()).toContain(answer.text);
