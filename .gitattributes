@@ -1,3 +1,5 @@
 # 契约与适用映射按字节签认，检出时保持统一换行。
 docs/agents/api/openapi.yaml text eol=lf
 scripts/contract/scope-*.json text eol=lf
+# 前端格式门禁要求统一换行，避免 Windows 检出后产生格式失败。
+front/** text=auto eol=lf
