@@ -12,7 +12,7 @@ Blocked by: [技术任务 07：创建空知识库并关联一份资料](../../te
 
 阻塞仅在上述原技术任务执行状态为已完成且证据已验收时解除；分流状态不能代替完成状态。同票后端与前端共同推进，不将其完成设为启动前置。
 
-执行状态：进行中（技术设计与契约复核）
+执行状态：进行中
 
 前端负责人：`/root/frontend08`
 
@@ -43,9 +43,9 @@ Blocked by: [技术任务 07：创建空知识库并关联一份资料](../../te
 
 ## 契约与证据
 
-契约版本：`1.0.3`。
+契约版本：`1.0.4`。
 
-契约 SHA-256：`8c94c7c52284c4bc7e4445bf1a2b175641e3f3c8d5d498a1d1afdfb512ec28ef`。
+契约 SHA-256：`9b81bdc9561a3e0cb8aaaf0172e0013c6e741f2aea8efe283f64e14cebd1c444`。
 
 操作范围：`getTask`、`watchTask`、`listKnowledgeBaseTasks`、`testKnowledgeBaseSearch`、`getSearchRequest`、`getSearchEvidence`。
 
