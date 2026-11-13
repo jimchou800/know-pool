@@ -121,7 +121,7 @@ public final class ConnectionProbe {
         }
     }
 
-    private static final class Transport implements com.openai.core.http.HttpClient {
+    static final class Transport implements com.openai.core.http.HttpClient {
         private final OkHttpClient http = new OkHttpClient.Builder()
                 .retryOnConnectionFailure(false)
                 .followRedirects(false)

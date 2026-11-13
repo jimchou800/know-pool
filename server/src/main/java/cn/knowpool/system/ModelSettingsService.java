@@ -55,6 +55,20 @@ public final class ModelSettingsService {
                 .view();
     }
 
+    public EmbeddingSnapshot embeddingSnapshot(String id) {
+        return data.read(jdbc -> {
+            Snapshot value = historical(jdbc, identifier(id, "modelConfigVersionId"));
+            return new EmbeddingSnapshot(value.endpoint(), value.model(), value.secret());
+        });
+    }
+
+    public record EmbeddingSnapshot(String endpoint, String model, String secret) {
+        @Override
+        public String toString() {
+            return "嵌入配置快照";
+        }
+    }
+
     private static Snapshot historical(JdbcClient jdbc, String id) {
         return jdbc.sql("SELECT * FROM model_configs WHERE id=? AND kind='embedding'")
                 .param(id)
