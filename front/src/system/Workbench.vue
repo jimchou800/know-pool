@@ -9,6 +9,7 @@ import KnowledgeBases from '../knowledge-bases/KnowledgeBases.vue';
 import Search from '../search/SearchInstances.vue';
 import Answers from '../answers/Answers.vue';
 import RecentAnswers from '../answers/RecentAnswers.vue';
+import CleanupTasks from '../cleanup/CleanupTasks.vue';
 
 const props = defineProps({
   client: { type: Object, default: () => createSystemClient() },
@@ -98,6 +99,12 @@ onMounted(connect);
           >
           <p class="nav-group">知识服务</p>
           <RouterLink
+            to="/tasks"
+            class="nav-item"
+            :class="{ selected: route.path === '/tasks' }"
+            ><Icon name="settings" />清理任务</RouterLink
+          >
+          <RouterLink
             to="/search"
             class="nav-item"
             :class="{ selected: route.path === '/search' }"
@@ -175,6 +182,11 @@ onMounted(connect);
             :client="client"
             :writable="status.writeState === 'ready'"
         /></template>
+        <CleanupTasks
+          v-else-if="route.path === '/tasks' && status && !loading"
+          :client="client"
+          :writable="status.writeState === 'ready'"
+        />
         <Settings
           v-else-if="route.path === '/settings' && status && !loading"
           :client="client"

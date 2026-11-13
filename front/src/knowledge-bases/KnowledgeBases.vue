@@ -9,6 +9,7 @@ import IndexTasks from './IndexTasks.vue';
 import ManagementSearch from './ManagementSearch.vue';
 import ProcessingEditor from './ProcessingEditor.vue';
 import ProcessingVersions from './ProcessingVersions.vue';
+import DeleteResource from '../cleanup/DeleteResource.vue';
 import SourceAction from './SourceAction.vue';
 import Exclusions from './Exclusions.vue';
 import IndexSwitches from './IndexSwitches.vue';
@@ -519,6 +520,15 @@ async function loadDetail() {
     if (sequence === detailSequence) detailLoading.value = false;
   }
 }
+async function deleted(value) {
+  ++detailSequence;
+  ++listSequence;
+  selected.value = null;
+  snapshot.value = null;
+  rows.value = rows.value.filter((item) => item.id !== value.id);
+  await router.push('/knowledge-bases');
+  await loadPage(0);
+}
 async function loadMore(kind) {
   if (!selected.value || moreLoading.value[kind]) return;
   const sequence = detailSequence;
@@ -922,6 +932,14 @@ loadPage(0);
             <p class="dataset-description">
               {{ selected.description || '暂无说明' }}
             </p>
+            <DeleteResource
+              :key="`delete-${selected.id}`"
+              :client="client"
+              kind="knowledge-bases"
+              :resource-id="selected.id"
+              :writable="writable"
+              @deleted="deleted"
+            />
             <div class="knowledge-states" aria-label="知识库独立状态">
               <span>发布：{{ publication[selected.publicationState] }}</span
               ><span
