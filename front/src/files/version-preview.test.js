@@ -22,7 +22,11 @@ it.each([
   const api = createFileClient({ request });
   expect(
     await api.previewVersion(fileId.toUpperCase(), versionId.toUpperCase()),
-  ).toEqual({ bytes: response.data, mediaType: mediaType.split(';')[0] });
+  ).toEqual({
+    bytes: response.data,
+    mediaType: mediaType.split(';')[0],
+    filename: '旧版',
+  });
   expect(request).toHaveBeenCalledWith({
     method: 'get',
     url: `/files/${fileId}/versions/${versionId}/preview`,

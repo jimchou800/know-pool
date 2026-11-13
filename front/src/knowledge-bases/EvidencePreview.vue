@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef } from 'vue';
 import { createFileClient } from '../files/client';
 import { decodePreviewText } from '../files/preview-text';
+import VersionDownload from '../files/VersionDownload.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -109,6 +110,12 @@ onBeforeUnmount(() => {
       @keydown.esc.stop="close"
     >
       <h5>对应版本原文</h5>
+      <VersionDownload
+        :client="client"
+        :file-id="evidence.fileId"
+        :version-id="evidence.contentVersionId"
+        :available="evidence.originalAvailable"
+      />
       <button @click="close">关闭原文预览</button>
       <p>
         内容版本：{{

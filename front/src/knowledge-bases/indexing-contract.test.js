@@ -864,6 +864,90 @@ it('来源排除拒绝跨身份响应及伪空正文，非法标识与游标不�
   await expect(s.api.fileKnowledgeBases(otherId)).rejects.toThrow('响应格式');
 });
 
+it('成功切换关系实际消费首次空旧版及后续完整版本，取消只接受原任务事实', async () => {
+  const s = await setup(() => null);
+  for (const first of [true, false]) {
+    const item = {
+      id: otherId,
+      knowledgeBaseId: id,
+      fileId: otherId,
+      fromContentVersionId: first ? null : id,
+      toContentVersionId: otherId,
+      fromIndexVersionId: first ? null : id,
+      toIndexVersionId: otherId,
+      fromConfigVersionId: first ? null : id,
+      toConfigVersionId: otherId,
+      taskId: otherId,
+      switchedAt: time,
+    };
+    s.reply({ items: [item], nextCursor: first ? '下一页' : null });
+    expect(
+      (await s.api.switches(id, first ? undefined : '上一页')).items[0],
+    ).toEqual(item);
+    observed('listIndexSwitches', s.requests.at(-1));
+  }
+  s.reply({ items: [], nextCursor: null });
+  expect((await s.api.switches(id)).items).toEqual([]);
+  observed('listIndexSwitches', s.requests.at(-1));
+  for (const kind of ['index_file', 'rebuild_knowledge_base', 'search']) {
+    for (const state of ['cancelled', 'succeeded', 'failed', 'interrupted']) {
+      const value = {
+        ...file.task,
+        kind,
+        state,
+        phase: 'completed',
+        startedAt: time,
+        finishedAt: time,
+        resultResourceId:
+          state === 'succeeded' && kind !== 'rebuild_knowledge_base'
+            ? otherId
+            : null,
+        failure: ['failed', 'interrupted'].includes(state)
+          ? {
+              code: 'TASK_INTERRUPTED',
+              message: '固定任务失败',
+              retryable: false,
+            }
+          : null,
+      };
+      s.reply(value);
+      expect(await s.api.cancel(value)).toEqual(value);
+      observed('cancelTask', s.requests.at(-1));
+    }
+  }
+});
+it('取消与切换公开错误实际消费不自动发出新任务', async () => {
+  const s = await setup(() => null);
+  for (const [status, code] of [
+    [400, 'INVALID_REQUEST'],
+    [401, 'SESSION_EXPIRED'],
+    [403, 'CSRF_REJECTED'],
+    [404, 'NOT_FOUND'],
+    [409, 'CONFLICT'],
+    [422, 'INVALID_REQUEST'],
+    [429, 'QUEUE_FULL'],
+    [500, 'INTERNAL_ERROR'],
+    [503, 'DEPENDENCY_UNAVAILABLE'],
+  ]) {
+    s.reply({
+      errorStatus: status,
+      body: {
+        requestId: id,
+        code,
+        message: '固定版本操作失败',
+        fieldErrors: [{ field: '/taskId', code, message: '固定任务说明' }],
+        retryable: false,
+      },
+    });
+    await expect(s.api.cancel(file.task)).rejects.toThrow('固定版本操作失败');
+    observed('cancelTask', s.requests.at(-1));
+    if (![409, 422].includes(status)) {
+      await expect(s.api.switches(id)).rejects.toThrow('固定版本操作失败');
+      observed('listIndexSwitches', s.requests.at(-1));
+    }
+  }
+});
+
 afterAll(() => {
   execFileSync('python', ['scripts/settings-evidence.py', '08'], {
     input: JSON.stringify(observations),

@@ -316,6 +316,65 @@ export function createKnowledgeBaseClient(session) {
     );
   }
   return {
+    async switches(id, cursor) {
+      return page(
+        id,
+        '/switches',
+        (v) =>
+          exact(v, [
+            'id',
+            'knowledgeBaseId',
+            'fileId',
+            'fromContentVersionId',
+            'toContentVersionId',
+            'fromIndexVersionId',
+            'toIndexVersionId',
+            'fromConfigVersionId',
+            'toConfigVersionId',
+            'taskId',
+            'switchedAt',
+          ]) &&
+          [
+            'id',
+            'knowledgeBaseId',
+            'fileId',
+            'toContentVersionId',
+            'toIndexVersionId',
+            'toConfigVersionId',
+            'taskId',
+          ].every((key) => identifier(v[key])) &&
+          [
+            'fromContentVersionId',
+            'fromIndexVersionId',
+            'fromConfigVersionId',
+          ].every((key) => nullable(v[key], identifier)) &&
+          date(v.switchedAt),
+        cursor,
+      );
+    },
+    async cancel(task) {
+      if (
+        !task ||
+        !identifier(task.id) ||
+        ![
+          'index_file',
+          'rebuild_knowledge_base',
+          'search',
+          'question',
+        ].includes(task.kind)
+      )
+        throw new Error('该任务不支持取消。');
+      const value = await session.request({
+        method: 'post',
+        url: `/tasks/${task.id.toLowerCase()}/cancel`,
+      });
+      return verify(
+        value,
+        validTask(value, task.kind) &&
+          value.id.toLowerCase() === task.id.toLowerCase() &&
+          value.knowledgeBaseId === task.knowledgeBaseId,
+      );
+    },
     async removeSource(id, sourceId) {
       if (!identifier(sourceId)) throw new Error('来源标识无效。');
       const response = await session.request({

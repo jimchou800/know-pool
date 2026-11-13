@@ -3,6 +3,7 @@ import { ref, computed, onBeforeUnmount, nextTick } from 'vue';
 import { createManagementSearchClient } from './search-client';
 import EvidenceLocation from './EvidenceLocation.vue';
 import EvidencePreview from './EvidencePreview.vue';
+import CancelTask from './CancelTask.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -44,6 +45,16 @@ function accept(value) {
   pending.value = value;
   if (['queued', 'running'].includes(value.task.state))
     timer = setTimeout(read, 750);
+}
+async function cancelled(value) {
+  ++sequence;
+  ++evidenceSequence;
+  clearTimeout(timer);
+  busy.value = false;
+  evidenceBusy.value = false;
+  selected.value = null;
+  pending.value = { ...pending.value, task: value, result: null };
+  await read();
 }
 async function submit() {
   if (busy.value || active.value || !props.writable) return;
@@ -211,6 +222,12 @@ onBeforeUnmount(() => {
       <p v-else-if="pending.result?.outcome === 'no_matches'" role="status">
         未找到相关内容。
       </p>
+      <CancelTask
+        :client="client"
+        :task="pending.task"
+        :writable="writable"
+        @updated="cancelled"
+      />
       <p v-for="warning in pending.task.warnings" :key="warning">
         {{ warning }}
       </p>

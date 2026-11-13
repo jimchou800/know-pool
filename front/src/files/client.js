@@ -165,7 +165,7 @@ export function createFileClient(session) {
           (/(?:^|;)\s*sandbox\s*(?:;|$)/.test(policy) &&
             /(?:^|;)\s*default-src\s+'none'\s*(?:;|$)/.test(policy))),
     );
-    return { bytes: response.data, mediaType };
+    return { bytes: response.data, mediaType, filename };
   }
   return {
     async rename(id, name) {
@@ -208,6 +208,11 @@ export function createFileClient(session) {
       if (!identifier(versionId))
         throw new Error('内容版本标识无效，请重新读取证据。');
       return binary(id, 'preview', versionId);
+    },
+    async downloadVersion(id, versionId) {
+      if (!identifier(versionId))
+        throw new Error('内容版本标识无效，请重新读取版本。');
+      return binary(id, 'download', versionId);
     },
     download: (id) => binary(id, 'download'),
     async list(datasetId, cursor) {
