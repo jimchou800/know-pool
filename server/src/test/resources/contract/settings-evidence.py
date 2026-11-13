@@ -259,7 +259,7 @@ if profile in ('indexing', 'indexing-events'):
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
         'textIndexBecomesEffective': ('真实文本索引、生效版本及管理结果身份与证据读取。',
-            {'getTask', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
+            {'getTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'managementSearchFailureIsStableAndExpiresOnRestart': ('无索引异步失败、同键原请求、非法输入拒绝与重启410墓碑。',
             {'getTask', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'managementQueueAndRestartAreSafe': ('真实检索容量拒绝、同键不重提及重启在途请求中断和身份失效。',
