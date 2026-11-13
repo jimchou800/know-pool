@@ -8,7 +8,7 @@ Status: ready-for-agent
 
 Blocked by: 09: 索引 Markdown 与文字 PDF 并验证原文定位
 
-执行状态：进行中（前置09已实现，待统一验证）
+执行状态：已实现，待统一验证
 
 前端负责人：`/root/frontend09`
 
