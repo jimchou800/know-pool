@@ -71,6 +71,8 @@ class IndexingEvidenceTests(unittest.TestCase):
         self.assertTrue(description(observed, 'testKnowledgeBaseSearch'))
         self.assertEqual(description({**observed, 'behavior': ''}, 'testKnowledgeBaseSearch'), [])
         self.assertEqual(check(observed, 'testKnowledgeBaseSearch'), (set(), []))
+        self.assertTrue(description({'behavior': 'textIndexBecomesEffective'}, 'listKnowledgeBaseTasks'))
+        self.assertEqual(check({'behavior': 'textIndexBecomesEffective'}, 'listKnowledgeBaseTasks'), (set(), []))
 
     def test_profile_records_observed_sse_without_body_or_unclaimed_behavior(self):
         root = Path(self.directory.name)
