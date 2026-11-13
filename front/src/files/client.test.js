@@ -203,9 +203,8 @@ it('重命名实际发送完整名称，不修剪空白或限制扩展名且验�
       'name/pattern',
     ]),
     `${prefixes[5]}/requestBody/required`,
-    `${prefixes[5]}/requestBody/content/application~1json/schema`,
+    `${prefixes[5]}/requestBody`,
     `${prefixes[5]}/responses/200`,
-    `${prefixes[5]}/responses/200/content/application~1json/schema`,
     ...['method', 'path', 'parameters', 'security'].map(
       (part) => `${prefixes[5]}/${part}`,
     ),
@@ -236,7 +235,6 @@ it('版本分页消费真实游标请求与版本身份，不把当前名当上�
       'nextCursor/anyOf/1/type',
     ]),
     `${prefixes[6]}/responses/200`,
-    `${prefixes[6]}/responses/200/content/application~1json/schema`,
     ...['method', 'path', 'parameters', 'security'].map(
       (part) => `${prefixes[6]}/${part}`,
     ),

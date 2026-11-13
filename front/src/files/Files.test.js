@@ -177,6 +177,49 @@ it('资料详情读取失败可以重试且不显示旧对象', async () => {
 });
 const findButton = (wrapper, text) =>
   wrapper.findAll('button').find((button) => button.text() === text);
+it('切换资料后首屏版本读取失败不会沿用前一资料的下一页游标', async () => {
+  const secondId = '00000000-0000-4000-8000-000000000002';
+  const second = {
+    ...record,
+    id: secondId,
+    name: '另一份资料.txt',
+    latestVersion: { ...record.latestVersion, fileId: secondId },
+  };
+  const request = vi.fn(async (config) => {
+    if (config.url === `/files/${id}/versions`)
+      return { items: [record.latestVersion], nextCursor: '前一资料游标' };
+    if (config.url === `/files/${secondId}/versions`)
+      throw new Error('首屏读取失败');
+    if (config.url === `/files/${secondId}`) return second;
+    return config.url.startsWith('/files/')
+      ? record
+      : { items: [record, second], nextCursor: null };
+  });
+  const wrapper = mount(Files, {
+    props: { client: { request }, datasetId: id },
+  });
+  await flushPromises();
+  await wrapper.findAll('.file-rows button')[0].trigger('click');
+  await flushPromises();
+  await findButton(wrapper, '查看内容版本').trigger('click');
+  await flushPromises();
+  expect(
+    findButton(wrapper, '下一页版本').attributes('disabled'),
+  ).toBeUndefined();
+  await wrapper.findAll('.file-rows button')[1].trigger('click');
+  await flushPromises();
+  await findButton(wrapper, '查看内容版本').trigger('click');
+  await flushPromises();
+  expect(wrapper.text()).toContain('首屏读取失败');
+  expect(
+    findButton(wrapper, '下一页版本').attributes('disabled'),
+  ).toBeDefined();
+  expect(
+    request.mock.calls
+      .filter(([config]) => config.url === `/files/${secondId}/versions`)
+      .map(([config]) => config.params),
+  ).toEqual([{ limit: 20 }]);
+});
 it.each(['success', 'failure'])(
   '切换资料隔离迟到重命名与版本响应：%s',
   async (outcome) => {

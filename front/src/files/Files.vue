@@ -83,6 +83,7 @@ function resetDetailActions() {
   versionLoading.value = false;
   versionCursors.value = [undefined];
   versionPage.value = 0;
+  versionNextCursor.value = null;
 }
 async function startRename() {
   renameName.value = selected.value.name;
