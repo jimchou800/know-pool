@@ -43,7 +43,8 @@ const loading = ref(false),
 const root = ref(null);
 let alive = true,
   generation = 0,
-  testIdentity = 0;
+  testIdentity = 0,
+  loadIdentity = 0;
 let pendingKey;
 const history = computed(() => props.kind === 'history');
 const model = computed(() => !['vector', 'history'].includes(props.kind));
@@ -85,17 +86,18 @@ async function failure(failure) {
     ?.focus();
 }
 async function load() {
+  const identity = ++loadIdentity;
   loading.value = true;
   error.value = '';
   try {
     const value = history.value
       ? props.version
       : await props.api.get(props.kind);
-    if (alive) apply(value);
+    if (alive && identity === loadIdentity) apply(value);
   } catch (cause) {
-    if (alive) await failure(cause);
+    if (alive && identity === loadIdentity) await failure(cause);
   } finally {
-    if (alive) loading.value = false;
+    if (alive && identity === loadIdentity) loading.value = false;
   }
 }
 async function save() {
@@ -211,6 +213,10 @@ watch(
   () => props.savedConfig,
   (value) => {
     invalidate();
+    if (value?.kind === props.kind && !config.value) {
+      load();
+      return;
+    }
     if (
       value?.kind === props.kind &&
       config.value?.versionId === value.versionId
