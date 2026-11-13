@@ -1,39 +1,23 @@
 import { afterAll, expect, it } from 'vitest';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createSettingsClient } from './client';
 import { createSystemClient } from '../system/session';
 const id = '00000000-0000-4000-8000-000000000061';
 const time = '2026-01-01T00:00:00Z';
 const evidence = [];
-const inventory = JSON.parse(
-  execFileSync(
-    'python',
-    [
-      '-c',
-      "import json,sys;sys.path.insert(0,'../scripts/contract');import verify;print(json.dumps(verify.inventory(json.load(open('../docs/agents/api/openapi.yaml',encoding='utf-8')))))",
-    ],
-    { encoding: 'utf8' },
-  ),
-);
-function observed(name, label, request, constraints) {
+const captured = new WeakMap();
+function observed(name, label, request) {
+  const response = captured.get(request);
   evidence.push({
-    name: `${name}：${label}`,
-    passed: true,
-    operationIds: [name],
-    requests: [
-      {
-        method: request.method.toUpperCase(),
-        path: '/api/v1' + request.url,
-        withCredentials: request.withCredentials,
-        hasProtection: request.headers.has('X-CSRF-Token'),
-        hasIdempotencyKey: request.headers.has('Idempotency-Key'),
-        bodyPresent: request.data !== undefined,
-      },
-    ],
-    constraintIds: constraints,
-    assertions: [label, '实际Axios请求与响应消费', '秘密及保护信息不写入证据'],
+    operationId: name,
+    label,
+    method: request.method,
+    url: request.url,
+    params: request.params ?? {},
+    headers: request.headers.toJSON(),
+    body: request.data ?? null,
+    status: response.status,
+    response: response.data,
   });
 }
 const initial = {
@@ -156,8 +140,13 @@ async function setup(response) {
         config,
       };
     requests.push(config);
-    if (failure) throw failure;
-    return { data: value, status: 200, headers: {}, config };
+    if (failure) {
+      captured.set(config, failure.response);
+      throw failure;
+    }
+    const status = config.url.endsWith('/test') ? 202 : 200;
+    captured.set(config, { data: value, status });
+    return { data: value, status, headers: {}, config };
   });
   await session.connect();
   return {
@@ -311,23 +300,7 @@ it.each(calls)(
       );
     }
     if (method === 'get') expect(request.data).toBeUndefined();
-    const prefix = `#/paths/${inventory[name].path.replaceAll('/', '~1')}/${method}`;
-    observed(
-      name,
-      '成功请求方法路径、安全头、请求体及完整响应字段校验',
-      request,
-      inventory[name].constraints.filter(
-        (pointer) =>
-          (pointer.startsWith(prefix) && !pointer.includes('/responses/')) ||
-          pointer ===
-            `${prefix}/responses/${method === 'post' ? '202' : '200'}` ||
-          pointer.startsWith('#/components/parameters/') ||
-          (pointer.startsWith('#/components/schemas/') &&
-            !['Error', 'FieldError'].some((schema) =>
-              pointer.startsWith(`#/components/schemas/${schema}/`),
-            )),
-      ),
-    );
+    observed(name, name, request);
   },
 );
 it.each(
@@ -367,20 +340,7 @@ it.each(
     fieldErrors: [{ field, code: 'INVALID_REQUEST', message: '操作无效' }],
   });
   expect(system.requests).toHaveLength(1);
-  const prefix = `#/paths/${inventory[name].path.replaceAll('/', '~1')}/${method}`;
-  const errorFields = inventory[name].constraints.filter(
-    (pointer) =>
-      pointer.startsWith('#/components/schemas/Error/') ||
-      pointer.startsWith('#/components/schemas/FieldError/'),
-  );
-  observed(
-    name,
-    `统一错误${code}及字段反馈，无自动重试`,
-    system.requests[0],
-    [`${prefix}/responses/${code}`, ...errorFields].filter((pointer) =>
-      inventory[name].constraints.includes(pointer),
-    ),
-  );
+  observed(name, `${name}:${code}`, system.requests[0]);
 });
 it.each(['keep', 'replace', 'clear'])(
   '三种配置与历史凭据精确发送%s动作，无掩码回传',
@@ -398,10 +358,20 @@ it.each(['keep', 'replace', 'clear'])(
       expect(JSON.parse(system.requests[0].data).credential).toEqual(
         credential,
       );
+      observed(
+        {
+          generation: 'updateGenerationModel',
+          embedding: 'updateEmbeddingModel',
+          vector: 'updateVectorConfig',
+        }[kind],
+        action,
+        system.requests[0],
+      );
     }
     const system = await setup(complete('embedding'));
     await system.api.rotate(id, credential);
     expect(JSON.parse(system.requests[0].data)).toEqual(credential);
+    observed('updateEmbeddingVersionCredential', action, system.requests[0]);
   },
 );
 it.each([
@@ -670,27 +640,10 @@ it('模型测试必须显式费用同意，非法任务包装和结果均拒绝'
 });
 
 afterAll(() => {
-  mkdirSync('artifacts', { recursive: true });
-  writeFileSync(
-    'artifacts/contract-consumer-06.json',
-    JSON.stringify(
-      {
-        timestamp: new Date().toISOString(),
-        contractSha256: createHash('sha256')
-          .update(readFileSync('../docs/agents/api/openapi.yaml'))
-          .digest('hex'),
-        implementationSha256: execFileSync(
-          'python',
-          ['../scripts/contract/verify.py', '--snapshot'],
-          { encoding: 'utf8' },
-        ).trim(),
-        scope: calls.map((call) => call[0]),
-        tests: evidence,
-      },
-      null,
-      2,
-    ),
-  );
+  execFileSync('python', ['scripts/settings-evidence.py'], {
+    input: JSON.stringify(evidence),
+    encoding: 'utf8',
+  });
 });
 
 it('连接测试拒绝错误关联身份与排队开始时间，不把其他资源任务当本次测试', async () => {
@@ -707,5 +660,155 @@ it('连接测试拒绝错误关联身份与排队开始时间，不把其他资�
   ]) {
     system.reply(response);
     await expect(system.api.task(id)).rejects.toThrow('响应格式');
+  }
+});
+
+it('消费持久空配置、历史空版本与无凭据配置的真实可空分支', async () => {
+  for (const kind of ['generation', 'embedding']) {
+    const system = await setup({ ...initial, kind });
+    expect(await system.api.get(kind)).toEqual({ ...initial, kind });
+    observed(
+      kind === 'generation' ? 'getGenerationModel' : 'getEmbeddingModel',
+      '持久未设置',
+      system.requests.at(-1),
+    );
+  }
+  const system = await setup({ ...vector, endpoint: null, configured: false });
+  expect(await system.api.get('vector')).toMatchObject({
+    endpoint: null,
+    configured: false,
+  });
+  observed('getVectorConfig', '未设置端点', system.requests.at(-1));
+  system.reply({
+    ...vector,
+    credential: { configured: true, mask: '【密钥已设置】' },
+  });
+  await system.api.get('vector');
+  observed('getVectorConfig', '已设置密钥', system.requests.at(-1));
+  for (const kind of ['generation', 'embedding', 'vector']) {
+    system.reply(
+      kind === 'vector'
+        ? vector
+        : {
+            ...complete(kind),
+            credential: { configured: false, mask: null },
+            complete: false,
+          },
+    );
+    await system.api.save(
+      kind,
+      kind === 'vector'
+        ? { endpoint: vector.endpoint, credential: { action: 'clear' } }
+        : input(kind, { action: 'clear' }),
+    );
+    observed(
+      {
+        generation: 'updateGenerationModel',
+        embedding: 'updateEmbeddingModel',
+        vector: 'updateVectorConfig',
+      }[kind],
+      '清除后不完整',
+      system.requests.at(-1),
+    );
+  }
+  system.reply({
+    ...vector,
+    credential: { configured: true, mask: '【密钥已设置】' },
+  });
+  await system.api.save('vector', {
+    endpoint: vector.endpoint,
+    credential: { action: 'replace', value: '固定测试凭据' },
+  });
+  observed('updateVectorConfig', '向量凭据已设置', system.requests.at(-1));
+  system.reply({ ...initial, kind: 'embedding' });
+  await system.api.version(id);
+  observed(
+    'getEmbeddingModelVersion',
+    '初始历史空版本',
+    system.requests.at(-1),
+  );
+  await system.api.rotate(id, { action: 'clear' });
+  observed(
+    'updateEmbeddingVersionCredential',
+    '初始历史空版本清除',
+    system.requests.at(-1),
+  );
+  system.reply({
+    items: [{ ...initial, kind: 'embedding' }],
+    nextCursor: null,
+  });
+  await system.api.versions('opaque +/游标');
+  observed(
+    'listEmbeddingModelVersions',
+    '历史空版本与游标',
+    system.requests.at(-1),
+  );
+});
+it.each([
+  'queued',
+  'running',
+  'succeeded',
+  'failed',
+  'interrupted',
+  'cancelled',
+])('三种测试同键恢复可消费%s任务与对应字段', async (state) => {
+  const terminal = !['queued', 'running'].includes(state);
+  const failed = ['failed', 'interrupted'].includes(state);
+  for (const kind of ['generation', 'embedding', 'vector']) {
+    const returned = {
+      ...task,
+      kind: kind === 'vector' ? 'vector_connection_test' : 'model_test',
+      targetConfigVersionId: kind === 'vector' ? null : id,
+      state,
+      phase: terminal
+        ? 'completed'
+        : state === 'running'
+          ? 'initializing'
+          : 'queued',
+      startedAt: state === 'queued' ? null : time,
+      finishedAt: terminal ? time : null,
+      failure: failed
+        ? {
+            code: 'TASK_INTERRUPTED',
+            message: '固定测试失败',
+            retryable: false,
+          }
+        : null,
+      warnings:
+        failed && kind !== 'vector'
+          ? ['连接测试可能已产生费用，请勿自动重新提交。']
+          : [],
+    };
+    const system = await setup({ task: returned });
+    expect(await system.api.test(kind, id, true)).toEqual({ task: returned });
+    observed(
+      {
+        generation: 'testGenerationModel',
+        embedding: 'testEmbeddingModel',
+        vector: 'testVectorConfig',
+      }[kind],
+      state,
+      system.requests.at(-1),
+    );
+    system.reply(returned);
+    expect(await system.api.task(id)).toEqual(returned);
+    observed('getTask', state, system.requests.at(-1));
+  }
+});
+
+it('生成预算可空共享结构受操作必填正整数约束，客户端拒绝且不发出请求', async () => {
+  const system = await setup(complete());
+  for (const field of ['contextWindowTokens', 'maxOutputTokens']) {
+    const data = { ...input(), [field]: null };
+    expect(() => system.api.save('generation', data)).toThrow('预算');
+    expect(system.requests).toHaveLength(0);
+    evidence.push({
+      operationId: 'updateGenerationModel',
+      rejectedInput: true,
+      field,
+      method: 'put',
+      url: '/settings/models/generation',
+      input: data,
+    });
   }
 });
