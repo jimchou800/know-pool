@@ -256,7 +256,8 @@ public final class ApplicationData implements AutoCloseable {
                     transaction.sql("PRAGMA user_version=14").update();
                     return null;
                 });
-            }            if (version < 15) {
+            }
+            if (version < 15) {
                 write(transaction -> {
                     transaction.sql("CREATE TABLE index_retry_requests(session_id TEXT NOT NULL,operation TEXT NOT NULL,idempotency_key TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(session_id,operation,idempotency_key))").update();
                     transaction.sql("PRAGMA user_version=15").update();return null;

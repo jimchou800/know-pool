@@ -22,6 +22,8 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'indexRetryCost': ({'indexRetryEligibilityAndHistoryStayAtomic'}, {'retryKnowledgeBaseFile','retryFailedKnowledgeBaseFiles'},
+        '#/x-business-constraints/cost', '显式重试可能重新嵌入，原失败保持且新任务关联原失败；同键原结果和活动任务均不重复外发，成功及排除项不再嵌入，非重试凭据错误只发一次。'),
     'configurationRebuildVersions': ({'configurationRebuildPublicationAndHistoryStayIndependent'}, {'updateProcessingConfig','getTask','listKnowledgeBaseFiles','listIndexSwitches'},
         '#/x-business-constraints/indexSwitch', '整库目标和生效分离，构建期间继续旧版本，成功统一切换，失败旧索引可检索；历史配置归属不可串库，密钥替换身份不变不重建，端点变更同模型名仍用新身份重新嵌入。'),
     'configurationRebuildPublication': ({'configurationRebuildPublicationAndHistoryStayIndependent'}, {'updateProcessingConfig','getKnowledgeBase','listKnowledgeBaseFiles'},
@@ -300,13 +302,14 @@ if profile == 'knowledge-bases':
 
 if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
     selected_operations = {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
-                           'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig', 'getProcessingConfigVersion',
+                           'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig', 'getProcessingConfigVersion', 'retryKnowledgeBaseFile','retryFailedKnowledgeBaseFiles',
                            'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources',
                            'listIndexSwitches','cancelTask','downloadVersionFile','previewVersionFile',
                            'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult','submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','listConversations','getConversation','renameConversation','updateConversationScope','listConversationTurns','submitQuestion','deleteConversation','createSearchInstance','submitSearch','listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'indexRetryEligibilityAndHistoryStayAtomic': ('真实非重试错误直接停止，新任务关联旧失败且保留原失败事实，同键不重提、已有活动不重复、成功排除项不重做，批量逐项结果及非法正文查询标识会话保护拒绝。', {'retryKnowledgeBaseFile','retryFailedKnowledgeBaseFiles','getTask','listKnowledgeBaseTasks','listKnowledgeBaseFiles'}),
         'configurationRebuildPublicationAndHistoryStayIndependent': ('真实整库切换区分目标生效及历史不可变配置；仅换凭据无重建，端点相同模型名仍独立身份并重新嵌入；已发布处理中保持旧索引，主动下线后完成不重发布，失败继续旧版本服务，空库保持未发布，历史版本归属未知非法和会话拒绝。', {'getProcessingConfigVersion','updateProcessingConfig','getProcessingConfig','getKnowledgeBase','listKnowledgeBaseFiles','listIndexSwitches','getTask'}),
         'conversationHistoryScopeAndReferenceReadsStayBound': ('真实追问仅带预算内近期完整轮次，不摘要不截断且历史不携带旧证据；同键不外发，重名手名不覆盖、默认范围不改旧请求、提交时间轮次分页及最近交互会话分页，旧原文清理与文件改名后各读取动态事实一致，历史跨重启保存不重发。', {'listConversations','getConversation','renameConversation','updateConversationScope','listConversationTurns','submitQuestion','getQuestionTask','getConversationEvidence','getTask'}),
         'conversationCancellationDeletionAndLateResultsStayIsolated': ('真实同会话活动资格及同键原任务、取消释放资格且旧迟到不盖新任务；删除事务失败不取消，成功确认清理同键持久复用，任务和专属引用不可读取，通用任务脱敏状态保留，源资料与别会话不受影响，重启不复活不外发。', {'getConversation','submitQuestion','deleteConversation','getQuestionTask','cancelQuestionTask','getConversationEvidence','getTask'}),

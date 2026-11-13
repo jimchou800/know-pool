@@ -484,7 +484,7 @@ public final class KnowledgeBases {
     private JsonNode retryFile(JdbcClient jdbc,String kb,String file) {
         ObjectNode result=json.createObjectNode().put("fileId",file).put("outcome","ineligible").putNull("taskId").put("reason","资料已成功、已取消、过时或不再属于有效范围，未重新处理。");
         FileService.SourceFile source;
-        try { source=files.sourceFiles(jdbc,"file",file).getFirst(); } catch (ApiFailure missing) { return result; }
+        try { source=files.sourceFiles(jdbc,"file",file).getFirst(); } catch (ApiFailure missing) { if (missing.status()!=404) throw missing;return result; }
         if (excluded(jdbc,kb,file) || !hasSource(jdbc,kb,source)) return result;
         JsonNode current=jdbc.sql("SELECT t.payload FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.file_id=?")
                 .params(kb,file).query(String.class).optional().map(json::readTree).orElse(null);
