@@ -196,6 +196,20 @@ class ContractGateTests(unittest.TestCase):
             self.assertTrue(all(pointer.rsplit('/', 1)[-1] in {'429', '503'}
                                 for pointer in mapping['操作'][operation]))
 
+    def test_publication_scope_requires_real_publication_history(self):
+        """发布与下线历史不能继续按空库条件保留。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-13.json').read_bytes())
+        for operation in ('listKnowledgeBases', 'getKnowledgeBase'):
+            for pointer in mapping['操作'][operation]:
+                self.assertFalse(any('/KnowledgeBase/properties/' + field + '/' in pointer
+                                     for field in ('publishedAt', 'offlineAt', 'offlineReason')))
+        self.assertNotIn('#/paths/~1knowledge-bases~1{knowledgeBaseId}~1publish/post/responses/422',
+                         mapping['操作']['publishKnowledgeBase'])
+        self.assertNotIn('#/paths/~1knowledge-bases~1{knowledgeBaseId}~1offline/post/responses/409',
+                         mapping['操作']['offlineKnowledgeBase'])
+        self.assertNotIn('#/paths/~1knowledge-bases~1{knowledgeBaseId}~1check/post/responses/429',
+                         mapping['操作']['checkKnowledgeBase'])
+
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])
