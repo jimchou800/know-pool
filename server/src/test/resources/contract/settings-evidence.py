@@ -245,7 +245,8 @@ for index, item in enumerate(observations):
             except ValueError: pass
         found.update(parameter_constraints(schema,pointer,actual,parameter.get('required',False),item['status']))
     found &= set(operation['constraints'])
-    tests.append({'name': str(index + 1) + '：真实设置请求：' + name + '：' + str(item['status']),
+    request_label = '真实知识库请求' if profile == 'knowledge-bases' else '真实设置请求'
+    tests.append({'name': str(index + 1) + '：' + request_label + '：' + name + '：' + str(item['status']),
                   'passed': True, 'operationIds': [name], 'constraintIds': sorted(found),
                   'request': {'method': item['method'], 'path': path},
                   'response': {'status': item['status'], 'contentType': item['contentType']},
