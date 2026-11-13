@@ -362,6 +362,39 @@ it.each([
     ],
   );
 });
+it('预检令牌容量已满显示错误且旧预检不能继续确认', async () => {
+  const s = await setup((request) =>
+    request.url === '/tasks'
+      ? { items: [], nextCursor: null }
+      : { httpStatus: 200, body: preflight },
+  );
+  wrapper = mount(Migration, {
+    props: { client: s.client, dataDirectory: result.activeDataDirectory },
+  });
+  await flushPromises();
+  await wrapper.get('[name="migrationTarget"]').setValue(result.targetPath);
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(button('确认迁移')).toBeDefined();
+  s.reply({
+    errorStatus: 429,
+    body: {
+      requestId: id,
+      code: 'RESOURCE_LIMIT',
+      message: '预检令牌容量已满，请稍后重新预检',
+      fieldErrors: [],
+      retryable: true,
+    },
+  });
+  await wrapper.get('form').trigger('submit');
+  await flushPromises();
+  expect(wrapper.text()).toContain('预检令牌容量已满');
+  expect(button('确认迁移')).toBeUndefined();
+  expect(
+    s.requests.some((request) => request.url === '/maintenance/migration'),
+  ).toBe(false);
+  observe('migrationPreflight', s.requests.at(-1));
+});
 it('切换任务先清旧详情，迟到响应不能串用恢复对象', async () => {
   let release;
   const old = { ...result, task: terminal(), recoverable: true };
