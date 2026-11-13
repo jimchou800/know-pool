@@ -1,0 +1,17 @@
+{
+    "actor":  "/root/backend_implementation",
+    "role":  "backend",
+    "conclusion":  "通过",
+    "contractSha256":  "48f98810322f07e3b8380359f37d43ade7fac221ff056f34f05383c9a0b04fcb",
+    "implementationSha256":  "78b0cbacb3205c09a4997ccf474fb5dbd89d519d3263af7a7e9b728c1cb398ee",
+    "reportSha256":  "4029af7406fedeacb594a43782dabf6e90a02cb212bd9f85657e8dceaa710fa1",
+    "evidence":  [
+                     "独立重算契约、报告与当前实现快照，摘要一致；提供方、消费方、浏览器三个机器证据摘要与报告一致。",
+                     "审阅两项GET的63项适用约束及7项安全行为，真实后端10测试与前端60测试通过；19项条件未触发或后续保留不冒充通过，全项目仍93项操作未完成。",
+                     "独立审阅Axios顺序/字段类型/错误消费与中文状态展示、实际浏览器Cookie/CSRF/来源保护及1280截图，无阻断差异。",
+                     "后端行166/181与分支76/94达到80%门槛，Spotless、SpotBugs、ArchUnit与根统一验证证据已核对。"
+                 ],
+    "limitations":  [
+                        "HTTPS Secure仅安全请求边界测试，非真实TLS部署；尚未调用收费模型或验收后续业务。"
+                    ]
+}

@@ -1,0 +1,39 @@
+name: 本地应用验证
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    name: 工程与契约验证
+    runs-on: windows-latest
+    steps:
+      - name: 读取源码
+        uses: actions/checkout@v4
+      - name: 配置 Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: 配置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: 安装契约校验工具
+        run: python -m pip install -r scripts/contract/requirements.txt
+      - name: 执行统一验证
+        run: mvn --batch-mode --no-transfer-progress verify
+      - name: 保存失败及成功证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 验证证据
+          include-hidden-files: true
+          path: |
+            server/target/surefire-reports/
+            server/target/site/jacoco/
+            server/target/contract/
+            front/coverage/
+            front/artifacts/contract-consumer.json
+            .scratch/technical-design/contract-reports/

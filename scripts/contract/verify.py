@@ -136,6 +136,23 @@ def coverage(evidence, operation_id, constraint):
             and constraint in test.get('constraintIds', []) and test.get('passed') is True]
 
 
+def scope_mapping(contract_hash):
+    path = ROOT / 'scripts/contract/scope-01.json'
+    raw = path.read_bytes()
+    mapping = json.loads(raw)
+    actors = set()
+    for role in ('frontend', 'backend'):
+        approval = json.loads((ROOT / f'docs/agents/api/reviews/scope-01-{role}.json').read_text(encoding='utf-8'))
+        if (approval.get('mapSha256') != digest(raw) or approval.get('contractSha256') != contract_hash
+                or approval.get('role') != role or approval.get('conclusion') != '通过'
+                or not approval.get('actor') or not approval.get('evidence')):
+            raise ValueError('缺少有效适用映射独立签认：' + role)
+        actors.add(approval['actor'])
+    if len(actors) != 2:
+        raise ValueError('适用映射不得由同一代理代签')
+    return mapping, digest(raw)
+
+
 def check_routes(document, routes):
     if not isinstance(routes, list) or not routes:
         raise ValueError('缺少真实应用路由清单')
@@ -242,6 +259,7 @@ def main():
               '实现文件': files, '环境': {'Python': platform.python_version(), '系统': platform.system()},
               '范围': list(SCOPE), '失败': [], '操作': [], '双方报告验收': '待分别签认，不由生成器代签'}
     evidence = {}
+    mapping = {}
     try:
         if parse_failure:
             raise ValueError(parse_failure)
@@ -254,6 +272,9 @@ def main():
             approval = ROOT / f'docs/agents/api/reviews/{role}-baseline.md'
             if contract_hash not in approval.read_text(encoding='utf-8'):
                 raise ValueError('缺少同一契约的设计签认：' + role)
+        mapping, mapping_hash = scope_mapping(contract_hash)
+        report['适用映射SHA256'] = mapping_hash
+        report['适用映射说明'] = mapping['说明']
         for role, path in (('提供方', args.provider), ('消费方', args.consumer)):
             try:
                 evidence[role] = read_evidence(path, contract_hash, implementation_hash)
@@ -261,6 +282,7 @@ def main():
                     if any(identifier not in operations for identifier in test['operationIds']):
                         raise ValueError('测试引用未声明操作：' + test['name'])
                     known = set().union(*(set(operations[identifier]['constraints']) for identifier in test['operationIds']))
+                    known.update('security.' + str(index + 1) for index in range(len(mapping.get('当前安全行为', []))))
                     if not set(test['constraintIds']).issubset(known):
                         raise ValueError('测试引用未声明约束：' + test['name'])
                 report[role + '证据'] = {'路径': str(path.relative_to(ROOT)), 'SHA256': digest(path.read_bytes())}
@@ -281,19 +303,42 @@ def main():
             checks = {role: coverage(evidence.get(role, {}), identifier, constraint)
                       for role in ('提供方', '消费方')}
             state = ('通过' if all(checks.values()) else '未验证') if identifier in SCOPE else '未实现'
-            rows.append({'约束': constraint, '状态': state, '证据': checks})
+            reason = mapping.get('操作', {}).get(identifier, {}).get(constraint)
+            if reason:
+                state = '条件未触发或后续保留'
+            rows.append({'约束': constraint, '状态': state, '证据': checks, '适用说明': reason})
+        applicable = [row for row in rows if row['适用说明'] is None]
         report['操作'].append({'标识': identifier, '方法': operation['method'], '路径': operation['path'],
-                               '状态': '通过' if rows and all(row['状态'] == '通过' for row in rows)
+                               '状态': '通过' if applicable and all(row['状态'] == '通过' for row in applicable)
                                else ('未验证' if identifier in SCOPE else '未实现'), '约束': rows})
     scoped = [row for row in report['操作'] if row['标识'] in SCOPE]
-    constraints = [constraint for row in scoped for constraint in row['约束']]
+    raw_constraints = [constraint for row in scoped for constraint in row['约束']]
+    constraints = [row for row in raw_constraints if row['适用说明'] is None]
     passed = sum(row['状态'] == '通过' for row in scoped)
     verified = sum(row['状态'] == '通过' for row in constraints)
     report['切片路径覆盖'] = {'通过': passed, '全部': len(SCOPE)}
     report['切片约束覆盖'] = {'通过': verified, '全部': len(constraints)}
+    report['切片原始约束'] = {'全部': len(raw_constraints), '适用': len(constraints),
+                              '条件未触发或后续保留': len(raw_constraints) - len(constraints)}
+    security = []
+    for index, behavior in enumerate(mapping.get('当前安全行为', [])):
+        identifier = 'security.' + str(index + 1)
+        checks = {role: [test['name'] for test in evidence.get(role, {}).get('tests', [])
+                        if identifier in test.get('constraintIds', []) and test.get('passed') is True]
+                  for role in ('提供方', '消费方')}
+        security.append({'标识': identifier, '行为': behavior, '证据': checks,
+                         '状态': '通过' if all(checks.values()) else '未验证'})
+    report['当前安全行为'] = security
+    if not security or any(row['状态'] != '通过' for row in security):
+        report['失败'].append('当前安全行为存在未验证项')
     report['全项目路径覆盖'] = {'通过': passed, '全部': len(operations)}
     report['全项目约束覆盖'] = {'通过': verified, '全部': sum(len(row['约束']) for row in report['操作'])}
     report['全项目未完成'] = [row['标识'] for row in report['操作'] if row['状态'] != '通过']
+    report['全项目保留规则'] = mapping.get('后续保留', [])
+    report['全项目未完成约束'] = [
+        {'操作': operation['标识'], '约束': row['约束'], '状态': row['状态'], '说明': row['适用说明']}
+        for operation in report['操作'] for row in operation['约束'] if row['状态'] != '通过'
+    ]
     if passed != len(SCOPE) or not constraints or verified != len(constraints):
         report['失败'].append('切片存在未验证操作或约束')
     report['结论'] = '校验通过，仍待双方独立验收' if not report['失败'] else '校验未通过'
@@ -304,6 +349,8 @@ def main():
     text = [f"# 契约校验报告\n\n{report['结论']}\n", f'契约摘要：`{contract_hash}`。',
             f'实现快照：`{implementation_hash}`。',
             f'切片路径通过 {passed}/{len(SCOPE)}，约束通过 {verified}/{len(constraints)}。',
+            f'原始约束 {len(raw_constraints)} 项，条件未触发或后续保留 {len(raw_constraints) - len(constraints)} 项，均未记为通过。',
+            '切片适用路径完成不等于全部原始约束完成；机器报告逐项保留全项目未完成约束和后续规则。',
             f"全项目共 {len(operations)} 个操作，未完成 {len(report['全项目未完成'])} 个。",
             '双方报告验收：待前端和后端实际代理分别签认本报告及摘要。', '\n## 失败与未验证\n']
     text.extend('- ' + failure for failure in report['失败'])

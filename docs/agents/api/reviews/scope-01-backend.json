@@ -1,0 +1,12 @@
+{
+    "actor":  "/root/backend_implementation",
+    "role":  "backend",
+    "conclusion":  "通过",
+    "mapSha256":  "b5816d126cd93015a656c97a380f7a4500ffc83d93a2e2b0de072cc17795db15",
+    "contractSha256":  "48f98810322f07e3b8380359f37d43ade7fac221ff056f34f05383c9a0b04fcb",
+    "evidence":  [
+                     "独立核对两项GET、完整95操作、原始约束、条件未触发与未来SSE保留。",
+                     "真实提供方9项测试已通过；Secure仅安全请求边界测试，不宣称真实TLS部署。",
+                     "同意范围分类不修改唯一契约与业务规则；最终报告仍须真实证据与双方验收。"
+                 ]
+}

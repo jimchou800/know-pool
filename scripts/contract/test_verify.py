@@ -18,6 +18,19 @@ class ContractGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '空契约'):
             verify.inventory({'paths': {}})
 
+    def test_适用映射不得删除原约束或单方批准(self):
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-01.json').read_text(encoding='utf-8'))
+        operations = verify.inventory(self.document)
+        self.assertEqual(set(mapping['操作']), set(verify.SCOPE))
+        for operation, conditions in mapping['操作'].items():
+            self.assertTrue(set(conditions).issubset(operations[operation]['constraints']))
+        self.assertEqual(len(mapping['当前安全行为']), 7)
+        self.assertIn('SSE', mapping['后续保留'][0])
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(verify, 'ROOT', Path(directory)):
+                with self.assertRaises(FileNotFoundError):
+                    verify.scope_mapping('契约')
+
     def test_重复操作拒绝(self):
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])
         with self.assertRaisesRegex(ValueError, '操作标识重复'):

@@ -1,0 +1,62 @@
+.formal .application {
+  height: 100%;
+}
+
+.formal a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.formal-main {
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+}
+
+.formal .settings-link {
+  margin-top: auto;
+}
+
+.connection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 32px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.connection-bar p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.connection-bar [role='alert'] {
+  color: #a33333;
+}
+
+.system-warning {
+  display: block;
+  color: #815b1f;
+}
+
+.reconnect {
+  flex-shrink: 0;
+}
+
+.formal .welcome-content {
+  margin: 72px auto;
+}
+
+.formal h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 20px;
+}
+
+.empty-history {
+  color: var(--muted);
+  line-height: 1.8;
+}

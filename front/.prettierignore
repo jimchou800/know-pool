@@ -1,4 +1,6 @@
 dist
 coverage
 artifacts
+target
 pnpm-lock.yaml
+.codex/skills

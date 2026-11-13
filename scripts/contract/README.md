@@ -18,6 +18,8 @@ python scripts/contract/verify.py
 
 生成器会校验完整标准契约、设计双签摘要、证据快照与测试结果，并按契约递归计算约束分母。任何缺项或失效均生成失败报告并返回非零状态；不会按手写样例或测试数量缩小分母。对象属性、必填、格式、范围、枚举、未知字段、安全和响应状态独立列项，描述中的行为约束也不得遗漏。不可变机器与中文报告保存在已忽略的 `.scratch/technical-design/contract-reports/<运行标识>/`。
 
+`scope-01.json` 单独记录本票适用性，须有前后端同一摘要独立签认。报告同时保留原始全部约束、当前适用项、条件未触发项与后续全局规则；后两者不计为通过，不从原始分母消失。切片适用项通过不代表全原始约束或全项目完成。当前安全规则拆成七个可追溯行为，仍要求双方证据；真实 TLS 部署与后续 SSE 不借本次 HTTP 浏览器测试声称完成。
+
 报告通过后，前后端实际代理分别创建 `docs/agents/api/reviews/<运行标识>-frontend.json` 和 `<运行标识>-backend.json`。记录字段为 `role`（分别为 `frontend`、`backend`）、`actor`（各自真实代理标识）、`conclusion`（通过或拒绝）、`contractSha256`、`implementationSha256`、`reportSha256`、`evidence`（中文审阅依据）。这些是机器字段名，审阅内容使用简体中文。生成器与总协调均不得自动补签。
 
 ```powershell

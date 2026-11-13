@@ -7,13 +7,16 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "lint": "eslint . && stylelint src/style.css",
+    "test:coverage": "vitest run --coverage --reporter=default --reporter=json --outputFile=artifacts/vitest.json",
+    "test:live": "node scripts/check-live.mjs",
+    "lint": "eslint . && stylelint \"src/**/*.css\"",
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "axios": "1.13.2",
     "pinia": "3.0.4",
-    "vue": "3.5.24"
+    "vue": "3.5.24",
+    "vue-router": "4.6.3"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",

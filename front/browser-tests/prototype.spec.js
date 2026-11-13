@@ -8,7 +8,7 @@ for (const [index, theme] of themes.entries()) {
       const errors = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.setViewportSize({ width, height: 1000 });
-      await page.goto('/');
+      await page.goto('/prototype.html');
       await page.getByRole('button', { name: `${index + 1}${theme}` }).click();
       await expect(
         page.getByRole('heading', { name: '欢迎回到知池' }),
@@ -50,7 +50,7 @@ for (const [index, theme] of themes.entries()) {
 test('新建问答校验前不展示回答，切换后后台继续并保存提交记录', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/prototype.html');
   await page
     .getByRole('button', { name: '新建问答 带着问题，找到依据' })
     .click();
@@ -79,7 +79,7 @@ test('新建问答校验前不展示回答，切换后后台继续并保存提�
 });
 
 test('范围提示将焦点留在弹窗内，退出后回到触发按钮', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/prototype.html');
   const trigger = page.getByRole('button', {
     name: '数据集 导入与管理原始资料',
   });
