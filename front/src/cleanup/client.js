@@ -12,7 +12,16 @@ function path(kind, value) {
   return `/${kind}/${value}`;
 }
 function accepted(value) {
-  return exact(value, ['task']) && validTask(value.task, 'cleanup');
+  return (
+    exact(value, ['task']) &&
+    validTask(value.task, 'cleanup') &&
+    count(value.task.progressTotal) &&
+    [
+      'targetContentVersionId',
+      'targetConfigVersionId',
+      'resultResourceId',
+    ].every((field) => value.task[field] === null)
+  );
 }
 export function createCleanupClient(session) {
   return {
@@ -49,7 +58,14 @@ export function createCleanupClient(session) {
         headers: { 'Idempotency-Key': key },
         data: { confirmed: true },
       });
-      return verify(value, accepted(value));
+      return verify(
+        value,
+        accepted(value) &&
+          value.task.retryOfTaskId === null &&
+          value.task.knowledgeBaseId ===
+            (kind === 'knowledge-bases' ? resourceId : null) &&
+          value.task.fileId === (kind === 'files' ? resourceId : null),
+      );
     },
     async list(cursor, state) {
       const value = await session.request({

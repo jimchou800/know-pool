@@ -17,6 +17,7 @@ const cleanup = {
   kind: 'cleanup',
   knowledgeBaseId: null,
   targetConfigVersionId: null,
+  progressTotal: 0,
 };
 const impact = {
   resourceId: id,
@@ -49,9 +50,14 @@ it('三资源删除影响和确认原键恢复真实消费，清理失败分页�
     s.reply(impact);
     expect(await api.impact(kind, id)).toEqual(impact);
     observe(`get${prefix}DeleteImpact`, s.requests.at(-1));
-    s.reply({ httpStatus: 202, body: { task: cleanup } });
+    const deletionTask = {
+      ...cleanup,
+      knowledgeBaseId: kind === 'knowledge-bases' ? id : null,
+      fileId: kind === 'files' ? id : null,
+    };
+    s.reply({ httpStatus: 202, body: { task: deletionTask } });
     for (let count = 0; count < 2; count++) {
-      expect((await api.remove(kind, id, otherId)).task).toEqual(cleanup);
+      expect((await api.remove(kind, id, otherId)).task).toEqual(deletionTask);
       expect(JSON.parse(s.requests.at(-1).data)).toEqual({ confirmed: true });
       observe(`delete${prefix}`, s.requests.at(-1));
     }
@@ -157,7 +163,10 @@ it('删除前真实影响失败禁止确认，网络未知同键恢复即通知�
     .trigger('click');
   await flushPromises();
   const key = s.requests.at(-1).headers.get('Idempotency-Key');
-  s.reply({ httpStatus: 202, body: { task: cleanup } });
+  s.reply({
+    httpStatus: 202,
+    body: { task: { ...cleanup, knowledgeBaseId: id } },
+  });
   await w
     .findAll('button')
     .find((item) => item.text() === '恢复原删除提交')
