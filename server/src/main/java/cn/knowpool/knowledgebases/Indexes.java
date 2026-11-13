@@ -334,6 +334,9 @@ public final class Indexes {
                 if (!preflight.path("integrityPassed").asBoolean()) throw new ApiFailure(422, "INTEGRITY_FAILED", "切片完整性检查失败，已阻止发布。", null);
                 chunks = chunks(index);
             }
+            JsonNode storedPreflight = preflight(id);
+            if (!storedPreflight.path("integrityPassed").asBoolean() || storedPreflight.path("emptyText").asBoolean())
+                throw new ApiFailure(422, "INTEGRITY_FAILED", "持久预检未通过，已阻止恢复任务发布。", null);
             var embedding = config.path("embedding");
             var snapshot = settings.embeddingSnapshot(
                     embedding.path("modelConfigVersionId").asText());
