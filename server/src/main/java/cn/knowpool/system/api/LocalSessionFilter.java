@@ -200,7 +200,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 || path.matches("/api/v1/(?:datasets|files|knowledge-bases)/[^/]+") && request.getMethod().equals("DELETE")
                 || path.equals("/api/v1/tasks") && request.getMethod().equals("GET")
                 || path.matches("/api/v1/tasks/[^/]+/retry-cleanup") && request.getMethod().equals("POST");
-        boolean maintenance=path.matches("/api/v1/maintenance/(?:migration(?:/preflight)?|tasks/[^/]+(?:/retry)?)") && Set.of("GET","POST").contains(request.getMethod());
+        boolean maintenance=path.matches("/api/v1/maintenance/(?:(?:migration|backup|restore)(?:/preflight)?|tasks/[^/]+(?:/retry)?)") && Set.of("GET","POST").contains(request.getMethod());
         if (maintenance || collection || resource || fileOperation || settings || knowledgeBases || search || chunkPreflight || processingUpdate || cancellation) {
             request.setAttribute("localSession", session);
             boolean readable=maintenance || path.equals("/api/v1/tasks") && request.getMethod().equals("GET");
