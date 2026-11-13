@@ -30,6 +30,7 @@ const phases = {
   vector_writing: '写入向量',
   validating: '验证',
   switching: '切换生效版本',
+  cleaning: '清理已下线索引',
   completed: '已结束',
 };
 const states = {
@@ -164,6 +165,9 @@ onBeforeUnmount(() => {
     <ul class="knowledge-files">
       <li v-for="item in rows" :key="item.id">
         <strong>{{ states[item.state] }} · {{ phases[item.phase] }}</strong>
+        <p v-if="item.kind === 'cleanup'">
+          下线后的资源清理任务；清理失败不会恢复资料纳入，清理重试入口尚未提供。
+        </p>
         <p>任务：{{ item.id }}；文件：{{ item.fileId || '未绑定文件' }}</p>
         <p>
           目标内容版本：{{

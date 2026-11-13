@@ -784,6 +784,29 @@ it('来源撤销与排除实际请求严格消费空响应，反向列表保留�
   observed('includeKnowledgeBaseFile', s.requests.at(-1));
   expect(s.requests.at(-1).headers.get('X-CSRF-Token')).toBeTruthy();
 });
+it('清理任务可被观察且目标配置可空，不将清理失败当重新纳入', async () => {
+  const cleanup = {
+    ...task,
+    kind: 'cleanup',
+    fileId: otherId,
+    targetConfigVersionId: null,
+    state: 'failed',
+    phase: 'completed',
+    startedAt: time,
+    finishedAt: time,
+    failure: {
+      code: 'CLEANUP_FAILED',
+      message: '固定清理失败，资料仍下线',
+      retryable: false,
+    },
+  };
+  const s = await setup(() => ({ items: [cleanup], nextCursor: null }));
+  expect((await s.api.tasks(id)).items[0]).toEqual(cleanup);
+  observed('listKnowledgeBaseTasks', s.requests.at(-1));
+  s.reply(cleanup);
+  expect(await s.api.task(otherId, 'cleanup')).toEqual(cleanup);
+  observed('getTask', s.requests.at(-1));
+});
 it('来源及排除五操作公开错误由真实客户端保留字段反馈，不自动重试', async () => {
   const s = await setup(() => null);
   const calls = [

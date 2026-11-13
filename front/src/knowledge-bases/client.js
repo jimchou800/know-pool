@@ -426,6 +426,7 @@ export function createKnowledgeBaseClient(session) {
           'index_file',
           'search',
           'rebuild_knowledge_base',
+          'cleanup',
         ].includes(kind)
       )
         throw new Error('任务标识或类型无效。');
@@ -527,8 +528,9 @@ export function createKnowledgeBaseClient(session) {
         id,
         '/tasks',
         (value) =>
-          ['index_file', 'rebuild_knowledge_base'].includes(value?.kind) &&
-          validTask(value, value.kind),
+          ['index_file', 'rebuild_knowledge_base', 'cleanup'].includes(
+            value?.kind,
+          ) && validTask(value, value.kind),
         cursor,
       ),
   };
