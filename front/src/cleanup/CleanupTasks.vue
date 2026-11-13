@@ -25,6 +25,12 @@ const states = {
   cancelled: '清理取消',
   interrupted: '清理中断',
 };
+const phases = {
+  queued: '排队',
+  initializing: '初始化',
+  cleaning: '清理资源',
+  completed: '已结束',
+};
 let sequence = 0,
   trigger;
 async function load(more = false) {
@@ -150,7 +156,10 @@ load();
           }}；资料：{{ item.fileId || '无' }}
         </p>
         <p>
-          阶段：{{ item.phase }}；已完成{{ item.progressCompleted }} /
+          阶段：{{ phases[item.phase] || '处理中' }}；已完成{{
+            item.progressCompleted
+          }}
+          /
           {{ item.progressTotal === null ? '总量未知' : item.progressTotal }}
         </p>
         <p v-if="item.retryOfTaskId">
