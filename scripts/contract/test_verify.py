@@ -11,6 +11,30 @@ import verify
 
 
 class ContractGateTests(unittest.TestCase):
+    def test_merges_provider_files_and_rejects_duplicate_or_stale_evidence(self):
+        """独立证据均须有效，跨文件重名和过期不得被合并掩盖。"""
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [Path(directory) / name for name in ('files.json', 'settings.json')]
+            def write(index, name, implementation='实现'):
+                paths[index].write_text(json.dumps({
+                    'contractSha256': '契约', 'implementationSha256': implementation,
+                    'tests': [{'name': name, 'passed': True, 'operationIds': ['getTask'], 'constraintIds': []}],
+                    'routes': [{'method': 'GET', 'path': '/api/v1/tasks/{taskId}'}],
+                }), encoding='utf-8')
+            write(0, '资料'); write(1, '设置')
+            merged = verify.read_evidence_files(paths, '契约', '实现')
+            self.assertEqual([test['name'] for test in merged['tests']], ['资料', '设置'])
+            self.assertEqual(len(merged['routes']), 1)
+            write(1, '资料')
+            with self.assertRaisesRegex(ValueError, '重复'):
+                verify.read_evidence_files(paths, '契约', '实现')
+            write(1, '设置', '过期')
+            with self.assertRaisesRegex(ValueError, '过期'):
+                verify.read_evidence_files(paths, '契约', '实现')
+            paths[1].unlink()
+            with self.assertRaises(FileNotFoundError):
+                verify.read_evidence_files(paths, '契约', '实现')
+
     def setUp(self):
         self.document = json.loads(verify.CONTRACT.read_text(encoding='utf-8'))
 

@@ -89,3 +89,43 @@ it('连接失败显示可重试错误，用户重试成功后清除旧错误', a
   expect(wrapper.find('[role="alert"]').exists()).toBe(false);
   expect(wrapper.get('[role="status"]').text()).toContain('本机服务已连接');
 });
+
+it('设置导航消费正式配置并在离开时卸载秘密表单', async () => {
+  await setup(async (config) => {
+    let data;
+    if (config.url === '/session') data = session;
+    else if (config.url === '/system/status') data = status;
+    else if (config.url.endsWith('/versions'))
+      data = { items: [], nextCursor: null };
+    else if (config.url.endsWith('vector-store'))
+      data = {
+        endpoint: null,
+        credential: { configured: false, mask: null },
+        configured: false,
+        updatedAt: status.startedAt,
+      };
+    else
+      data = {
+        kind: config.url.endsWith('generation') ? 'generation' : 'embedding',
+        versionId: session.sessionId,
+        endpoint: null,
+        model: null,
+        credential: { configured: false, mask: null },
+        contextWindowTokens: null,
+        maxOutputTokens: null,
+        complete: false,
+        updatedAt: status.startedAt,
+      };
+    return { data, status: 200, config, headers: {} };
+  });
+  await wrapper.get('.settings-link').trigger('click');
+  await flushPromises();
+  expect(wrapper.get('h1').text()).toBe('设置');
+  const form = wrapper.get('[data-kind="generation"]');
+  await form.get('[name="action"]').setValue('replace');
+  await form.get('[name="secret"]').setValue('固定导航清理测试凭据');
+  await wrapper.get('.brand').trigger('click');
+  await flushPromises();
+  expect(wrapper.find('[name="secret"]').exists()).toBe(false);
+  expect(wrapper.get('h1').text()).toBe('欢迎回到知池');
+});

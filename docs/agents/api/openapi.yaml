@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "个人知识管理应用唯一接口契约",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "description": "正式接口设计开发基线，批准证据由前后端在契约外分别记录同一字节摘要。设计完整不代表业务代码、自动校验或真实模型效果已实现。所有对象默认拒绝未知字段；服务端重校验关联、排除、发布、版本及取消资格。"
   },
   "servers": [
@@ -3385,7 +3385,8 @@
           {
             "localSession": []
           }
-        ]
+        ],
+        "description": "06提前复用此正式查询读取模型及向量连接测试状态；查询不触发外部请求。连接测试中生成及嵌入kind=model_test，向量kind=vector_connection_test。阶段为queued、initializing、validating、completed，未知总量为null；不伪造模型进度。远端拒绝、鉴权失败、连接失败、超时或非法协议响应均属完成探测：state=succeeded、failure=null并产生available=false结果；本机执行或持久化异常才failed。结果与成功终态在同一SQLite事务提交。重启遗留queued/running连接测试置interrupted、failure.code=TASK_INTERRUPTED，不自动重新外发。无结果的模型失败或中断在warnings给出“连接测试可能已产生费用，请勿自动重新提交。”。连接测试不自动重试、不提供通用取消，旧在途使用接收时完整地址、模型、预算及凭据快照。"
       }
     },
     "/tasks/{taskId}/cancel": {
@@ -5455,11 +5456,31 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ModelConfigInput"
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ModelConfigInput"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "contextWindowTokens": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "maxOutputTokens": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    }
+                  }
+                ]
               }
             }
           }
-        }
+        },
+        "description": "生成预算仅生成配置适用且必须为正整数；嵌入两项必须显式为null。同源按协议、规范化主机及有效端口判断，显式默认端口与省略默认端口等价；路径不参与来源比较，不将DNS地址相同或主机别名视为同源。新版本keep同源继承当前凭据状态到独立可变绑定，不共享可变绑定、不改变旧版本；无当前凭据时跨源keep仍未设置。当前有凭据且新地址跨源时keep返回400 INVALID_REQUEST，fieldErrors.field=/credential/action，说明为“连接来源已变化，请明确替换或清除密钥后保存。”；保存整体原子拒绝，不创建版本、不修改配置或凭据、不外发请求。跨源显式replace绑定本次输入，clear明确未设置。历史凭据操作的keep只保持指定版本。"
       }
     },
     "/settings/models/generation/test": {
@@ -5546,7 +5567,8 @@
               }
             }
           }
-        }
+        },
+        "description": "测试仅使用已保存配置，接收时捕获完整不可变请求快照；不发送资料。接收任务与幂等映射同事务持久化，同会话同操作同键同负载始终返回原任务，即使随后配置变化或任务失败中断也不再次调用；显式新测试用新键。关闭自动重试和重定向，保留TLS验证及有限连接/读取超时、响应大小。不得转发本机Cookie或CSRF头到外部，不记录秘密、外部请求响应正文或原始异常。未配置完整返回422 INVALID_STATE且不创建任务或外发。保存后旧结果只表示历史检查，匹配versionId不证明新凭据已经验证。 采用已确认OpenAI兼容接口及Spring AI对应适配器，追加/chat/completions，POST JSON，Authorization使用快照Bearer凭据。请求model原样，messages仅一条user消息“请回复连接正常。”，stream=false，max_tokens=min(16,maxOutputTokens)。校验非空choices消息与协议，不要求固定回答文本，不切换模型。kind=model_test，targetConfigVersionId为捕获生成版本。"
       }
     },
     "/settings/models/embedding": {
@@ -5664,11 +5686,27 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ModelConfigInput"
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ModelConfigInput"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "contextWindowTokens": {
+                        "type": "null"
+                      },
+                      "maxOutputTokens": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                ]
               }
             }
           }
-        }
+        },
+        "description": "生成预算仅生成配置适用且必须为正整数；嵌入两项必须显式为null。同源按协议、规范化主机及有效端口判断，显式默认端口与省略默认端口等价；路径不参与来源比较，不将DNS地址相同或主机别名视为同源。新版本keep同源继承当前凭据状态到独立可变绑定，不共享可变绑定、不改变旧版本；无当前凭据时跨源keep仍未设置。当前有凭据且新地址跨源时keep返回400 INVALID_REQUEST，fieldErrors.field=/credential/action，说明为“连接来源已变化，请明确替换或清除密钥后保存。”；保存整体原子拒绝，不创建版本、不修改配置或凭据、不外发请求。跨源显式replace绑定本次输入，clear明确未设置。历史凭据操作的keep只保持指定版本。"
       }
     },
     "/settings/models/embedding/test": {
@@ -5755,7 +5793,8 @@
               }
             }
           }
-        }
+        },
+        "description": "测试仅使用已保存配置，接收时捕获完整不可变请求快照；不发送资料。接收任务与幂等映射同事务持久化，同会话同操作同键同负载始终返回原任务，即使随后配置变化或任务失败中断也不再次调用；显式新测试用新键。关闭自动重试和重定向，保留TLS验证及有限连接/读取超时、响应大小。不得转发本机Cookie或CSRF头到外部，不记录秘密、外部请求响应正文或原始异常。未配置完整返回422 INVALID_STATE且不创建任务或外发。保存后旧结果只表示历史检查，匹配versionId不证明新凭据已经验证。 采用已确认OpenAI兼容接口及Spring AI对应适配器，追加/embeddings，POST JSON，Authorization使用快照Bearer凭据。请求model原样、input=[“连接测试”]、encoding_format=float；不硬编码维度，验证一个非空有限数值向量及正确索引。kind=model_test，targetConfigVersionId为捕获嵌入版本；不接受历史版本选择参数。"
       }
     },
     "/settings/vector-store": {
@@ -5954,7 +5993,8 @@
           {
             "localSession": []
           }
-        ]
+        ],
+        "description": "测试仅使用已保存配置，接收时捕获完整不可变请求快照；不发送资料。接收任务与幂等映射同事务持久化，同会话同操作同键同负载始终返回原任务，即使随后配置变化或任务失败中断也不再次调用；显式新测试用新键。关闭自动重试和重定向，保留TLS验证及有限连接/读取超时、响应大小。不得转发本机Cookie或CSRF头到外部，不记录秘密、外部请求响应正文或原始异常。未配置完整返回422 INVALID_STATE且不创建任务或外发。保存后旧结果只表示历史检查，匹配versionId不证明新凭据已经验证。 追加/collections只读GET，凭据已设置时使用api-key头，未设置不发空认证头；仅校验必要响应结构，不输出集合名或创建修改删除集合。kind=vector_connection_test，targetConfigVersionId=null；无请求体，configured只需合法端点。"
       }
     },
     "/settings/runtime": {
@@ -6774,13 +6814,17 @@
           },
           "503": {
             "$ref": "#/components/responses/503"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
           }
         },
         "security": [
           {
             "localSession": []
           }
-        ]
+        ],
+        "description": "连接测试成功终态返回200及持久结果；排队、运行、失败、中断时返回409 INVALID_STATE、retryable=false，调用方读取原任务而非重发测试。任务不存在或不是模型/向量连接测试返回404 NOT_FOUND。已成功任务却缺失结果为500 INTERNAL_ERROR完整性故障，不伪装未就绪。"
       }
     },
     "/settings/models/embedding/versions/{modelConfigVersionId}": {
@@ -7223,7 +7267,7 @@
             }
           }
         },
-        "description": "绑定该版本的所有知识库后续新请求使用新凭据，失效缓存；在途请求保留原完整快照。此操作不改变端点、模型、版本标识、维度或既有索引。只有显式更新凭据才修改绑定，不读取环境变量。"
+        "description": "绑定该版本的所有知识库后续新请求使用新凭据，失效缓存；在途请求保留原完整快照。此操作不改变端点、模型、版本标识、维度或既有索引。只有显式更新凭据才修改绑定，不读取环境变量。 同一历史版本独立保持、替换、清除；不得改变其他版本绑定。新请求读取新秘密，在途完整旧快照不变；不重建索引。此操作请求体根级为CredentialChange，保留掩码替换拒绝的fieldErrors.field为/value；与模型或向量配置请求嵌套credential的/credential/value区别。"
       }
     }
   },
@@ -8112,7 +8156,7 @@
           "configured",
           "mask"
         ],
-        "description": ""
+        "description": "未设置时configured=false且mask=null；已设置时configured=true且mask为固定只读显示标记“【密钥已设置】”，不回显秘密前后缀。该保留标记不能作为replace.value，返回400 INVALID_REQUEST；模型或向量配置请求的错误字段为/credential/value，updateEmbeddingVersionCredential的请求体根级为CredentialChange，错误字段为/value。不按任意星号形状拒绝其他合法秘密。"
       },
       "KeepCredential": {
         "type": "object",
@@ -8138,10 +8182,13 @@
           },
           "value": {
             "type": "string",
-            "description": "真实密钥，仅写入",
+            "description": "真实密钥，仅写入 不修剪输入；拒绝后端保留的只读掩码标记。",
             "minLength": 1,
             "maxLength": 8192,
-            "writeOnly": true
+            "writeOnly": true,
+            "not": {
+              "const": "【密钥已设置】"
+            }
           }
         },
         "required": [
@@ -8190,7 +8237,8 @@
           {
             "action": "clear"
           }
-        ]
+        ],
+        "description": "同源按协议、规范化主机及有效端口判断，显式默认端口与省略默认端口等价；路径不参与来源比较，不将DNS地址相同或主机别名视为同源。新版本keep同源继承当前凭据状态到独立可变绑定，不共享可变绑定、不改变旧版本；无当前凭据时跨源keep仍未设置。当前有凭据且新地址跨源时keep返回400 INVALID_REQUEST，fieldErrors.field=/credential/action，说明为“连接来源已变化，请明确替换或清除密钥后保存。”；保存整体原子拒绝，不创建版本、不修改配置或凭据、不外发请求。跨源显式replace绑定本次输入，clear明确未设置。历史凭据操作的keep只保持指定版本。"
       },
       "ModelConfigInput": {
         "type": "object",
@@ -8198,15 +8246,16 @@
         "properties": {
           "endpoint": {
             "type": "string",
-            "description": "用户显式提供的 HTTP 或 HTTPS 地址",
+            "description": "用户显式提供的 HTTP 或 HTTPS 地址 仅接受有合法非空主机的HTTP或HTTPS基础地址，允许本地、回环、私网及远程地址；拒绝用户信息、查询、片段及非法主机。保留业务前缀，拼接外部路径时去除末尾斜杠；保存本身不发外部请求。 模型地址包含用户明确选择的兼容版本前缀，不能以/chat/completions或/embeddings结尾；生成追加/chat/completions，嵌入追加/embeddings。不自动选择区域或切换原生协议，不保证任意供应商兼容。",
             "format": "uri",
             "pattern": "^https?://"
           },
           "model": {
             "type": "string",
-            "description": "",
+            "description": "拒绝仅由空白组成的标识；其他输入原样保存，不修剪、不替换未经核实的模型。",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "pattern": "\\S"
           },
           "credential": {
             "$ref": "#/components/schemas/CredentialChange"
@@ -8243,7 +8292,7 @@
           "contextWindowTokens",
           "maxOutputTokens"
         ],
-        "description": "生成配置要求上下文窗口与最大输出；嵌入配置该两项必须为空；只改密钥不重建索引。禁止环境变量兜底。 用户模型标识原样保存，不自动替换未核实模型；contextWindowTokens与maxOutputTokens仅生成配置适用。"
+        "description": "生成配置要求上下文窗口与最大输出；嵌入配置该两项必须为空；只改密钥不重建索引。禁止环境变量兜底。 用户模型标识原样保存，不自动替换未核实模型；contextWindowTokens与maxOutputTokens仅生成配置适用。 预算只遵守已声明正整数及安全整数边界，不新增两预算之间的大小关系。同源按协议、规范化主机及有效端口判断，显式默认端口与省略默认端口等价；路径不参与来源比较，不将DNS地址相同或主机别名视为同源。新版本keep同源继承当前凭据状态到独立可变绑定，不共享可变绑定、不改变旧版本；无当前凭据时跨源keep仍未设置。当前有凭据且新地址跨源时keep返回400 INVALID_REQUEST，fieldErrors.field=/credential/action，说明为“连接来源已变化，请明确替换或清除密钥后保存。”；保存整体原子拒绝，不创建版本、不修改配置或凭据、不外发请求。跨源显式replace绑定本次输入，clear明确未设置。历史凭据操作的keep只保持指定版本。"
       },
       "ModelConfig": {
         "type": "object",
@@ -8332,7 +8381,37 @@
           "complete",
           "updatedAt"
         ],
-        "description": "保存新版本不改已有库绑定；密钥仅替换时更新该凭据绑定，不触发重建；端点/模型变化新不可变配置版本，由各库显式切换。旧版本掩码查询不回传密钥。 modelSnapshot 的端点与模型必须等于所选版本，客户端不能篡改。仅替换密钥不改变模型身份版本；正在执行的请求使用捕获的完整配置。"
+        "description": "保存新版本不改已有库绑定；密钥仅替换时更新该凭据绑定，不触发重建；端点/模型变化新不可变配置版本，由各库显式切换。旧版本掩码查询不回传密钥。 modelSnapshot 的端点与模型必须等于所选版本，客户端不能篡改。仅替换密钥不改变模型身份版本；正在执行的请求使用捕获的完整配置。 初始化持久保存生成和嵌入各自独立versionId及UTC时间，endpoint、model、两预算均null，credential未设置，complete=false；重启不重置标识和时间。首次实际设置形成新版本，初始不完整版本仍可历史查询，不代表可执行配置。生成端点、模型或任一预算实际变化形成新版本；嵌入仅端点或模型变化形成新身份版本。完全相同保存不新建版本，仅凭据动作不改变versionId；凭据或其他实际变更更新updatedAt。complete只表示有效端点、非空白模型、已设凭据及对应合法预算齐全，不代表连接测试成功；生成两预算为整数，嵌入两预算为null。清除模型凭据后complete=false，其他字段保留。新版本不修改旧绑定，历史版本凭据独立可变；生成变更不触发嵌入索引重建。",
+        "examples": [
+          {
+            "kind": "generation",
+            "versionId": "00000000-0000-4000-8000-000000000061",
+            "endpoint": null,
+            "model": null,
+            "credential": {
+              "configured": false,
+              "mask": null
+            },
+            "contextWindowTokens": null,
+            "maxOutputTokens": null,
+            "complete": false,
+            "updatedAt": "2026-01-01T00:00:00Z"
+          },
+          {
+            "kind": "embedding",
+            "versionId": "00000000-0000-4000-8000-000000000062",
+            "endpoint": null,
+            "model": null,
+            "credential": {
+              "configured": false,
+              "mask": null
+            },
+            "contextWindowTokens": null,
+            "maxOutputTokens": null,
+            "complete": false,
+            "updatedAt": "2026-01-01T00:00:00Z"
+          }
+        ]
       },
       "ChargeConsent": {
         "type": "object",
@@ -8375,7 +8454,15 @@
           "message",
           "mayHaveIncurredCost"
         ],
-        "description": ""
+        "description": "available表示该次探测是否可用，不代表未来持续可用或当前已修改配置。checkedAt为探测结束时间；模型请求可能外发时mayHaveIncurredCost=true，包括超时和远端拒绝，不因缺少用量认定免费。向量为false仅表示本系统未调用收费模型，不保证托管服务免费。认证内容、原始供应商异常及内部路径不得出现在message。",
+        "examples": [
+          {
+            "available": false,
+            "checkedAt": "2026-01-01T00:00:01Z",
+            "message": "连接不可用，请检查已保存配置。",
+            "mayHaveIncurredCost": true
+          }
+        ]
       },
       "ChunkingConfig": {
         "type": "object",
@@ -8934,7 +9021,8 @@
               "model_test",
               "migration",
               "backup",
-              "restore"
+              "restore",
+              "vector_connection_test"
             ]
           },
           "state": {
@@ -9133,7 +9221,7 @@
           "warnings",
           "resultResourceId"
         ],
-        "description": "阶段按任务类型适用；进度总数未知为空；索引同一可重试操作最多三次含首次；问答不自动重试。取消与成功转换原子协调，迟到结果不能复活。 所有终态 phase=completed、finishedAt非空；运行前 startedAt为空。失败或中断必须有failure；取消通过state表达，不伪装失败。",
+        "description": "阶段按任务类型适用；进度总数未知为空；索引同一可重试操作最多三次含首次；问答不自动重试。取消与成功转换原子协调，迟到结果不能复活。 所有终态 phase=completed、finishedAt非空；运行前 startedAt为空。失败或中断必须有failure；取消通过state表达，不伪装失败。 连接测试中生成及嵌入kind=model_test，向量kind=vector_connection_test。阶段为queued、initializing、validating、completed，未知总量为null；不伪造模型进度。远端拒绝、鉴权失败、连接失败、超时或非法协议响应均属完成探测：state=succeeded、failure=null并产生available=false结果；本机执行或持久化异常才failed。结果与成功终态在同一SQLite事务提交。重启遗留queued/running连接测试置interrupted、failure.code=TASK_INTERRUPTED，不自动重新外发。无结果的模型失败或中断在warnings给出“连接测试可能已产生费用，请勿自动重新提交。”。连接测试不自动重试、不提供通用取消，旧在途使用接收时完整地址、模型、预算及凭据快照。",
         "allOf": [
           {
             "if": {
@@ -10613,7 +10701,7 @@
         "properties": {
           "endpoint": {
             "type": "string",
-            "description": "",
+            "description": "仅接受有合法非空主机的HTTP或HTTPS基础地址，允许本地、回环、私网及远程地址；拒绝用户信息、查询、片段及非法主机。保留业务前缀，拼接外部路径时去除末尾斜杠；保存本身不发外部请求。 向量服务以该基础地址追加/collections进行只读连接探测，不管理进程或修改集合。",
             "format": "uri",
             "pattern": "^https?://"
           },
@@ -10625,7 +10713,7 @@
           "endpoint",
           "credential"
         ],
-        "description": ""
+        "description": "同源按协议、规范化主机及有效端口判断，显式默认端口与省略默认端口等价；路径不参与来源比较，不将DNS地址相同或主机别名视为同源。新版本keep同源继承当前凭据状态到独立可变绑定，不共享可变绑定、不改变旧版本；无当前凭据时跨源keep仍未设置。当前有凭据且新地址跨源时keep返回400 INVALID_REQUEST，fieldErrors.field=/credential/action，说明为“连接来源已变化，请明确替换或清除密钥后保存。”；保存整体原子拒绝，不创建版本、不修改配置或凭据、不外发请求。跨源显式replace绑定本次输入，clear明确未设置。历史凭据操作的keep只保持指定版本。"
       },
       "VectorConfig": {
         "type": "object",
@@ -10662,7 +10750,18 @@
           "configured",
           "updatedAt"
         ],
-        "description": ""
+        "description": "初始化持久返回endpoint=null、credential未设置、configured=false和UTC初始化时间，重启不重置。configured只表示有效端点已设置，不要求凭据，不代表联网可用；清除凭据不清除端点或已配置状态。",
+        "examples": [
+          {
+            "endpoint": null,
+            "credential": {
+              "configured": false,
+              "mask": null
+            },
+            "configured": false,
+            "updatedAt": "2026-01-01T00:00:00Z"
+          }
+        ]
       },
       "RuntimeSettings": {
         "type": "object",

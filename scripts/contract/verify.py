@@ -15,10 +15,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '05'
+TICKET = '06'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
-         'renameFile', 'listFileVersions')
+         'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
+         'testGenerationModel', 'getEmbeddingModel', 'updateEmbeddingModel', 'testEmbeddingModel',
+         'listEmbeddingModelVersions', 'getEmbeddingModelVersion', 'updateEmbeddingVersionCredential',
+         'getConnectionTestResult', 'getVectorConfig', 'updateVectorConfig', 'testVectorConfig', 'getTask')
 METHODS = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options'}
 KEYWORDS = {
     'type', 'required', 'additionalProperties', 'enum', 'const', 'format',
@@ -139,6 +142,26 @@ def coverage(evidence, operation_id, constraint):
             and constraint in test.get('constraintIds', []) and test.get('passed') is True]
 
 
+def read_evidence_files(paths, contract_hash, implementation_hash):
+    """逐份验证后合并，缺文件或跨文件重名均拒绝。"""
+    merged = {'tests': [], 'routes': []}
+    names = set()
+    for path in paths:
+        evidence = read_evidence(path, contract_hash, implementation_hash)
+        for test in evidence['tests']:
+            if test['name'] in names:
+                raise ValueError('跨文件测试名称重复：' + test['name'])
+            names.add(test['name'])
+            merged['tests'].append(test)
+        routes = evidence.get('routes', [])
+        if not isinstance(routes, list):
+            raise ValueError('路由清单必须为数组：' + str(path))
+        for route in routes:
+            if route not in merged['routes']:
+                merged['routes'].append(route)
+    return merged
+
+
 def operation_complete(constraints):
     """完整操作要求全部原始约束通过，保留项不计完成。"""
     return bool(constraints) and all(row['状态'] == '通过' for row in constraints)
@@ -231,10 +254,12 @@ def main():
     parser.add_argument('--snapshot', action='store_true', help='输出实现快照摘要')
     parser.add_argument('--inventory', action='store_true', help='输出当前切片约束清单')
     parser.add_argument('--acceptance', type=Path, help='核对已有报告的双方独立签认，不重跑生成')
-    parser.add_argument('--provider', type=Path, default=ROOT / 'server/target/contract/provider-evidence.json')
+    parser.add_argument('--provider', type=Path, action='append', help='逐份验证并合并提供方证据，可重复指定')
     parser.add_argument('--consumer', type=Path, default=ROOT / 'front/artifacts/contract-consumer.json')
     parser.add_argument('--browser', type=Path, default=ROOT / 'front/artifacts/contract-browser.json')
     args = parser.parse_args()
+    providers = args.provider or [ROOT / 'server/target/contract/provider-evidence.json',
+                                  ROOT / 'server/target/contract/provider-settings-evidence.json']
     if args.acceptance:
         try:
             print(acceptance(args.acceptance))
@@ -277,15 +302,15 @@ def main():
         report['校验工具'] = {name: importlib.metadata.version(name)
                             for name in ('openapi-spec-validator', 'jsonschema', 'referencing')}
         for role in ('frontend', 'backend'):
-            approval = ROOT / f'docs/agents/api/reviews/contract-03-{role}.md'
+            approval = ROOT / f'docs/agents/api/reviews/contract-06-{role}.md'
             if contract_hash not in approval.read_text(encoding='utf-8'):
                 raise ValueError('缺少同一契约的设计签认：' + role)
         mapping, mapping_hash = scope_mapping(contract_hash)
         report['适用映射SHA256'] = mapping_hash
         report['适用映射说明'] = mapping['说明']
-        for role, path in (('提供方', args.provider), ('消费方', args.consumer)):
+        for role, paths in (('提供方', providers), ('消费方', [args.consumer])):
             try:
-                evidence[role] = read_evidence(path, contract_hash, implementation_hash)
+                evidence[role] = read_evidence_files(paths, contract_hash, implementation_hash)
                 for test in evidence[role]['tests']:
                     if any(identifier not in operations for identifier in test['operationIds']):
                         raise ValueError('测试引用未声明操作：' + test['name'])
@@ -293,7 +318,9 @@ def main():
                     known.update('security.' + str(index + 1) for index in range(len(mapping.get('当前安全行为', []))))
                     if not set(test['constraintIds']).issubset(known):
                         raise ValueError('测试引用未声明约束：' + test['name'])
-                report[role + '证据'] = {'路径': str(path.relative_to(ROOT)), 'SHA256': digest(path.read_bytes())}
+                sources = [{'路径': path.relative_to(ROOT).as_posix(), 'SHA256': digest(path.read_bytes())}
+                           for path in paths]
+                report[role + '证据'] = sources[0] if len(sources) == 1 else {'文件': sources}
             except (OSError, ValueError) as error:
                 report['失败'].append(str(error))
         browser = read_evidence(args.browser, contract_hash, implementation_hash)

@@ -72,10 +72,15 @@ export function createSystemClient(adapter) {
     async request(config) {
       if (!csrfToken) throw new Error('会话已失效，请重新连接本机服务。');
       try {
-        const write = ['post', 'patch'].includes(config.method);
+        const write = ['post', 'put', 'patch', 'delete'].includes(
+          config.method.toLowerCase(),
+        );
+        const headers = axios.AxiosHeaders.from(config.headers);
+        headers.delete('X-CSRF-Token');
+        if (write) headers.set('X-CSRF-Token', csrfToken);
         const response = await http.request({
           ...config,
-          headers: write ? { 'X-CSRF-Token': csrfToken } : {},
+          headers,
         });
         return config.rawResponse ? response : response.data;
       } catch (error) {

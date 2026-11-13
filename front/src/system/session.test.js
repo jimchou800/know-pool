@@ -301,3 +301,24 @@ afterAll(() => {
     ),
   );
 });
+
+it('写入配置携带权威保护头并保留幂等头', async () => {
+  const seen = [];
+  const guarded = createSystemClient(async (config) => {
+    seen.push(config);
+    return {
+      data: config.url === '/session' ? session : status,
+      status: 200,
+      headers: {},
+      config,
+    };
+  });
+  await guarded.connect();
+  await guarded.request({
+    method: 'put',
+    url: '/settings/vector-store',
+    headers: { 'X-CSRF-Token': '伪造', 'Idempotency-Key': session.sessionId },
+  });
+  expect(seen.at(-1).headers.get('X-CSRF-Token')).toBe(session.csrfToken);
+  expect(seen.at(-1).headers.get('Idempotency-Key')).toBe(session.sessionId);
+});

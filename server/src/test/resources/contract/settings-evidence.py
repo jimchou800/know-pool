@@ -1,0 +1,218 @@
+"""以真实请求响应验证正式结构，输出不含请求正文的提供方证据。"""
+
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import sys
+from urllib.parse import parse_qs, urlsplit
+
+root = Path(sys.argv[1])
+for candidate in (root / '.runtime/contract-tools', root.parent.parent / '.runtime/contract-tools'):
+    if candidate.exists():
+        sys.path.insert(0, str(candidate))
+from jsonschema import Draft202012Validator, FormatChecker
+
+spec = importlib.util.spec_from_file_location('contract_verify', root / 'scripts/contract/verify.py')
+verification = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(verification)
+document = json.loads((root / 'docs/agents/api/openapi.yaml').read_bytes())
+operations = verification.inventory(document)
+observations = json.load(sys.stdin)
+tests = []
+BEHAVIORS = {
+    'initialConfigurationSurvivesRestart': ('持久初值：两模型独立身份、空值、时间及重启保留，向量未设置状态。', {'getGenerationModel','getEmbeddingModel','getVectorConfig'}),
+    'credentialAndVersionsAreIndependent': ('配置独立：三态、同源继承、跨源400原子拒绝、相同保存不造版本、历史清除不改当前版本、分页。', {'getEmbeddingModel','updateEmbeddingModel','getEmbeddingModelVersion','updateEmbeddingVersionCredential','listEmbeddingModelVersions'}),
+    'embeddingProbeUsesSavedSnapshotAndIdempotency': ('固定嵌入负载、认证隔离、有限向量结构、同幂等键只外发一次及持久任务结果。', {'testEmbeddingModel','getTask','getConnectionTestResult'}),
+    'probesRespectTransportBoundaries': ('受控外发：固定生成和向量协议，认证不跨主机，307目标零请求，断连、超时、超限及拒绝总尝试一次且成功探测不可用。', {'testGenerationModel','testVectorConfig','getTask','getConnectionTestResult'}),
+    'queuedSnapshotsAndRestartRemainSafe': ('有界队列429、满队列同键原任务、重启排队及运行任务中断且不再外发、费用警示与结果409。', {'testEmbeddingModel','getTask','getConnectionTestResult'}),
+    'preservesSnapshotAndValidatesTls': ('完整旧路径、模型、预算、凭据及配置版本在途固定；下一任务使用新配置；不可信TLS证书拒绝。', {'testGenerationModel','testVectorConfig','getTask','getConnectionTestResult'}),
+    'localFailureAndResultIntegrityAreExplicit': ('本机完成持久化故障任务失败、结果409；成功缺结果500、错误类型404、读取不重测。', {'getTask','getConnectionTestResult','testVectorConfig'}),
+    'rejectsInvalidConfigurationWithoutChanges': ('逐字段非法输入400且保存前后配置一致，精确保留掩码及跨源错误字段，生成预算版本与清除完整性。', {'updateGenerationModel','updateEmbeddingModel'}),
+}
+
+def validator(schema):
+    return Draft202012Validator({**schema, 'components': document['components']}, format_checker=FormatChecker())
+
+def validate_media(value):
+    if value.split(';',1)[0].strip().lower() != 'application/json':
+        raise AssertionError('真实响应媒体不符合契约。')
+
+def behavior_assertions(item, name):
+    behavior = BEHAVIORS.get(item.get('behavior'))
+    return [behavior[0]] if behavior and name in behavior[1] else []
+
+def error_field_constraints(schema, pointer, field, value, found):
+    if '$ref' in schema:
+        pointer = schema['$ref']
+        schema = verification.resolve(document, pointer)
+    child = schema.get('properties', {}).get(field)
+    if child is not None and validator(child).is_valid(value):
+        keywords(child, pointer + '/properties/' + verification.escape(field), value, found)
+    for index, part in enumerate(schema.get('allOf', [])):
+        error_field_constraints(part, pointer + '/allOf/' + str(index), field, value, found)
+
+def parameter_constraints(schema, pointer, actual, required, status):
+    found = set()
+    if actual is None:
+        if required and status < 400:
+            raise AssertionError('真实成功请求缺少必填参数。')
+        found.add(pointer + '/required')
+    elif validator(schema).is_valid(actual):
+        found.add(pointer + '/required')
+        keywords(schema, pointer + '/schema', actual, found)
+    elif status < 400:
+        raise AssertionError('真实成功请求参数不符合契约。')
+    return found
+
+
+def keywords(schema, pointer, value, found, visited=None):
+    visited = set() if visited is None else visited
+    if not isinstance(schema, dict):
+        return
+    if '$ref' in schema:
+        ref = schema['$ref']
+        if ref not in visited:
+            visited.add(ref)
+            keywords(verification.resolve(document, ref), ref, value, found, visited)
+    for key, child in schema.items():
+        here = pointer + '/' + verification.escape(key)
+        if key in verification.KEYWORDS and key not in ('then','else'):
+            found.add(here)
+        if key == 'properties' and isinstance(value, dict):
+            for name, part in child.items():
+                if name in value:
+                    keywords(part, here + '/' + verification.escape(name), value[name], found, visited)
+        elif key == 'items' and isinstance(value, list):
+            for item in value:
+                keywords(child, here, item, found, set(visited))
+        elif key in ('oneOf', 'anyOf', 'allOf'):
+            for index, part in enumerate(child):
+                if key == 'allOf' or validator(part).is_valid(value):
+                    keywords(part, here + '/' + str(index), value, found, set(visited))
+        elif key == 'if':
+            keywords(child, here, value, found, set(visited))
+            branch = 'then' if validator(child).is_valid(value) else 'else'
+            if branch in schema:
+                found.add(pointer + '/' + branch)
+                keywords(schema[branch], pointer + '/' + branch, value, found, set(visited))
+        elif key == 'not':
+            if not validator(child).is_valid(value):
+                keywords(child, here, value, found, set(visited))
+
+
+def self_check():
+    found = set()
+    keywords({'$ref':'#/components/schemas/CredentialChange'}, '#/test', {'action':'clear'}, found)
+    assert not any(pointer.startswith('#/components/schemas/ReplaceCredential/') for pointer in found)
+    condition = {'if': {'properties':{'state':{'const':'failed'}}}, 'then':{'properties':{'failure':{'type':'object'}}}, 'else':{'properties':{'failure':{'type':'null'}}}}
+    keywords(condition, '#/condition', {'state':'failed','failure':{}}, found)
+    assert '#/condition/then/properties/failure/type' in found
+    assert '#/condition/else/properties/failure/type' not in found
+    assert not validator({'type':'integer','minimum':1}).is_valid(0)
+    assert not validator({'type':'string','format':'uuid'}).is_valid('invalid')
+    validate_media('application/json;charset=utf-8')
+    for check in (lambda: validate_media('text/plain'),
+                  lambda: parameter_constraints({'type':'string','format':'uuid'}, '#/parameter', None, True, 200),
+                  lambda: parameter_constraints({'type':'string','format':'uuid'}, '#/parameter', 'invalid', True, 200)):
+        try: check()
+        except AssertionError: pass
+        else: raise AssertionError('证据反向自检未拒绝无效输入。')
+    assert '#/parameter/schema/format' not in parameter_constraints({'type':'string','format':'uuid'}, '#/parameter', None, False, 200)
+    assert behavior_assertions({}, 'getVectorConfig') == []
+    assert behavior_assertions({'behavior':'initialConfigurationSurvivesRestart'}, 'updateVectorConfig') == []
+    assert behavior_assertions({'behavior':'initialConfigurationSurvivesRestart'}, 'getVectorConfig')
+    found = set()
+    error_field_constraints({'allOf':[{'$ref':'#/components/schemas/ModelConfigInput'}]}, '#/request', 'contextWindowTokens', None, found)
+    assert '#/components/schemas/ModelConfigInput/properties/contextWindowTokens/anyOf/1/type' in found
+    assert '#/components/schemas/ModelConfigInput/properties/contextWindowTokens/anyOf/0/type' not in found
+
+
+self_check()
+
+
+for index, item in enumerate(observations):
+    path = item['path'].split('?', 1)[0].removeprefix('/api/v1')
+    selected = None
+    for name, operation in operations.items():
+        if operation['method'] != item['method']:
+            continue
+        expected = operation['path'].split('/')
+        actual = path.split('/')
+        if len(expected) == len(actual) and all(a == b or a.startswith('{') for a, b in zip(expected, actual)):
+            selected = name, operation
+            break
+    if selected is None or selected[0] not in verification.SCOPE[13:]:
+        continue
+    name, operation = selected
+    validate_media(item['contentType'])
+    method = item['method'].lower()
+    prefix = '#/paths/' + verification.escape(operation['path']) + '/' + method
+    definition = document['paths'][operation['path']][method]
+    found = {prefix + '/method', prefix + '/path', prefix + '/security', prefix + '/parameters',
+             prefix + '/responses/' + str(item['status'])}
+    assertions = behavior_assertions(item, name)
+    if definition.get('description') and assertions:
+        found.add(prefix + '/description')
+    response_definition = definition['responses'][str(item['status'])]
+    if '$ref' in response_definition:
+        ref = response_definition['$ref']
+        response_definition = verification.resolve(document, ref)
+        response_pointer = ref
+    else:
+        response_pointer = prefix + '/responses/' + str(item['status'])
+    response_schema = response_definition['content']['application/json']['schema']
+    errors = list(validator(response_schema).iter_errors(item['response']))
+    if errors:
+        raise AssertionError('真实响应结构不符合契约：' + name + ':' + str(item['status']) + ':' + '/'.join(map(str, errors[0].schema_path)))
+    keywords(response_schema, response_pointer + '/content/application~1json/schema', item['response'], found)
+    if 'requestBody' in definition:
+        found.add(prefix + '/requestBody')
+        found.add(prefix + '/requestBody/required')
+        request_schema = definition['requestBody']['content']['application/json']['schema']
+        try:
+            request = json.loads(item['body'])
+        except (TypeError, ValueError):
+            request = None
+        if item['status'] < 400:
+            validator(request_schema).validate(request)
+        if validator(request_schema).is_valid(request):
+            keywords(request_schema, prefix + '/requestBody/content/application~1json/schema', request, found)
+        elif item['status'] == 400 and item.get('behavior') == 'rejectsInvalidConfigurationWithoutChanges':
+            schema = request_schema
+            schema_pointer = prefix + '/requestBody/content/application~1json/schema'
+            if isinstance(request, dict):
+                for error in item['response']['fieldErrors']:
+                    field = error['field'].removeprefix('/')
+                    if field in request:
+                        error_field_constraints(schema, schema_pointer, field, request[field], found)
+    actual_path = dict(zip([p[1:-1] for p in operation['path'].split('/') if p.startswith('{')],
+                           [a for p,a in zip(operation['path'].split('/'),path.split('/')) if p.startswith('{')]))
+    actual_query = parse_qs(urlsplit(item['path']).query, keep_blank_values=True)
+    actual_headers = {k.lower(): v for k,v in item.get('parameters', {}).items()}
+    for number, parameter in enumerate(definition.get('parameters', [])):
+        pointer = prefix + '/parameters/' + str(number)
+        if '$ref' in parameter:
+            pointer = parameter['$ref']
+            parameter = verification.resolve(document, pointer)
+        location, parameter_name = parameter['in'], parameter['name']
+        actual = actual_path.get(parameter_name) if location == 'path' else actual_headers.get(parameter_name.lower()) if location == 'header' else actual_query.get(parameter_name, [None])[0]
+        schema = parameter.get('schema', {})
+        if location == 'query' and schema.get('type') == 'integer' and actual is not None:
+            try: actual = int(actual)
+            except ValueError: pass
+        found.update(parameter_constraints(schema,pointer,actual,parameter.get('required',False),item['status']))
+    found &= set(operation['constraints'])
+    tests.append({'name': str(index + 1) + '：真实设置请求：' + name + '：' + str(item['status']),
+                  'passed': True, 'operationIds': [name], 'constraintIds': sorted(found),
+                  'request': {'method': item['method'], 'path': path},
+                  'response': {'status': item['status'], 'contentType': item['contentType']},
+                  'assertions': ['真实HTTP媒体及响应结构经标准校验器核对；请求和参数仅映射实际满足的分支；正文和令牌不输出。'] + assertions})
+
+report = {'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
+          'implementationSha256': verification.snapshot()[0],
+          'routes': observations[0]['routes'], 'tests': tests}
+output = root / 'server/target/contract/provider-settings-evidence.json'
+output.parent.mkdir(parents=True, exist_ok=True)
+output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+print('设置提供方证据完成：' + str(len(tests)))

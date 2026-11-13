@@ -7,6 +7,7 @@ import { checkDatasets } from './check-datasets.mjs';
 import { checkFiles } from './check-files.mjs';
 import { checkDocumentPreviews } from './check-document-previews.mjs';
 import { checkBatchFiles } from './check-batch-files.mjs';
+import { checkSettings } from './check-settings.mjs';
 
 const baseURL = process.argv[2] || 'http://127.0.0.1:4173';
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
@@ -159,7 +160,7 @@ try {
     operationIds: ['initializeSession', 'getSystemStatus'],
     constraintIds: ['security.1', 'security.4', 'security.7'],
     source: {
-      actor: '/root/frontend04',
+      actor: '/root/frontend06',
       files: sources,
       originalReports,
     },
@@ -186,6 +187,7 @@ try {
   await checkFiles(page, baseURL, tests);
   await checkDocumentPreviews(page, tests);
   await checkBatchFiles(page, tests);
+  await checkSettings(page, tests);
   await writeFile(
     'artifacts/contract-browser.json',
     JSON.stringify(

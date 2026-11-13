@@ -1,0 +1,13 @@
+{
+    "actor":  "/root/backend06",
+    "role":  "backend",
+    "conclusion":  "通过",
+    "mapSha256":  "8f7505b950e4cac779ef7022e114c20cb1f02f913398c01df50b20174a4c565c",
+    "contractSha256":  "16c66a6a591eb5e9b32e85d6adcb16f27429cc1b916bb4a0b42bed475c278879",
+    "evidence":  [
+                     "独立重算v2原字节SHA-256并逐项比较fb9旧范围新增63条条件，均对应本代理精确指针提案。",
+                     "逐操作只标记不可达子项；生成保存非空字段、嵌入空预算、向量空版本及未知进度、无不同合法负载409均理由成立。",
+                     "getTask保留模型非空与向量空两个目标版本分支，startedAt、finishedAt、failure和warnings真实可达约束仍适用；原95操作分母未缩小。",
+                     "本签认仅范围设计通过，不是实现验收；62测试及行97.37分支83.84为第三轮证据，后续变化须重跑。"
+                 ]
+}

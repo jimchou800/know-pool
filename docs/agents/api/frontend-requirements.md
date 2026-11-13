@@ -32,9 +32,9 @@
 | 03 纯文本资料 | `listDatasetFiles`、`uploadFiles`、`getFile`、`previewLatestFile`、`downloadLatestFile` |
 | 04 Markdown 与 PDF | 复用 `uploadFiles`、`previewLatestFile`、`downloadLatestFile` 的三种媒体类型与位置结构 |
 | 05 批量覆盖重命名 | `renameFile`、`listFileVersions`；复用 `uploadFiles` 的逐项结果与版本约束 |
-| 06 模型配置 | `getGenerationModel`、`updateGenerationModel`、`testGenerationModel`、`getEmbeddingModel`、`updateEmbeddingModel`、`testEmbeddingModel`、`listEmbeddingModelVersions`、`getEmbeddingModelVersion`、`updateEmbeddingVersionCredential`、`getConnectionTestResult`；向量连接配套 `getVectorConfig`、`updateVectorConfig`、`testVectorConfig` |
+| 06 模型配置 | `getGenerationModel`、`updateGenerationModel`、`testGenerationModel`、`getEmbeddingModel`、`updateEmbeddingModel`、`testEmbeddingModel`、`listEmbeddingModelVersions`、`getEmbeddingModelVersion`、`updateEmbeddingVersionCredential`、`getConnectionTestResult`；向量连接配套 `getVectorConfig`、`updateVectorConfig`、`testVectorConfig`；提前复用 `getTask`，共十四操作 |
 | 07 知识库初始化 | `listKnowledgeBases`、`createKnowledgeBase`、`getKnowledgeBase`、`updateKnowledgeBase`、`getProcessingConfig`、`addKnowledgeBaseSource`、`listKnowledgeBaseSources`、`listKnowledgeBaseFiles` |
-| 08 纯文本索引 | `getTask`、`watchTask`、`listKnowledgeBaseTasks`、`testKnowledgeBaseSearch`；管理测试随后用 `getSearchRequest`、`getSearchEvidence` 读取结果 |
+| 08 纯文本索引 | 继承 06 已有 `getTask`、`watchTask`、`listKnowledgeBaseTasks`、`testKnowledgeBaseSearch`；管理测试随后用 `getSearchRequest`、`getSearchEvidence` 读取结果 |
 | 09 文档索引 | 复用 08 管理检索与文件读取操作，验证 PDF、Markdown 原文位置与内容类型 |
 | 10 切片预检 | `getChunkPreflight`、`updateProcessingConfig`；消费切片统计、样例、降级、位置与完整性结构 |
 | 11 来源与排除 | `removeKnowledgeBaseSource`、`listKnowledgeBaseExclusions`、`excludeKnowledgeBaseFile`、`includeKnowledgeBaseFile`、`listFileKnowledgeBases`；复用 07 来源及文件列表 |
