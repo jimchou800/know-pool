@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 14) {
+            if (version > 15) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 14) {
+            if (version > 0 && version < 15) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -256,7 +256,13 @@ public final class ApplicationData implements AutoCloseable {
                     transaction.sql("PRAGMA user_version=14").update();
                     return null;
                 });
+            }            if (version < 15) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE index_retry_requests(session_id TEXT NOT NULL,operation TEXT NOT NULL,idempotency_key TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(session_id,operation,idempotency_key))").update();
+                    transaction.sql("PRAGMA user_version=15").update();return null;
+                });
             }
+
         } catch (RuntimeException | IOException failure) {
             close();
             throw new IOException("数据目录初始化失败，已停止业务写入。", failure);

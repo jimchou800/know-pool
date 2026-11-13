@@ -170,6 +170,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         || path.matches("/api/v1/knowledge-bases/[^/]+/sources/[^/]+") && request.getMethod().equals("DELETE")
                         || path.matches("/api/v1/knowledge-bases/[^/]+/exclusions/[^/]+") && Set.of("PUT","DELETE").contains(request.getMethod())
                         || path.matches("/api/v1/files/[^/]+/knowledge-bases") && request.getMethod().equals("GET");
+        knowledgeBases = knowledgeBases || path.matches("/api/v1/knowledge-bases/[^/]+/(?:files/[^/]+/retry|retry-failed)") && request.getMethod().equals("POST");
         knowledgeBases = knowledgeBases || path.matches("/api/v1/knowledge-bases/[^/]+/processing-config/versions/[^/]+") && request.getMethod().equals("GET");
         knowledgeBases = knowledgeBases || path.matches("/api/v1/knowledge-bases/[^/]+/(?:publish|offline|check)") && request.getMethod().equals("POST");
         boolean search = path.matches("/api/v1/knowledge-bases/[^/]+/search-test")

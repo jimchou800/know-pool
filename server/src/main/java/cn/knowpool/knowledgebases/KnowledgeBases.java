@@ -464,6 +464,57 @@ public final class KnowledgeBases {
         });
     }
 
+    public JsonNode retryFiles(String kb,String file,String session,String key) {
+        String id=ModelSettingsService.identifier(kb,"knowledgeBaseId"),validKey=ModelSettingsService.identifier(key,"Idempotency-Key");
+        String selected=file==null?null:ModelSettingsService.identifier(file,"fileId"),operation=selected==null?"retryFailedKnowledgeBaseFiles:"+id:"retryKnowledgeBaseFile:"+id+":"+selected;
+        return data.write(jdbc -> {
+            get(jdbc,id);
+            JsonNode replay=jdbc.sql("SELECT payload FROM index_retry_requests WHERE session_id=? AND operation=? AND idempotency_key=?")
+                    .params(session,operation,validKey).query(String.class).optional().map(json::readTree).orElse(null);
+            if (replay!=null) return replay;
+            if (selected!=null) files.sourceFiles(jdbc,"file",selected);
+            List<String> candidates=selected==null?jdbc.sql("SELECT DISTINCT json_extract(payload,'$.fileId') FROM tasks WHERE kind='index_file' AND state IN ('failed','interrupted') AND json_extract(payload,'$.knowledgeBaseId')=? ORDER BY json_extract(payload,'$.fileId')")
+                    .param(id).query(String.class).list():List.of(selected);
+            var items=json.createArrayNode();for (String candidate:candidates) items.add(retryFile(jdbc,id,candidate));
+            ObjectNode result=json.createObjectNode();result.set("items",items);
+            jdbc.sql("INSERT INTO index_retry_requests VALUES(?,?,?,?)").params(session,operation,validKey,json.writeValueAsString(result)).update();return result;
+        });
+    }
+
+    private JsonNode retryFile(JdbcClient jdbc,String kb,String file) {
+        ObjectNode result=json.createObjectNode().put("fileId",file).put("outcome","ineligible").putNull("taskId").put("reason","资料已成功、已取消、过时或不再属于有效范围，未重新处理。");
+        FileService.SourceFile source;
+        try { source=files.sourceFiles(jdbc,"file",file).getFirst(); } catch (ApiFailure missing) { return result; }
+        if (excluded(jdbc,kb,file) || !hasSource(jdbc,kb,source)) return result;
+        JsonNode current=jdbc.sql("SELECT t.payload FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.file_id=?")
+                .params(kb,file).query(String.class).optional().map(json::readTree).orElse(null);
+        String config=get(jdbc,kb).path("targetConfigVersionId").asText();
+        if (current==null || !current.path("targetContentVersionId").asText().equals(source.contentVersionId()) || !current.path("targetConfigVersionId").asText().equals(config)) return result;
+        String state=current.path("state").asText();
+        if (List.of("queued","running").contains(state)) return result.put("outcome","already_active").put("taskId",current.path("id").asText()).put("reason","已有对应排队或执行中任务，未重复创建。");
+        if (!List.of("failed","interrupted").contains(state)) return result;
+        JsonNode parent=jdbc.sql("SELECT t.payload FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE r.knowledge_base_id=? AND r.config_version_id=?")
+                .params(kb,config).query(String.class).optional().map(json::readTree).orElse(null);
+        if (parent!=null && parent.path("state").asText().equals("cancelled")) return result;
+        String now=Instant.now().toString(),taskId=UUID.randomUUID().toString();
+        if (parent!=null && List.of("failed","interrupted").contains(parent.path("state").asText())) {
+            String parentId=UUID.randomUUID().toString();
+            ConnectionTests.Task replacement=new ConnectionTests.Task(parentId,"rebuild_knowledge_base","queued","queued",now,null,null,kb,null,null,config,parent.path("id").asText(),0,0,null,null,List.of("显式重试仅继续当前目标配置，成功文件不重复嵌入。"),null);
+            insertRetry(jdbc,replacement);
+            jdbc.sql("UPDATE processing_rebuilds SET task_id=?,ready=0 WHERE task_id=?").params(parentId,parent.path("id").asText()).update();
+        }
+        ConnectionTests.Task task=new ConnectionTests.Task(taskId,"index_file","queued","queued",now,null,null,kb,file,source.contentVersionId(),config,current.path("id").asText(),0,0,null,null,List.of("显式重试可能再次调用嵌入服务并产生费用。"),null);
+        insertRetry(jdbc,task);
+        jdbc.sql("UPDATE knowledge_base_files SET task_id=? WHERE knowledge_base_id=? AND file_id=?").params(taskId,kb,file).update();refreshProcessing(jdbc,kb);
+        return result.put("outcome","enqueued").put("taskId",taskId).putNull("reason");
+    }
+
+    private void insertRetry(JdbcClient jdbc,ConnectionTests.Task task) {
+        jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,?,?,?,'internal','explicit_index_retry',?,'')")
+                .params(task.id(),task.kind(),task.state(),json.writeValueAsString(task),task.id()).update();
+        cn.knowpool.infrastructure.TaskEvents.record(jdbc,json,json.valueToTree(task));
+    }
+
     public Page list(int limit, String cursor) {
         return data.read(jdbc -> {
             String after = cursor == null ? "" : ModelSettingsService.identifier(cursor, "cursor");

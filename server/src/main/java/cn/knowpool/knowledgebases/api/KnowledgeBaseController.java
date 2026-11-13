@@ -101,6 +101,24 @@ public final class KnowledgeBaseController {
         return service.files(identifier(knowledgeBaseId), limit(request), request.getParameter("cursor"));
     }
 
+    @PostMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/files/{fileId}/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public JsonNode retryFile(@PathVariable String knowledgeBaseId,@PathVariable String fileId,@RequestBody(required=false) String body,HttpServletRequest request) {
+        return retry(knowledgeBaseId,fileId,body,request);
+    }
+
+    @PostMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/retry-failed")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public JsonNode retryFailed(@PathVariable String knowledgeBaseId,@RequestBody(required=false) String body,HttpServletRequest request) {
+        return retry(knowledgeBaseId,null,body,request);
+    }
+
+    private JsonNode retry(String kb,String file,String body,HttpServletRequest request) {
+        query(request,Set.of());if (body!=null && !body.isEmpty()) throw ApiFailure.invalid(null,"失败重试不接受正文。");
+        List<String> keys=java.util.Collections.list(request.getHeaders("Idempotency-Key"));if (keys.size()!=1) throw ApiFailure.invalid("Idempotency-Key","须提供唯一幂等键。");
+        var session=(LocalSessionFilter.Session)request.getAttribute("localSession");return service.retryFiles(kb,file,session.sessionId(),keys.getFirst());
+    }
+
     @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/tasks")
     public KnowledgeBases.Page tasks(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
         return service.tasks(identifier(knowledgeBaseId), limit(request), request.getParameter("cursor"));

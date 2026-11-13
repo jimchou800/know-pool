@@ -104,7 +104,7 @@ public final class Indexes {
             cleanups();
             rebuilds();
             List<String> ids = data.read(jdbc -> jdbc.sql(
-                            "SELECT id FROM tasks WHERE kind='index_file' AND state IN ('queued','running') ORDER BY id LIMIT 1")
+                            "SELECT t.id FROM tasks t WHERE t.kind='index_file' AND t.state IN ('queued','running') AND NOT EXISTS(SELECT 1 FROM processing_rebuilds r JOIN tasks p ON p.id=r.task_id WHERE r.knowledge_base_id=json_extract(t.payload,'$.knowledgeBaseId') AND r.config_version_id=json_extract(t.payload,'$.targetConfigVersionId') AND p.state IN ('failed','interrupted','cancelled')) ORDER BY t.id LIMIT 1")
                     .query(String.class)
                     .list());
             if (!ids.isEmpty()) {
@@ -227,7 +227,9 @@ public final class Indexes {
                     var connection = settings.vectorConnection();
                     String collection = bases.collection(kb, configId);
                     JsonNode actual = null;
-                    for (int attempt = 1; attempt <= 3; attempt++) {
+                    int previous=data.read(jdbc -> task(jdbc,id).path("attempt").asInt());
+                    if (previous>=3) throw new ApiFailure(503,"VECTOR_UNAVAILABLE","集合初始化尝试已达到上限，请显式重试失败资料。");
+                    for (int attempt = previous+1; attempt <= 3; attempt++) {
                         int currentAttempt = attempt;
                         data.write(jdbc -> { requireRebuild(jdbc,id,kb,configId);ObjectNode value = task(jdbc,id); value.put("attempt",currentAttempt); persist(jdbc,value); return null; });
                         try {
