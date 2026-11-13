@@ -81,7 +81,31 @@ def validate_response(schema, response):
         raise AssertionError('消费响应不符合契约。')
 
 
+
+def explicit_constraints(item, operation):
+    """只接纳带实际断言的显式行为义务，不允许宣称结构约束已执行。"""
+    declared = item.get('constraintIds', [])
+    if not declared:
+        return set()
+    assertions = item.get('assertions')
+    if (not isinstance(declared, list) or not all(isinstance(value, str) for value in declared)
+            or not isinstance(assertions, list) or not assertions
+            or not all(isinstance(value, str) and value.strip() for value in assertions)):
+        raise AssertionError('显式消费约束须绑定实际断言。')
+    return {value for value in declared if value.startswith('#/x-business-constraints/')} & set(operation['constraints'])
+
+
 def self_check():
+    obligation = '#/x-business-constraints/maintenance'
+    operation = {'constraints': [obligation]}
+    assert explicit_constraints({'constraintIds': [obligation], 'assertions': ['已断言迁移失败阶段']}, operation) == {obligation}
+    assert not explicit_constraints({'constraintIds': ['#/任意结构'], 'assertions': ['已有断言']}, operation)
+    try:
+        explicit_constraints({'constraintIds': [obligation]}, operation)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError('缺失实际断言不得绑定业务义务。')
     found = set()
     schema = {'type': 'object', 'properties': {'type': {'type': 'string', 'enum': ['file', 'dataset']}}}
     reached(schema, '#/test', {'type': 'file'}, found)
@@ -197,12 +221,13 @@ for index, item in enumerate(json.load(sys.stdin)):
         if 'required' in parameter:
             found.add(pointer + '/required')
         reached(schema, pointer + '/schema', value, found)
+    found.update(explicit_constraints(item, operation))
     tests.append({'name': domain + '：' + name + '：实际消费观察' + str(index + 1), 'passed': True,
                   'operationIds': [name], 'constraintIds': sorted(found & set(operation['constraints'])),
                   'requests': [{'method': method.upper(), 'path': '/api/v1' + item['url'],
                                 'hasProtection': 'x-csrf-token' in headers,
                                 'hasIdempotencyKey': 'idempotency-key' in headers}],
-                  'assertions': ['实际Axios请求与实际传入客户端的响应经标准校验，仅记录触发分支，不输出正文、秘密或令牌。']})
+                  'assertions': ['实际Axios请求与实际传入客户端的响应经标准校验，仅记录触发分支，不输出正文、秘密或令牌。'] + item.get('assertions', [])})
 
 report = {'timestamp': datetime.now(timezone.utc).isoformat(),
           'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
