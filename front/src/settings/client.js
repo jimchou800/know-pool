@@ -189,6 +189,17 @@ function validTask(value) {
     value.state,
   );
   return (
+    [
+      'knowledgeBaseId',
+      'fileId',
+      'targetContentVersionId',
+      'retryOfTaskId',
+      'resultResourceId',
+    ].every((key) => value[key] === null) &&
+    (value.kind === 'model_test'
+      ? identifier(value.targetConfigVersionId)
+      : value.targetConfigVersionId === null) &&
+    (value.state !== 'queued' || value.startedAt === null) &&
     (terminal
       ? value.phase === 'completed' && value.finishedAt !== null
       : value.finishedAt === null) &&

@@ -139,10 +139,14 @@ export async function checkSettings(page, tests) {
       if ((await refresh.count()) && (await refresh.isEnabled()))
         await refresh.click();
     }
-    await form
-      .getByRole('status')
-      .filter({ hasText: available ? '本次连接可用' : '本次连接不可用' })
-      .waitFor();
+    assert.equal(
+      await form
+        .getByRole('status')
+        .filter({ hasText: available ? '本次连接可用' : '本次连接不可用' })
+        .count(),
+      1,
+      `受控测试结果不符：${await form.textContent()}；已观测探测数：${probes.length}`,
+    );
     return data.task;
   };
   try {
@@ -303,6 +307,7 @@ export async function checkSettings(page, tests) {
     await mkdir('artifacts', { recursive: true });
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
+      await page.locator('.formal-main').evaluate(element => { element.scrollTop = 0; });
       assert.equal(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,

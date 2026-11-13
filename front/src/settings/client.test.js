@@ -692,3 +692,20 @@ afterAll(() => {
     ),
   );
 });
+
+it('连接测试拒绝错误关联身份与排队开始时间，不把其他资源任务当本次测试', async () => {
+  const system = await setup(task);
+  for (const response of [
+    { ...task, targetConfigVersionId: null },
+    { ...task, knowledgeBaseId: id },
+    { ...task, fileId: id },
+    { ...task, targetContentVersionId: id },
+    { ...task, retryOfTaskId: id },
+    { ...task, resultResourceId: id },
+    { ...task, startedAt: time },
+    { ...task, kind: 'vector_connection_test', targetConfigVersionId: id },
+  ]) {
+    system.reply(response);
+    await expect(system.api.task(id)).rejects.toThrow('响应格式');
+  }
+});
