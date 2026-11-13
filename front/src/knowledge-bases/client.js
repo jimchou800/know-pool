@@ -175,7 +175,11 @@ function validTask(v, kind = 'knowledge_base_create') {
           identifier(v.knowledgeBaseId) &&
           v.resultResourceId.toLowerCase() === v.knowledgeBaseId.toLowerCase()
         : v.resultResourceId === null
-      : true)
+      : ['index_file', 'search'].includes(kind)
+        ? v.state === 'succeeded'
+          ? identifier(v.resultResourceId)
+          : v.resultResourceId === null
+        : true)
   );
 }
 const validBase = (value) =>
@@ -432,5 +436,7 @@ export function createKnowledgeBaseClient(session) {
     },
     sources: (id, cursor) => page(id, '/sources', validSource, cursor),
     files: (id, cursor) => page(id, '/files', validFile, cursor),
+    tasks: (id, cursor) =>
+      page(id, '/tasks', (value) => validTask(value, 'index_file'), cursor),
   };
 }
