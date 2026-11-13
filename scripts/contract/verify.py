@@ -15,10 +15,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '05'
+TICKET = '06'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
-         'renameFile', 'listFileVersions')
+         'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
+         'testGenerationModel', 'getEmbeddingModel', 'updateEmbeddingModel', 'testEmbeddingModel',
+         'listEmbeddingModelVersions', 'getEmbeddingModelVersion', 'updateEmbeddingVersionCredential',
+         'getConnectionTestResult', 'getVectorConfig', 'updateVectorConfig', 'testVectorConfig', 'getTask')
 METHODS = {'get', 'post', 'put', 'patch', 'delete', 'head', 'options'}
 KEYWORDS = {
     'type', 'required', 'additionalProperties', 'enum', 'const', 'format',
