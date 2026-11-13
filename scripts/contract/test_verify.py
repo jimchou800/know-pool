@@ -127,6 +127,30 @@ class ContractGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '安全'):
             verify.check_scope(mapping, verify.inventory(self.document))
 
+    def test_indexing_scope_keeps_reachable_publication_and_result_branches(self):
+        """索引执行后已可达的版本、进度、失败及结果分支不得沿用旧豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-08.json').read_bytes())
+        operations = verify.inventory(self.document)
+        verify.check_scope(mapping, operations)
+        for identifier, conditions in mapping['操作'].items():
+            for pointer in conditions:
+                self.assertFalse('/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/' in pointer)
+                self.assertFalse('/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/' in pointer)
+                self.assertFalse('/KnowledgeBase/properties/availabilityReason/anyOf/0/' in pointer)
+            for rule, identifiers in verify.BUSINESS_OPERATIONS.items():
+                if identifier in identifiers:
+                    self.assertNotIn('#/x-business-constraints/' + rule, conditions)
+        for identifier in ('getTask', 'listKnowledgeBaseFiles', 'listKnowledgeBaseTasks',
+                           'testKnowledgeBaseSearch', 'getSearchRequest'):
+            for pointer in mapping['操作'][identifier]:
+                self.assertFalse(pointer.startswith('#/components/schemas/Task/allOf/3/then'))
+                if identifier in ('getTask', 'listKnowledgeBaseFiles', 'listKnowledgeBaseTasks'):
+                    self.assertFalse('/Task/properties/progressTotal/anyOf/0/' in pointer)
+        self.assertFalse(any('/UploadItem/properties/indexTaskIds/items/' in pointer
+                             for pointer in mapping['操作']['uploadFiles']))
+        self.assertFalse(any('/x-sse/' in pointer for pointer in mapping['操作']['watchTask']))
+        self.assertNotIn('#/paths/~1tasks~1{taskId}~1events/get/responses/429',
+                         mapping['操作']['watchTask'])
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])
