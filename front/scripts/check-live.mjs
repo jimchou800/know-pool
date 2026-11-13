@@ -8,6 +8,7 @@ import { checkFiles } from './check-files.mjs';
 import { checkDocumentPreviews } from './check-document-previews.mjs';
 import { checkBatchFiles } from './check-batch-files.mjs';
 import { checkSettings } from './check-settings.mjs';
+import { checkKnowledgeBases } from './check-knowledge-bases.mjs';
 
 const baseURL = process.argv[2] || 'http://127.0.0.1:4173';
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
@@ -188,6 +189,7 @@ try {
   await checkDocumentPreviews(page, tests);
   await checkBatchFiles(page, tests);
   await checkSettings(page, tests);
+  await checkKnowledgeBases(page, tests);
   await writeFile(
     'artifacts/contract-browser.json',
     JSON.stringify(

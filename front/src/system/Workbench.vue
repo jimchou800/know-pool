@@ -5,6 +5,7 @@ import Icon from '../Icon.vue';
 import { createSystemClient } from './session';
 import Datasets from '../datasets/Datasets.vue';
 import Settings from '../settings/Settings.vue';
+import KnowledgeBases from '../knowledge-bases/KnowledgeBases.vue';
 
 const props = defineProps({
   client: { type: Object, default: () => createSystemClient() },
@@ -178,6 +179,16 @@ onMounted(connect);
         /></template>
         <Settings
           v-else-if="route.path === '/settings' && status && !loading"
+          :client="client"
+          :writable="status.writeState === 'ready'"
+        />
+        <KnowledgeBases
+          v-else-if="
+            (route.path === '/knowledge-bases' ||
+              route.path.startsWith('/knowledge-bases/')) &&
+            status &&
+            !loading
+          "
           :client="client"
           :writable="status.writeState === 'ready'"
         />
