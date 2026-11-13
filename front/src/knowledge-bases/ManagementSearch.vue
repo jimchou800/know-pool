@@ -280,7 +280,11 @@ onBeforeUnmount(() => {
       </p>
       <p v-else>当前展示本次检索的完整切片证据快照。</p>
       <pre class="source-text">{{ selected.text }}</pre>
-      <EvidencePreview :key="`${selected.id}-${selected.contentVersionId}`" :client="client" :evidence="selected" />
+      <EvidencePreview
+        :key="`${selected.id}-${selected.contentVersionId}`"
+        :client="client"
+        :evidence="selected"
+      />
     </section>
   </section>
 </template>

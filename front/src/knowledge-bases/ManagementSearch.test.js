@@ -4,20 +4,43 @@ import ManagementSearch from './ManagementSearch.vue';
 import { setup, id, otherId, task } from '../../test-fixtures/knowledge-bases';
 import { search, evidence } from '../../test-fixtures/indexing';
 it('Markdown证据显示真实标题段落与续片位置并按证据版本打开原文', async () => {
-  const item = { ...evidence, originalAvailable: true, location: { ...evidence.location, format: 'markdown', titlePath: ['使用指南', '步骤'], paragraphId: 'paragraph-3', structureId: 'list-8', continuationIndex: 0 } };
-  const s = await setup((r) => r.url.includes('/evidence/') ? item : { ...search, result: { ...search.result, evidence: [item] } });
-  const wrapper = mount(ManagementSearch, { props: { client: s.client, knowledgeBaseId: id }, attachTo: document.body });
+  const item = {
+    ...evidence,
+    originalAvailable: true,
+    location: {
+      ...evidence.location,
+      format: 'markdown',
+      titlePath: ['使用指南', '步骤'],
+      paragraphId: 'paragraph-3',
+      structureId: 'list-8',
+      continuationIndex: 0,
+    },
+  };
+  const s = await setup((r) =>
+    r.url.includes('/evidence/')
+      ? item
+      : { ...search, result: { ...search.result, evidence: [item] } },
+  );
+  const wrapper = mount(ManagementSearch, {
+    props: { client: s.client, knowledgeBaseId: id },
+    attachTo: document.body,
+  });
   await wrapper.get('textarea').setValue('版本');
   await wrapper.get('form').trigger('submit');
   await flushPromises();
-  await wrapper.findAll('button').find((b) => b.text() === '查看原文依据').trigger('click');
+  await wrapper
+    .findAll('button')
+    .find((b) => b.text() === '查看原文依据')
+    .trigger('click');
   await flushPromises();
   const region = wrapper.get('[aria-label="原文依据"]');
   expect(region.text()).toContain('使用指南 / 步骤');
   expect(region.text()).toContain('paragraph-3');
   expect(region.text()).toContain('list-8');
   expect(region.text()).toContain('结构第1片');
-  expect(region.findAll('button').some((b) => b.text() === '打开对应版本原文')).toBe(true);
+  expect(
+    region.findAll('button').some((b) => b.text() === '打开对应版本原文'),
+  ).toBe(true);
   wrapper.unmount();
 });
 

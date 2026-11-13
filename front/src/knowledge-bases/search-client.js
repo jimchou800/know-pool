@@ -85,7 +85,17 @@ function validLocation(value) {
       'tableColumnStart',
       'tableColumnEnd',
     ].every((key) => nullable(value[key], (v) => integer(v))) &&
-    [['pageStart', 'pageEnd'], ['lineStart', 'lineEnd'], ['tableRowStart', 'tableRowEnd'], ['tableColumnStart', 'tableColumnEnd']].every(([start, end]) => value[start] === null || value[end] === null || value[end] >= value[start])
+    [
+      ['pageStart', 'pageEnd'],
+      ['lineStart', 'lineEnd'],
+      ['tableRowStart', 'tableRowEnd'],
+      ['tableColumnStart', 'tableColumnEnd'],
+    ].every(
+      ([start, end]) =>
+        value[start] === null ||
+        value[end] === null ||
+        value[end] >= value[start],
+    )
   );
 }
 function validEvidence(value, knowledgeBaseId) {

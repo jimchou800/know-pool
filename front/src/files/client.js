@@ -205,7 +205,8 @@ export function createFileClient(session) {
     },
     preview: (id) => binary(id, 'preview'),
     async previewVersion(id, versionId) {
-      if (!identifier(versionId)) throw new Error('内容版本标识无效，请重新读取证据。');
+      if (!identifier(versionId))
+        throw new Error('内容版本标识无效，请重新读取证据。');
       return binary(id, 'preview', versionId);
     },
     download: (id) => binary(id, 'download'),

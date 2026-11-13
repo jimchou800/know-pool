@@ -20,7 +20,12 @@ it('初始证据页从实际起始页渲染，越界不显示第一页', async (
 });
 it('证据末页越界不显示不完整原文且不承诺历史下载', async () => {
   const wrapper = mount(PdfPreview, {
-    props: { bytes: new ArrayBuffer(1), initialPage: 1, endPage: 3, downloadAvailable: false },
+    props: {
+      bytes: new ArrayBuffer(1),
+      initialPage: 1,
+      endPage: 3,
+      downloadAvailable: false,
+    },
   });
   await flushPromises();
   expect(wrapper.get('[role=alert]').text()).toContain('1至2');

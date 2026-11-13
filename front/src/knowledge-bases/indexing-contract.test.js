@@ -295,18 +295,65 @@ it('管理请求六状态无索引和依赖失败实际消费，成功命中及�
 });
 
 it('文档结构与跨页定位经三个真实客户端入口完整消费', async () => {
-  const s = await setup(() => null), api = createManagementSearchClient(s.client);
+  const s = await setup(() => null),
+    api = createManagementSearchClient(s.client);
   const base = evidence.location;
   const locations = [
-    { ...base, format: 'markdown', lineStart: 3, lineEnd: 4, titlePath: ['使用指南'], paragraphId: 'paragraph-1', structureId: 'paragraph-1', continuationIndex: 0 },
-    { ...base, format: 'markdown', lineStart: 8, lineEnd: 9, titlePath: ['使用指南', '步骤'], structureId: 'list-1', continuationIndex: 1 },
-    { ...base, format: 'markdown', lineStart: 11, lineEnd: 13, titlePath: ['使用指南', '步骤'], structureId: 'table-1', tableRowStart: 0, tableRowEnd: 1, tableColumnStart: 0, tableColumnEnd: 1 },
-    { ...base, format: 'markdown', lineStart: 15, lineEnd: 17, structureId: 'code-1', codeBlockId: 'code-1', codeLanguage: 'java' },
-    { ...base, format: 'pdf', lineStart: null, lineEnd: null, pageStart: 1, pageEnd: 2 },
+    {
+      ...base,
+      format: 'markdown',
+      lineStart: 3,
+      lineEnd: 4,
+      titlePath: ['使用指南'],
+      paragraphId: 'paragraph-1',
+      structureId: 'paragraph-1',
+      continuationIndex: 0,
+    },
+    {
+      ...base,
+      format: 'markdown',
+      lineStart: 8,
+      lineEnd: 9,
+      titlePath: ['使用指南', '步骤'],
+      structureId: 'list-1',
+      continuationIndex: 1,
+    },
+    {
+      ...base,
+      format: 'markdown',
+      lineStart: 11,
+      lineEnd: 13,
+      titlePath: ['使用指南', '步骤'],
+      structureId: 'table-1',
+      tableRowStart: 0,
+      tableRowEnd: 1,
+      tableColumnStart: 0,
+      tableColumnEnd: 1,
+    },
+    {
+      ...base,
+      format: 'markdown',
+      lineStart: 15,
+      lineEnd: 17,
+      structureId: 'code-1',
+      codeBlockId: 'code-1',
+      codeLanguage: 'java',
+    },
+    {
+      ...base,
+      format: 'pdf',
+      lineStart: null,
+      lineEnd: null,
+      pageStart: 1,
+      pageEnd: 2,
+    },
   ];
   for (const location of locations) {
     const item = { ...evidence, location, originalAvailable: true };
-    const result = { ...search, result: { ...search.result, evidence: [item] } };
+    const result = {
+      ...search,
+      result: { ...search.result, evidence: [item] },
+    };
     s.reply(result);
     expect(await api.submit(id, '固定文档定位', otherId)).toEqual(result);
     observed('testKnowledgeBaseSearch', s.requests.at(-1));
