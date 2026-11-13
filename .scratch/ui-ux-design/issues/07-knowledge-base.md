@@ -41,9 +41,9 @@ Blocked by: [技术任务 03：上传与读取单份纯文本资料](../../techn
 
 ## 契约与证据
 
-契约版本：`1.0.0`。
+契约版本：`1.0.3`。
 
-契约 SHA-256：`48f98810322f07e3b8380359f37d43ade7fac221ff056f34f05383c9a0b04fcb`。
+契约 SHA-256：`8c94c7c52284c4bc7e4445bf1a2b175641e3f3c8d5d498a1d1afdfb512ec28ef`。
 
 操作范围：`listKnowledgeBases`、`createKnowledgeBase`、`getKnowledgeBase`、`updateKnowledgeBase`、`getProcessingConfig`、`addKnowledgeBaseSource`、`listKnowledgeBaseSources`、`listKnowledgeBaseFiles`。
 
