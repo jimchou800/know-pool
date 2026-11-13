@@ -1166,7 +1166,6 @@
     "migrationPreflight": {
       "#/paths/~1maintenance~1migration~1preflight/post/responses/404": "维护入口为本机路径和持久任务协调，无独立容量或同步远端依赖；非法结构400，源路径不符、令牌失效、维护互斥及恢复资格409，不安全目标通过预检allowed=false表达。维护读取无资源时404适用；阶段故障通过任务事实表达，消费方共享错误仍须验证。",
       "#/paths/~1maintenance~1migration~1preflight/post/responses/422": "维护入口为本机路径和持久任务协调，无独立容量或同步远端依赖；非法结构400，源路径不符、令牌失效、维护互斥及恢复资格409，不安全目标通过预检allowed=false表达。维护读取无资源时404适用；阶段故障通过任务事实表达，消费方共享错误仍须验证。",
-      "#/paths/~1maintenance~1migration~1preflight/post/responses/429": "维护入口为本机路径和持久任务协调，无独立容量或同步远端依赖；非法结构400，源路径不符、令牌失效、维护互斥及恢复资格409，不安全目标通过预检allowed=false表达。维护读取无资源时404适用；阶段故障通过任务事实表达，消费方共享错误仍须验证。",
       "#/paths/~1maintenance~1migration~1preflight/post/responses/503": "维护入口为本机路径和持久任务协调，无独立容量或同步远端依赖；非法结构400，源路径不符、令牌失效、维护互斥及恢复资格409，不安全目标通过预检allowed=false表达。维护读取无资源时404适用；阶段故障通过任务事实表达，消费方共享错误仍须验证。"
     },
     "submitMigration": {
