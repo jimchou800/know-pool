@@ -6,8 +6,6 @@ import cn.knowpool.infrastructure.ApplicationData;
 import cn.knowpool.system.Embeddings;
 import cn.knowpool.system.ModelSettingsService;
 import jakarta.annotation.PreDestroy;
-import java.nio.ByteBuffer;
-import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +30,7 @@ public final class Indexes {
     private final Embeddings embeddings;
     private final VectorCollections vectors;
     private final JsonMapper json;
+    private final DocumentSources documentSources;
     private volatile boolean stopping;
     private final java.util.concurrent.ScheduledExecutorService worker =
             Executors.newSingleThreadScheduledExecutor(r -> {
@@ -47,7 +46,8 @@ public final class Indexes {
             ModelSettingsService settings,
             Embeddings embeddings,
             VectorCollections vectors,
-            JsonMapper json) {
+            JsonMapper json,
+            DocumentSources documentSources) {
         this.data = data;
         this.files = files;
         this.bases = bases;
@@ -55,6 +55,7 @@ public final class Indexes {
         this.embeddings = embeddings;
         this.vectors = vectors;
         this.json = json;
+        this.documentSources = documentSources;
         data.write(jdbc -> {
             for (String payload : jdbc.sql("SELECT payload FROM tasks WHERE kind='index_file' AND state='running'")
                     .query(String.class)
@@ -193,8 +194,8 @@ public final class Indexes {
             JsonNode config =
                     bases.config(task.path("knowledgeBaseId").asText()).path("input");
             String index = data.write(jdbc -> {
-                jdbc.sql("INSERT OR IGNORE INTO index_runs(task_id,id,phase) VALUES(?,?,'parsing')")
-                        .params(id, UUID.randomUUID().toString())
+                jdbc.sql("INSERT OR IGNORE INTO index_runs(task_id,id,phase,parser_version,config_snapshot) VALUES(?,?,'parsing',?,?)")
+                        .params(id, UUID.randomUUID().toString(), DocumentSources.RULE_VERSION, json.writeValueAsString(config))
                         .update();
                 return jdbc.sql("SELECT id FROM index_runs WHERE task_id=?")
                         .param(id)
@@ -203,34 +204,31 @@ public final class Indexes {
             });
             List<JsonNode> chunks = chunks(index);
             if (chunks.isEmpty()) {
-                FileService.Stored source = files.versionContent(
+                FileService.VersionContent source = files.versionContent(
                         task.path("fileId").asText(),
                         task.path("targetContentVersionId").asText());
-                if (!source.file().latestVersion().fileType().equals("text"))
-                    throw new ApiFailure(422, "INVALID_FILE", "当前切片仅处理纯文本资料。", null);
-                String text = StandardCharsets.UTF_8
-                        .newDecoder()
-                        .onMalformedInput(CodingErrorAction.REPORT)
-                        .onUnmappableCharacter(CodingErrorAction.REPORT)
-                        .decode(ByteBuffer.wrap(source.bytes()))
-                        .toString();
-                if (text.startsWith("\ufeff")) text = text.substring(1);
-                if (text.isBlank()) throw new ApiFailure(422, "PARSING_FAILED", "资料正文为空，不能生成生效索引。", null);
-                if (config.at("/chunking/strategy").asText().equals("page"))
+                if (config.at("/chunking/strategy").asText().equals("page")
+                        && !source.version().fileType().equals("pdf"))
                     throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "按页切片仅适用于PDF。", null);
+                DocumentSources.Parsed document = documentSources.parse(source);
                 phase(id, "chunking", 0, null);
-                List<JsonNode> parsed = split(text, config.path("chunking"), index);
+                List<JsonNode> parsed = splitSources(document, config.path("chunking"), index);
                 data.write(jdbc -> {
                     if (!eligible(jdbc, task(jdbc, id))) throw new ApiFailure(409, "TASK_CANCELLED", "任务资格已失效。", null);
+                    jdbc.sql("UPDATE index_runs SET parser_version=?,source_map=?,config_snapshot=? WHERE id=?")
+                            .params(DocumentSources.RULE_VERSION, json.writeValueAsString(documentSources.provenance(source, document)), json.writeValueAsString(config), index).update();
+                    ObjectNode current = task(jdbc, id);
+                    current.set("warnings", json.valueToTree(document.warnings()));
+                    persist(jdbc, current);
                     int ordinal = 0;
                     for (JsonNode chunk : parsed)
-                        jdbc.sql("INSERT INTO index_chunks(id,index_id,ordinal,text,location) VALUES(?,?,?,?,?)")
+                        jdbc.sql("INSERT INTO index_chunks(id,index_id,ordinal,text,location,source_range) VALUES(?,?,?,?,?,?)")
                                 .params(
                                         chunk.path("id").asText(),
                                         index,
                                         ordinal++,
                                         chunk.path("text").asText(),
-                                        json.writeValueAsString(chunk.path("location")))
+                                        json.writeValueAsString(chunk.path("location")), json.writeValueAsString(chunk.path("sourceRange")))
                                 .update();
                     return null;
                 });
@@ -467,6 +465,50 @@ public final class Indexes {
                     return (JsonNode) value;
                 })
                 .list());
+    }
+
+    private List<JsonNode> splitSources(DocumentSources.Parsed document, JsonNode config, String index) {
+        var result = new java.util.ArrayList<JsonNode>();
+        int unitIndex = 0;
+        var sequences = new java.util.HashMap<String, Integer>();
+        for (DocumentSources.Source source : document.sources()) {
+            int cursor = 0, continuation = 0;
+            int sourceOrdinal = unitIndex++;
+            for (JsonNode value : split(source.text(), config, index + ":" + sourceOrdinal)) {
+                ObjectNode chunk = (ObjectNode) value;
+                String text = chunk.path("text").asText();
+                int start = source.text().indexOf(text, cursor);
+                if (start < 0) throw new ApiFailure(500, "INTEGRITY_FAILED", "切片无法回溯原文。", null);
+                int end = start + text.length();
+                ObjectNode location = source.location().deepCopy();
+                if (source.pageEnds() != null) {
+                    int first = 0, last = 0;
+                    while (first < source.pageEnds().length - 1 && source.pageEnds()[first] <= start) first++;
+                    while (last < source.pageEnds().length - 1 && source.pageEnds()[last] < end) last++;
+                    location.put("pageStart", first + 1).put("pageEnd", last + 1);
+                } else {
+                    int first = source.lineStart() + (int) source.text().substring(0, start).chars().filter(c -> c == '\n').count();
+                    int last = first + (int) text.substring(0, Math.max(0, text.length() - 1)).chars().filter(c -> c == '\n').count();
+                    location.put("lineStart", first).put("lineEnd", last);
+                    if (!location.path("tableRowStart").isNull()) {
+                        int firstRow = Math.max(0, first - source.lineStart() - 1);
+                        int lastRow = Math.max(0, last - source.lineStart() - 1);
+                        location.put("tableRowStart", firstRow).put("tableRowEnd", lastRow);
+                    }
+                }
+                if (!location.path("structureId").isNull()) {
+                    String structure = location.path("structureId").asText();
+                    int sequence = sequences.getOrDefault(structure, 0);
+                    location.put("continuationIndex", sequence);
+                    sequences.put(structure, sequence + 1);
+                } else if (location.path("format").asText().equals("text")) location.put("continuationIndex", continuation++);
+                chunk.set("sourceRange", json.createObjectNode().put("sourceOrdinal", sourceOrdinal).put("utf16Start", start).put("utf16EndExclusive", end).put("ruleVersion", DocumentSources.RULE_VERSION));
+                chunk.set("location", location);
+                result.add(chunk);
+                cursor = start + (text.isEmpty() ? 0 : Character.charCount(text.codePointAt(0)));
+            }
+        }
+        return result;
     }
 
     private List<JsonNode> split(String text, JsonNode config, String index) {

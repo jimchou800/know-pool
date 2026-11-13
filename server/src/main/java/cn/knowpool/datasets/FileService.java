@@ -546,21 +546,44 @@ public final class FileService {
         return new Stored(file, Files.readAllBytes(target));
     }
 
-    public Stored versionContent(String id, String version) throws IOException {
+    public VersionContent versionContent(String id, String version) throws IOException {
+        version = identifier(version);
+        synchronized (data) {
+            return readVersion(id, version);
+        }
+    }
+
+    private VersionContent readVersion(String id, String version) throws IOException {
         FileView file = get(id);
-        String relative = data.read(
-                jdbc -> jdbc.sql("SELECT relative_path FROM file_versions WHERE id=? AND file_id=? AND available=1")
-                        .params(version, id)
-                        .query(String.class)
-                        .optional()
-                        .orElseThrow(() -> new ApiFailure(410, "CONTENT_UNAVAILABLE", "指定版本副本不可用。", null)));
+        Version targetVersion = data.read(jdbc -> jdbc.sql("SELECT id,file_id,uploaded_name,file_type,media_type,size_bytes,content_hash,uploaded_by,uploaded_at,relative_path,available FROM file_versions WHERE id=? AND file_id=?")
+                .params(version, id)
+                .query((row, index) -> new Version(row.getString("id"), row.getString("file_id"), row.getString("uploaded_name"), row.getString("file_type"), row.getString("media_type"), row.getLong("size_bytes"), "SHA-256", row.getString("content_hash"), row.getString("uploaded_by"), row.getString("uploaded_at"), row.getInt("available") == 1))
+                .optional()
+                .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "指定内容版本不存在。", null)));
+        if (!targetVersion.originalAvailable())
+            throw new ApiFailure(410, "CONTENT_UNAVAILABLE", "指定版本副本不可用。", null);
+        String relative = data.read(jdbc -> jdbc.sql("SELECT relative_path FROM file_versions WHERE id=? AND file_id=? AND available=1")
+                .params(version, id)
+                .query(String.class)
+                .single());
         Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
         Path target = data.directory().resolve(relative).toAbsolutePath().normalize();
         Path filename = target.getFileName();
         if (!root.equals(target.getParent()) || filename == null || !version.equals(filename.toString()))
             throw new IOException("副本路径不合法。");
         validateStoragePath(target);
-        return new Stored(file, Files.readAllBytes(target));
+        if (Files.size(target) != targetVersion.sizeBytes()) throw new IOException("副本字节大小与目标版本不一致。");
+        byte[] bytes = Files.readAllBytes(target);
+        try {
+            String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+            if (!hash.equals(targetVersion.contentHash())) throw new IOException("副本哈希与目标版本不一致。");
+        } catch (java.security.NoSuchAlgorithmException failure) { throw new IOException("无法校验目标版本。", failure); }
+        return new VersionContent(file, targetVersion, bytes);
+    }
+
+    public record VersionContent(FileView file, Version version, byte[] bytes) {
+        public VersionContent { bytes = bytes.clone(); }
+        @Override public byte[] bytes() { return bytes.clone(); }
     }
 
     public record Stored(FileView file, byte[] bytes) {

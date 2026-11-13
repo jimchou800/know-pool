@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 6) {
+            if (version > 7) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 6) {
+            if (version > 0 && version < 7) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -187,6 +187,16 @@ public final class ApplicationData implements AutoCloseable {
                         TaskEvents.record(transaction, eventJson, eventJson.readTree(task));
                     }
                     transaction.sql("PRAGMA user_version=6").update();
+                    return null;
+                });
+            }
+            if (version < 7) {
+                write(transaction -> {
+                    transaction.sql("ALTER TABLE index_runs ADD COLUMN parser_version TEXT NOT NULL DEFAULT 'plain-text-08'").update();
+                    transaction.sql("ALTER TABLE index_runs ADD COLUMN source_map TEXT NOT NULL DEFAULT '{}'").update();
+                    transaction.sql("ALTER TABLE index_runs ADD COLUMN config_snapshot TEXT NOT NULL DEFAULT '{}'").update();
+                    transaction.sql("ALTER TABLE index_chunks ADD COLUMN source_range TEXT NOT NULL DEFAULT '{}'").update();
+                    transaction.sql("PRAGMA user_version=7").update();
                     return null;
                 });
             }
