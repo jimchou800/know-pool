@@ -8,7 +8,7 @@
 
 演示原型使用固定样例，不调用真实模型或后端。技术任务 01 的正式工作台、本机会话、安全及统一构建，02 的数据集管理、03 的单份文本上传、预览与原格式下载、04 的安全文档预览与定位及 05 的批量上传、重命名与版本分页已通过端到端验收，见[01 实施记录](.scratch/technical-design/implementation-01.md)、[02 实施记录](.scratch/technical-design/implementation-02.md)、[03 实施记录](.scratch/technical-design/implementation-03.md)、[04 实施记录](.scratch/technical-design/implementation-04.md)与[05 实施记录](.scratch/technical-design/implementation-05.md)。06 的生成、嵌入与向量配置及显式连接测试也已通过同快照双签验收，见[06 实施记录](.scratch/technical-design/implementation-06.md)。07 的空库创建、配置快照、来源关联与待处理文件也已通过同快照验收，见[07 实施记录](.scratch/technical-design/implementation-07.md)。08 的纯文本索引、事件恢复与单库管理检索也已通过同快照双签验收，见[08 实施记录](.scratch/technical-design/implementation-08.md)。其余业务尚未验收；后续变更须重新验证，不沿用旧快照结论。
 
-01 至 08 按单票完成领域实现、完整根验证与独立验收后集成到本地 `integration`，主线复验状态见各实施记录；保留的领域分支是历史交付记录，不代表仍有待合并代码。09 已完成双方只读预检，尚未开始实现；后续继续逐票验证、独立验收并集成，不积累多票后一次合并。
+01 至 08 按单票完成领域实现、完整根验证与独立验收后集成到本地 `integration`，主线复验状态见各实施记录；保留的领域分支是历史交付记录，不代表仍有待合并代码。09 已由两领域领取技术设计及契约双审，尚未开始业务编码；后续继续逐票验证、独立验收并集成，不积累多票后一次合并。
 
 ## 运行界面原型
 
