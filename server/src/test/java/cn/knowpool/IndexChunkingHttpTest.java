@@ -38,7 +38,7 @@ class IndexChunkingHttpTest {
     final org.junit.jupiter.api.extension.TestWatcher completed = new org.junit.jupiter.api.extension.TestWatcher() {
         @Override
         public void testSuccessful(org.junit.jupiter.api.extension.ExtensionContext context) {
-            if (context.getRequiredTestMethod().getName().startsWith("groundedQuestion")) questionsPassed = true;
+            if (context.getRequiredTestMethod().getName().startsWith("groundedQuestion") || context.getRequiredTestMethod().getName().startsWith("conversation")) questionsPassed = true;
             if (context.getRequiredTestMethod().getName().startsWith("searchInstance")) instancesPassed = true;
             if (context.getRequiredTestMethod().getName().startsWith("multiSearch")) multiSearchPassed = true;
             if (context.getRequiredTestMethod().getName().equals("publicationAndChecksKeepIndependentStates")) publicationPassed = true;
@@ -64,6 +64,112 @@ class IndexChunkingHttpTest {
 
     private void generation(Client client,int port) throws Exception {
         assertThat(send(client,"/settings/models/generation","PUT","{\"endpoint\":\"http://127.0.0.1:"+port+"/v1\",\"model\":\"qwen-plus\",\"contextWindowTokens\":32768,\"maxOutputTokens\":2048,\"credential\":{\"action\":\"replace\",\"value\":\"fixed-test-key\"}}",null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("追问只带近期完整历史且重新检索，元数据分页及引用当前状态跨重启一致")
+    void conversationHistoryScopeAndReferenceReadsStayBound() throws Exception {
+        var contexts=new java.util.concurrent.CopyOnWriteArrayList<JsonNode>();
+        var calls=new java.util.concurrent.atomic.AtomicInteger();
+        HttpServer vector=indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(),() -> {},() -> {},"4",hits -> {},body -> {
+            calls.incrementAndGet();String system=body.at("/messages/0/content").asText();JsonNode input=JSON.readTree(body.at("/messages/1/content").asText());
+            if (system.contains("任务是问题预处理")) return chatResponse(JSON.createObjectNode().set("additionalQueries",JSON.createArrayNode()),"stop",true);
+            if (system.contains("任务是严格审查候选回答")) return chatResponse(JSON.createObjectNode().put("supported",true),"stop",true);
+            contexts.add(input);String id=input.at("/evidence/0/id").asText();
+            var answer=JSON.createObjectNode().put("outcome","answered").put("text","完整".repeat(600)+"【"+id+"】");
+            answer.set("citationEvidenceIds",JSON.createArrayNode().add(id));answer.set("uncoveredQuestions",JSON.createArrayNode());answer.set("contradictions",JSON.createArrayNode());return chatResponse(answer,"stop",true);
+        });
+        Path directory=Files.createTempDirectory(Path.of("target"),"conversation-history-http-").toAbsolutePath();String conversation,firstId,evidenceId,file;
+        try {
+            try (ConfigurableApplicationContext app=start(directory)) {
+                Client client=client(app);String processing=processing(client,vector.getAddress().getPort(),0,"{}","[]");generation(client,vector.getAddress().getPort());
+                String kb=createIndexedBase(client,processing,"会话历史依据库","本轮原始依据。");
+                assertThat(send(client,"/knowledge-bases/"+kb+"/publish","POST",null,null).statusCode()).isEqualTo(200);
+                String input=JSON.createObjectNode().put("question","第一轮问题").set("knowledgeBaseIds",JSON.createArrayNode().add(kb)).toString();
+                JsonNode first=JSON.readTree(send(client,"/conversations/first-question","POST",input,UUID.randomUUID().toString()).body());conversation=first.at("/conversation/id").asText();firstId=first.at("/questionTask/task/id").asText();
+                assertThat(await(client,firstId).path("state").asText()).isEqualTo("succeeded");
+                JsonNode snapshot=read(client,"/question-tasks/"+firstId).at("/answer/evidence/0");evidenceId=snapshot.path("id").asText();file=snapshot.path("fileId").asText();
+                assertThat(send(client,"/conversations/"+conversation+"/name","PATCH","{\"name\":\"固定手动名称\"}",null).statusCode()).isEqualTo(200);
+                var ids=new java.util.ArrayList<String>();ids.add(firstId);
+                for (int n=2;n<=4;n++) {
+                    String question="第"+n+"轮完整问题";
+                    String follow=JSON.createObjectNode().put("question",question).set("knowledgeBaseIds",JSON.createArrayNode().add(kb)).toString(),key=UUID.randomUUID().toString();
+                    HttpResponse<String> response=send(client,"/conversations/"+conversation+"/questions","POST",follow,key);assertThat(response.statusCode()).isEqualTo(202);
+                    String id=JSON.readTree(response.body()).at("/task/id").asText();ids.add(id);assertThat(await(client,id).path("state").asText()).isEqualTo("succeeded");
+                    JsonNode answer=read(client,"/question-tasks/"+id).path("answer");
+                    assertThat(answer.path("historyContext").asText()).isEqualTo(n<4?"all_turns":"recent_complete_turns");
+                    assertThat(answer.path("omittedHistoryTurnCount").asInt()).isEqualTo(n<4?0:1);
+                    JsonNode used=contexts.get(n-1).path("history");assertThat(used.size()).isEqualTo(n<4?n-1:2);
+                    for (JsonNode turn:used) { assertThat(turn.size()).isEqualTo(2);assertThat(turn.path("answer").asText()).startsWith("完整完整").endsWith("】");assertThat(turn.has("evidence")).isFalse(); }
+                    int count=calls.get();assertThat(JSON.readTree(send(client,"/conversations/"+conversation+"/questions","POST",follow,key).body()).at("/task/id").asText()).isEqualTo(id);assertThat(calls.get()).isEqualTo(count);
+                    assertThat(send(client,"/conversations/"+conversation+"/questions","POST",follow.replace(question,"异负载"),key).statusCode()).isEqualTo(409);
+                }
+                assertThat(read(client,"/conversations/"+conversation).path("name").asText()).isEqualTo("固定手动名称");
+                assertThat(send(client,"/conversations/"+conversation+"/scope","PUT","{\"knowledgeBaseIds\":[]}",null).statusCode()).isEqualTo(200);
+                assertThat(read(client,"/question-tasks/"+firstId).path("selectedKnowledgeBaseIds")).isEqualTo(JSON.createArrayNode().add(kb));
+                var actual=new java.util.ArrayList<String>();String cursor=null;
+                do {
+                    JsonNode page=read(client,"/conversations/"+conversation+"/turns?limit=1"+(cursor==null?"":"&cursor="+cursor));actual.add(page.at("/items/0/id").asText());cursor=page.path("nextCursor").isNull()?null:page.path("nextCursor").asText();
+                } while (cursor!=null);
+                assertThat(actual).containsExactlyElementsOf(ids);
+                JsonNode other=JSON.readTree(send(client,"/conversations/first-question","POST",input,UUID.randomUUID().toString()).body());String otherConversation=other.at("/conversation/id").asText();assertThat(await(client,other.at("/questionTask/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+                assertThat(send(client,"/conversations/"+otherConversation+"/name","PATCH","{\"name\":\"固定手动名称\"}",null).statusCode()).isEqualTo(200);
+                JsonNode page=read(client,"/conversations?limit=1");assertThat(page.at("/items/0/id").asText()).isEqualTo(otherConversation);assertThat(read(client,"/conversations?limit=1&cursor="+page.path("nextCursor").asText()).at("/items/0/id").asText()).isEqualTo(conversation);
+                String dataset=read(client,"/knowledge-bases/"+kb+"/sources").at("/items/0/resourceId").asText();JsonNode uploaded=uploadText(client,dataset,"更新后原文依据。");assertThat(await(client,uploaded.at("/items/0/indexTaskIds/0").asText()).path("state").asText()).isEqualTo("succeeded");
+                app.getBean(cn.knowpool.datasets.FileService.class).cleanObsoleteVersions(java.util.Set.of());
+                assertThat(send(client,"/files/"+file+"/name","PATCH","{\"name\":\"更新名称.txt\"}",null).statusCode()).isEqualTo(200);
+                JsonNode changed=read(client,"/conversations/"+conversation+"/evidence/"+evidenceId);assertThat(changed.path("filenameAtCapture")).isEqualTo(snapshot.path("filenameAtCapture"));assertThat(changed.path("text")).isEqualTo(snapshot.path("text"));assertThat(changed.path("currentFilename").asText()).isEqualTo("更新名称.txt");assertThat(changed.path("originalAvailable").asBoolean()).isFalse();
+                assertThat(read(client,"/question-tasks/"+firstId).at("/answer/evidence/0")).isEqualTo(changed);
+                assertThat(read(client,"/conversations/"+conversation+"/turns?limit=1").at("/items/0/questionTask/answer/evidence/0")).isEqualTo(changed);
+                for (String query:java.util.List.of("?limit=0","?limit=101","?limit=1&limit=2","?cursor=bad","?unknown=1")) assertThat(send(client,"/conversations"+query,"GET",null,null).statusCode()).isEqualTo(400);
+                assertThat(send(client,"/conversations/"+conversation+"/name","PATCH","{\"name\":\" \"}",null).statusCode()).isEqualTo(400);
+                assertThat(send(client,"/conversations/"+conversation+"/scope","PUT","{\"knowledgeBaseIds\":[\"bad\"]}",null).statusCode()).isEqualTo(400);
+            }
+            int count=calls.get();
+            try (ConfigurableApplicationContext app=start(directory)) {
+                Client client=client(app);assertThat(read(client,"/conversations/"+conversation).path("name").asText()).isEqualTo("固定手动名称");assertThat(read(client,"/question-tasks/"+firstId).at("/answer/evidence/0/currentFilename").asText()).isEqualTo("更新名称.txt");assertThat(read(client,"/conversations/"+conversation+"/turns").path("items").size()).isEqualTo(4);assertThat(calls.get()).isEqualTo(count);
+            }
+        } finally { vector.stop(0); }
+    }
+
+    @Test
+    @DisplayName("同会话原子受理取消释放资格，删除事务失败不取消且成功后迟到不得复活")
+    void conversationCancellationDeletionAndLateResultsStayIsolated() throws Exception {
+        var blocked=new java.util.concurrent.atomic.AtomicBoolean();var entered=new java.util.concurrent.atomic.AtomicReference<>(new java.util.concurrent.CountDownLatch(1));var release=new java.util.concurrent.atomic.AtomicReference<>(new java.util.concurrent.CountDownLatch(1));
+        var calls=new java.util.concurrent.atomic.AtomicInteger();
+        HttpServer vector=indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(),() -> {},() -> {},"4",hits -> {},body -> {
+            calls.incrementAndGet();String system=body.at("/messages/0/content").asText();JsonNode input=JSON.readTree(body.at("/messages/1/content").asText());
+            if (system.contains("任务是问题预处理")) {
+                if (blocked.get()) { entered.get().countDown();try { release.get().await(15,java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ignored) { } }
+                return chatResponse(JSON.createObjectNode().set("additionalQueries",JSON.createArrayNode()),"stop",true);
+            }
+            if (system.contains("任务是严格审查候选回答")) return chatResponse(JSON.createObjectNode().put("supported",true),"stop",true);
+            String id=input.at("/evidence/0/id").asText();var answer=JSON.createObjectNode().put("outcome","answered").put("text","本轮依据【"+id+"】");answer.set("citationEvidenceIds",JSON.createArrayNode().add(id));answer.set("uncoveredQuestions",JSON.createArrayNode());answer.set("contradictions",JSON.createArrayNode());return chatResponse(answer,"stop",true);
+        });
+        Path directory=Files.createTempDirectory(Path.of("target"),"conversation-delete-http-").toAbsolutePath();String deleted,remaining;
+        try {
+            try (ConfigurableApplicationContext app=start(directory)) {
+                Client client=client(app);String processing=processing(client,vector.getAddress().getPort(),0,"{}","[]");generation(client,vector.getAddress().getPort());String kb=createIndexedBase(client,processing,"会话清理依据库","会话删除后资料仍在。");assertThat(send(client,"/knowledge-bases/"+kb+"/publish","POST",null,null).statusCode()).isEqualTo(200);
+                String input=JSON.createObjectNode().put("question","不能泄露到清理任务的问题").set("knowledgeBaseIds",JSON.createArrayNode().add(kb)).toString();
+                JsonNode first=JSON.readTree(send(client,"/conversations/first-question","POST",input,UUID.randomUUID().toString()).body());deleted=first.at("/conversation/id").asText();String firstId=first.at("/questionTask/task/id").asText();assertThat(await(client,firstId).path("state").asText()).isEqualTo("succeeded");String evidence=read(client,"/question-tasks/"+firstId).at("/answer/evidence/0/id").asText();
+                JsonNode other=JSON.readTree(send(client,"/conversations/first-question","POST",input,UUID.randomUUID().toString()).body());remaining=other.at("/conversation/id").asText();assertThat(await(client,other.at("/questionTask/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+                blocked.set(true);String key=UUID.randomUUID().toString();JsonNode pending=JSON.readTree(send(client,"/conversations/"+deleted+"/questions","POST",input,key).body());String pendingId=pending.at("/task/id").asText();assertThat(entered.get().await(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThat(JSON.readTree(send(client,"/conversations/"+deleted+"/questions","POST",input,key).body()).at("/task/id").asText()).isEqualTo(pendingId);assertThat(send(client,"/conversations/"+deleted+"/questions","POST",input,UUID.randomUUID().toString()).statusCode()).isEqualTo(409);
+                assertThat(send(client,"/question-tasks/"+pendingId+"/cancel","POST",null,null).statusCode()).isEqualTo(200);
+                HttpResponse<String> next=send(client,"/conversations/"+deleted+"/questions","POST",input,UUID.randomUUID().toString());assertThat(next.statusCode()).isEqualTo(202);String nextId=JSON.readTree(next.body()).at("/task/id").asText();blocked.set(false);release.get().countDown();assertThat(await(client,nextId).path("state").asText()).isEqualTo("succeeded");assertThat(read(client,"/conversations/"+deleted).at("/lastTask/id").asText()).isEqualTo(nextId);assertThat(read(client,"/question-tasks/"+pendingId).at("/task/state").asText()).isEqualTo("cancelled");
+                entered.set(new java.util.concurrent.CountDownLatch(1));release.set(new java.util.concurrent.CountDownLatch(1));blocked.set(true);
+                JsonNode deleting=JSON.readTree(send(client,"/conversations/"+deleted+"/questions","POST",input,UUID.randomUUID().toString()).body());String deletingId=deleting.at("/task/id").asText();assertThat(entered.get().await(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                try (var database=java.sql.DriverManager.getConnection("jdbc:sqlite:"+directory.resolve("application.sqlite"));var statement=database.createStatement()) { statement.execute("CREATE TRIGGER reject_conversation_delete BEFORE DELETE ON conversations BEGIN SELECT RAISE(ABORT,'fixed-delete-failure'); END"); }
+                String deleteKey=UUID.randomUUID().toString();assertThat(send(client,"/conversations/"+deleted,"DELETE","{\"confirmed\":true}",deleteKey).statusCode()).isEqualTo(500);assertThat(read(client,"/question-tasks/"+deletingId).at("/task/state").asText()).isEqualTo("running");
+                try (var database=java.sql.DriverManager.getConnection("jdbc:sqlite:"+directory.resolve("application.sqlite"));var statement=database.createStatement()) { statement.execute("DROP TRIGGER reject_conversation_delete"); }
+                assertThat(send(client,"/conversations/"+deleted,"DELETE","{\"confirmed\":false}",deleteKey).statusCode()).isEqualTo(400);
+                HttpResponse<String> removed=send(client,"/conversations/"+deleted,"DELETE","{\"confirmed\":true}",deleteKey);assertThat(removed.statusCode()).isEqualTo(202);JsonNode cleanup=JSON.readTree(removed.body()).path("task");assertThat(cleanup.path("kind").asText()).isEqualTo("cleanup");assertThat(cleanup.path("state").asText()).isEqualTo("succeeded");assertThat(cleanup.toString()).doesNotContain("不能泄露");
+                assertThat(JSON.readTree(send(client,"/conversations/"+deleted,"DELETE","{\"confirmed\":true}",deleteKey).body()).path("task")).isEqualTo(cleanup);
+                blocked.set(false);release.get().countDown();
+                assertThat(send(client,"/conversations/"+deleted,"GET",null,null).statusCode()).isEqualTo(404);assertThat(send(client,"/question-tasks/"+deletingId,"GET",null,null).statusCode()).isEqualTo(404);assertThat(send(client,"/conversations/"+deleted+"/evidence/"+evidence,"GET",null,null).statusCode()).isEqualTo(404);assertThat(read(client,"/tasks/"+deletingId).path("state").asText()).isEqualTo("cancelled");assertThat(read(client,"/conversations/"+remaining).path("id").asText()).isEqualTo(remaining);assertThat(read(client,"/knowledge-bases/"+kb+"/files").path("items").isEmpty()).isFalse();
+            }
+            int count=calls.get();try (ConfigurableApplicationContext app=start(directory)) { Client client=client(app);assertThat(send(client,"/conversations/"+deleted,"GET",null,null).statusCode()).isEqualTo(404);assertThat(read(client,"/conversations/"+remaining).path("id").asText()).isEqualTo(remaining);assertThat(calls.get()).isEqualTo(count); }
+        } finally { blocked.set(false);release.get().countDown();vector.stop(0); }
     }
 
     @Test
@@ -1840,7 +1946,7 @@ class IndexChunkingHttpTest {
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
         if (java.util.Arrays.stream(Thread.currentThread().getStackTrace())
-                .anyMatch(frame -> java.util.Set.of("groundedQuestionSharedQueueAndEventCapacityAreBounded", "groundedQuestionBudgetsValidationAndSnapshotsStayBound", "groundedQuestionFixedVersionsCancellationAndEventsStaySafe", "searchInstanceMetadataAndRestartKeepOnlyConditions", "searchInstanceCancellationDeletionAndLateResultsStayIsolated", "multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "publicContractBranchesRemainReachable", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(frame.getMethodName()))) {
+                .anyMatch(frame -> java.util.Set.of("conversationHistoryScopeAndReferenceReadsStayBound", "conversationCancellationDeletionAndLateResultsStayIsolated", "groundedQuestionSharedQueueAndEventCapacityAreBounded", "groundedQuestionBudgetsValidationAndSnapshotsStayBound", "groundedQuestionFixedVersionsCancellationAndEventsStaySafe", "searchInstanceMetadataAndRestartKeepOnlyConditions", "searchInstanceCancellationDeletionAndLateResultsStayIsolated", "multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "publicContractBranchesRemainReachable", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(frame.getMethodName()))) {
             java.util.Map<String, Object> item = new java.util.LinkedHashMap<>();
             item.put("path", response.request().uri().getRawPath() + (response.request().uri().getRawQuery() == null ? "" : "?" + response.request().uri().getRawQuery()));
             item.put("method", method);
@@ -1858,8 +1964,9 @@ class IndexChunkingHttpTest {
             java.util.Map<String, String> parameters = new java.util.LinkedHashMap<>();
             response.request().headers().map().forEach((name, values) -> parameters.put(name, values.getFirst()));
             item.put("parameters", parameters);
-            String behavior = java.util.Arrays.stream(Thread.currentThread().getStackTrace()).map(StackTraceElement::getMethodName).filter(name -> java.util.Set.of("groundedQuestionSharedQueueAndEventCapacityAreBounded", "groundedQuestionBudgetsValidationAndSnapshotsStayBound", "groundedQuestionFixedVersionsCancellationAndEventsStaySafe", "searchInstanceMetadataAndRestartKeepOnlyConditions", "searchInstanceCancellationDeletionAndLateResultsStayIsolated", "multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(name)).findFirst().orElse("publicContractBranchesRemainReachable");
+            String behavior = java.util.Arrays.stream(Thread.currentThread().getStackTrace()).map(StackTraceElement::getMethodName).filter(name -> java.util.Set.of("conversationHistoryScopeAndReferenceReadsStayBound", "conversationCancellationDeletionAndLateResultsStayIsolated", "groundedQuestionSharedQueueAndEventCapacityAreBounded", "groundedQuestionBudgetsValidationAndSnapshotsStayBound", "groundedQuestionFixedVersionsCancellationAndEventsStaySafe", "searchInstanceMetadataAndRestartKeepOnlyConditions", "searchInstanceCancellationDeletionAndLateResultsStayIsolated", "multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(name)).findFirst().orElse("publicContractBranchesRemainReachable");
             item.put("behavior", behavior);
+            if (behavior.startsWith("conversation")) item.put("behaviorChecks",java.util.List.of("conversationVersions","conversationPublication","conversationCost"));
             if (behavior.startsWith("groundedQuestion")) item.put("behaviorChecks", java.util.List.of("questionVersions", "questionPublication", "questionCost", "questionEvents", "questionEventCursor", "questionEventReconnect"));
             if (behavior.startsWith("searchInstance")) item.put("behaviorChecks", java.util.List.of("instanceLifecycleCost", "instanceLifecycleVersions"));
             if (behavior.startsWith("multiSearch")) item.put("behaviorChecks", java.util.List.of("multiSearchVersions", "multiSearchPublication", "multiSearchCost"));

@@ -22,6 +22,12 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'conversationVersions': ({'conversationHistoryScopeAndReferenceReadsStayBound','conversationCancellationDeletionAndLateResultsStayIsolated'}, {'submitQuestion','listConversationTurns','getQuestionTask','getConversationEvidence'},
+        '#/x-business-constraints/indexSwitch', '追问重新检索当前生效版本，完整历史只含问题和最终回答，不带旧证据；逐轮范围不被默认范围修改，引用快照历史名称正文不变，当前名称和旧原文可用性读取时统一重查。'),
+    'conversationPublication': ({'conversationHistoryScopeAndReferenceReadsStayBound','conversationCancellationDeletionAndLateResultsStayIsolated'}, {'submitQuestion'},
+        '#/x-business-constraints/publication', '每轮显式提交范围，已发布知识库才能参与当轮检索，默认范围可空但不改写旧轮次。'),
+    'conversationCost': ({'conversationHistoryScopeAndReferenceReadsStayBound','conversationCancellationDeletionAndLateResultsStayIsolated'}, {'submitQuestion','deleteConversation'},
+        '#/x-business-constraints/cost', '追问同键复用原任务，同会话活动冲突不额外排队；取消后可再提交但外部调用仍全局限流，删除本地原子清理不调用模型，迟到和重启不复活。'),
     'questionVersions': ({'groundedQuestionBudgetsValidationAndSnapshotsStayBound','groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'submitFirstQuestion','getQuestionTask','getConversationEvidence'},
         '#/x-business-constraints/indexSwitch', '问答预处理前固定生效版本，切换后仍引用捕获切片；范围位置引用标识及支持性通过才持久保存完整实际切片，取消校验不泄露草稿。'),
     'questionPublication': ({'groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'submitFirstQuestion'},
@@ -293,10 +299,12 @@ if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
                            'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig',
                            'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources',
                            'listIndexSwitches','cancelTask','downloadVersionFile','previewVersionFile',
-                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult','submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','createSearchInstance','submitSearch','listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest',
+                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult','submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','listConversations','getConversation','renameConversation','updateConversationScope','listConversationTurns','submitQuestion','deleteConversation','createSearchInstance','submitSearch','listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'conversationHistoryScopeAndReferenceReadsStayBound': ('真实追问仅带预算内近期完整轮次，不摘要不截断且历史不携带旧证据；同键不外发，重名手名不覆盖、默认范围不改旧请求、提交时间轮次分页及最近交互会话分页，旧原文清理与文件改名后各读取动态事实一致，历史跨重启保存不重发。', {'listConversations','getConversation','renameConversation','updateConversationScope','listConversationTurns','submitQuestion','getQuestionTask','getConversationEvidence','getTask'}),
+        'conversationCancellationDeletionAndLateResultsStayIsolated': ('真实同会话活动资格及同键原任务、取消释放资格且旧迟到不盖新任务；删除事务失败不取消，成功确认清理同键持久复用，任务和专属引用不可读取，通用任务脱敏状态保留，源资料与别会话不受影响，重启不复活不外发。', {'getConversation','submitQuestion','deleteConversation','getQuestionTask','cancelQuestionTask','getConversationEvidence','getTask'}),
         'groundedQuestionSharedQueueAndEventCapacityAreBounded': ('真实知识服务队列容量满时首问四二九且同键不重提；问答专用事件六十四订阅及下一订阅四二九，阶段到取消终态恢复无正文不重发。', {'submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask'}),
         'groundedQuestionBudgetsValidationAndSnapshotsStayBound': ('真实首问持久受理、手动名称、原问题和额外查询、生成校验最多各一次、无依据不生成、部分缺口矛盾澄清、无效预处理回退，坏引用及模型截断缺用量不泄草稿，引用跨重启保存且同键不重发。', {'submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','getTask'}),
         'groundedQuestionFixedVersionsCancellationAndEventsStaySafe': ('预处理前捕获全部生效版本，资料切换及主动下线后仍用旧快照；校验期间没有草稿，取消后迟到不发布，专用事件终态重连游标和安全拒绝不重发模型。', {'submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','getTask'}),
