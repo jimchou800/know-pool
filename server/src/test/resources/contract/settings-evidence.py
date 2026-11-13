@@ -35,10 +35,12 @@ INDEXING_CHECKS = {
         '#/x-business-constraints/sse', '断线查询原任务，重订阅不改变任务或重新外发。'),
     'eventCursor': ({'terminalSnapshotCanBeResumed'}, {'watchTask'},
         '#/paths/~1tasks~1{taskId}~1events/get/x-sse/lastEventIdHeader', '合法旧及未来游标只返回当前快照，非法或异任务游标拒绝。'),
-    'eventReconnectProtocol': ({'terminalSnapshotCanBeResumed'}, {'watchTask'},
+    'eventReconnectProtocol': ({'terminalSnapshotCanBeResumed', 'boundedSubscriptionsReleaseOnDisconnectAndEmitHeartbeat'}, {'watchTask'},
         '#/paths/~1tasks~1{taskId}~1events/get/x-sse/reconnect', '重连不重跑、不改变序号，终态快照可重发后关闭，心跳使用注释帧。'),
     'eventCookieSecurity': ({'terminalSnapshotCanBeResumed'}, {'watchTask'},
         'security.8', '真实Cookie事件会话、来源及失效会话拒绝，令牌不进URL，断线不重新受理。'),
+    'eventCapacity': ({'boundedSubscriptionsReleaseOnDisconnectAndEmitHeartbeat'}, {'watchTask'},
+        None, '真实订阅容量满时返回429，断线释放槽位，后续订阅可恢复。'),
 }
 BEHAVIORS = {
     'initialConfigurationSurvivesRestart': ('持久初值：两模型独立身份、空值、时间及重启保留，向量未设置状态。', {'getGenerationModel','getEmbeddingModel','getVectorConfig'}),
@@ -71,7 +73,8 @@ def indexing_assertions(item, name):
             raise AssertionError('未声明的索引行为检查：' + str(check))
         methods, identifiers, pointer, explanation = INDEXING_CHECKS[check]
         if item.get('behavior') in methods and name in identifiers:
-            found.add(pointer)
+            if pointer:
+                found.add(pointer)
             assertions.append(explanation)
     return found, assertions
 
@@ -250,7 +253,7 @@ if profile == 'knowledge-bases':
     assert '#/metadata/propertyNames/pattern' in found
     assert '#/metadata/additionalProperties/maxLength' in found
 
-if profile == 'indexing':
+if profile in ('indexing', 'indexing-events'):
     selected_operations = {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
@@ -262,7 +265,10 @@ if profile == 'indexing':
         'managementQueueAndRestartAreSafe': ('真实检索容量拒绝、同键不重提及重启在途请求中断和身份失效。',
             {'getTask', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'terminalSnapshotCanBeResumed': ('真实阶段终态事件及恢复游标，订阅不改变持久状态序号。', {'watchTask'}),
+        'boundedSubscriptionsReleaseOnDisconnectAndEmitHeartbeat': ('真实订阅容量、断线释放及注释心跳不改变序号，阶段和终态随任务状态变化。', {'watchTask'}),
     }
+    if profile == 'indexing-events':
+        selected_operations = {'watchTask', 'getTask'}
 
 
 for index, item in enumerate(observations):
@@ -279,7 +285,8 @@ for index, item in enumerate(observations):
     if selected is None or selected[0] not in selected_operations:
         continue
     name, operation = selected
-    is_event = profile == 'indexing' and name == 'watchTask' and item['status'] == 200
+    is_indexing = profile in ('indexing', 'indexing-events')
+    is_event = is_indexing and name == 'watchTask' and item['status'] == 200
     if not is_event:
         validate_media(item['contentType'])
     method = item['method'].lower()
@@ -288,7 +295,7 @@ for index, item in enumerate(observations):
     found = {prefix + '/method', prefix + '/path', prefix + '/security', prefix + '/parameters',
              prefix + '/responses/' + str(item['status'])}
     assertions = behavior_assertions(item, name)
-    if profile == 'indexing':
+    if is_indexing:
         behavior_found, behavior_notes = indexing_assertions(item, name)
         found.update(behavior_found)
         assertions.extend(behavior_notes)
@@ -345,8 +352,8 @@ for index, item in enumerate(observations):
             try: actual = int(actual)
             except ValueError: pass
         found.update(parameter_constraints(schema,pointer,actual,parameter.get('required',False),item['status']))
-    found &= set(operation['constraints']) | ({'security.8'} if profile == 'indexing' else set())
-    request_label = '真实索引请求' if profile == 'indexing' else '真实知识库请求' if profile == 'knowledge-bases' else '真实设置请求'
+    found &= set(operation['constraints']) | ({'security.8'} if is_indexing else set())
+    request_label = '真实事件请求' if profile == 'indexing-events' else '真实索引请求' if is_indexing else '真实知识库请求' if profile == 'knowledge-bases' else '真实设置请求'
     tests.append({'name': str(index + 1) + '：' + request_label + '：' + name + '：' + str(item['status']),
                   'passed': True, 'operationIds': [name], 'constraintIds': sorted(found),
                   'request': {'method': item['method'], 'path': path},
@@ -356,7 +363,7 @@ for index, item in enumerate(observations):
 report = {'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
           'implementationSha256': verification.snapshot()[0],
           'routes': observations[0]['routes'], 'tests': tests}
-output = root / ('server/target/contract/provider-indexing-evidence.json' if profile == 'indexing' else 'server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
+output = root / ('server/target/contract/provider-indexing-events-evidence.json' if profile == 'indexing-events' else 'server/target/contract/provider-indexing-evidence.json' if profile == 'indexing' else 'server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print('提供方证据完成：' + profile + '：' + str(len(tests)))

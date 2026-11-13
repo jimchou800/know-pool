@@ -306,7 +306,8 @@ def main():
     providers = args.provider or [ROOT / 'server/target/contract/provider-evidence.json',
                                   ROOT / 'server/target/contract/provider-settings-evidence.json',
                                   ROOT / 'server/target/contract/provider-knowledge-bases-evidence.json',
-                                  ROOT / 'server/target/contract/provider-indexing-evidence.json']
+                                  ROOT / 'server/target/contract/provider-indexing-evidence.json',
+                                  ROOT / 'server/target/contract/provider-indexing-events-evidence.json']
     if args.acceptance:
         try:
             print(acceptance(args.acceptance))

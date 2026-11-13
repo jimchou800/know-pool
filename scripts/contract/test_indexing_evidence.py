@@ -82,6 +82,25 @@ class IndexingEvidenceTests(unittest.TestCase):
         self.assertNotIn('#/x-business-constraints/sse', test['constraintIds'])
         self.assertNotIn('data:', json.dumps(report))
 
+    def test_event_profile_preserves_indexing_output_and_does_not_invent_capacity_pointer(self):
+        root = Path(self.directory.name)
+        script = verify.ROOT / 'server/src/test/resources/contract/settings-evidence.py'
+        original = root / 'server/target/contract/provider-indexing-evidence.json'
+        original.write_bytes(b'original-indexing-evidence')
+        item = {**self.event(), 'method': 'GET', 'status': 200, 'body': None,
+                'parameters': {}, 'routes': [],
+                'behavior': 'boundedSubscriptionsReleaseOnDisconnectAndEmitHeartbeat',
+                'behaviorChecks': ['eventCapacity']}
+        with patch('sys.argv', [str(script), str(root), 'indexing-events']), patch('sys.stdin', io.StringIO(json.dumps([item]))):
+            runpy.run_path(str(script))
+        report = json.loads((root / 'server/target/contract/provider-indexing-events-evidence.json').read_bytes())
+        self.assertEqual(original.read_bytes(), b'original-indexing-evidence')
+        test = report['tests'][0]
+        self.assertIn('真实事件请求', test['name'])
+        self.assertTrue(any('容量' in note for note in test['assertions']))
+        self.assertFalse(any('eventCapacity' in pointer for pointer in test['constraintIds']))
+        self.assertNotIn('#/paths/~1tasks~1{taskId}~1events/get/responses/429', test['constraintIds'])
+
 
 if __name__ == '__main__':
     unittest.main()

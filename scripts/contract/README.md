@@ -22,6 +22,8 @@ python scripts/contract/verify.py
 
 事件订阅另外要求 `x-sse` 下的 `events/phase`、`events/terminal`、`id`、`lastEventIdHeader`、`terminalStates`、`reconnect` 六项语义证据。全局业务规则按直接所属操作计入：`indexSwitch` 对应任务查询、库文件列表和管理检索及结果证据读取；`publication` 对应管理检索及知识库详情；`cost` 对应任务查询及管理检索；`sse` 对应事件订阅及任务查询。每项都须由实际行为断言映射，不因结构解析或共享声明自动通过。
 
+提供方观察脚本的 `indexing` 与 `indexing-events` 参数分别生成 `provider-indexing-evidence.json` 和 `provider-indexing-events-evidence.json`，后者同样为必需证据，避免两组真实测试互相覆盖。两者复用结构校验，事件观察保留原始帧在内存中校验，报告不保存帧正文。行为检查须由已通过测试显式声明；订阅容量说明不自动产生状态码证据，只有实际观察的 `429` 响应才能映射该状态。
+
 报告通过后，前后端实际代理分别创建 `docs/agents/api/reviews/<运行标识>-frontend.json` 和 `<运行标识>-backend.json`。记录字段为 `role`（分别为 `frontend`、`backend`）、`actor`（各自真实代理标识）、`conclusion`（通过或拒绝）、`contractSha256`、`implementationSha256`、`reportSha256`、`evidence`（中文审阅依据）。这些是机器字段名，审阅内容使用简体中文。生成器与总协调均不得自动补签。
 
 ```powershell
