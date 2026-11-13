@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -60,6 +61,17 @@ public final class KnowledgeBaseController {
     public JsonNode config(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
         query(request, Set.of());
         return service.config(identifier(knowledgeBaseId));
+    }
+
+    @PutMapping(value = "/api/v1/knowledge-bases/{knowledgeBaseId}/processing-config", consumes = "application/json")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public ConnectionTests.Accepted updateConfig(@PathVariable String knowledgeBaseId, @RequestBody JsonNode input, HttpServletRequest request) {
+        query(request, Set.of());
+        processing(input);
+        List<String> keys = java.util.Collections.list(request.getHeaders("Idempotency-Key"));
+        if (keys.size() != 1) throw ApiFailure.invalid("Idempotency-Key", "须提供唯一幂等键。");
+        LocalSessionFilter.Session session = (LocalSessionFilter.Session) request.getAttribute("localSession");
+        return service.updateConfig(identifier(knowledgeBaseId), session.sessionId(), keys.getFirst(), input);
     }
 
     @PatchMapping(value = "/api/v1/knowledge-bases/{knowledgeBaseId}", consumes = "application/json")

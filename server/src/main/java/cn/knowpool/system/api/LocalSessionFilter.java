@@ -157,6 +157,8 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         && request.getMethod().equals("POST")
                 || path.matches("/api/v1/tasks/[^/]+(?:/connection-test|/events)?")
                         && request.getMethod().equals("GET");
+        boolean chunkPreflight = path.matches("/api/v1/tasks/[^/]+/chunk-preflight") && request.getMethod().equals("GET");
+        boolean processingUpdate = path.matches("/api/v1/knowledge-bases/[^/]+/processing-config") && request.getMethod().equals("PUT");
         boolean knowledgeBases =
                 path.equals("/api/v1/knowledge-bases") && Set.of("GET", "POST").contains(request.getMethod())
                         || path.matches("/api/v1/knowledge-bases/[^/]+")
@@ -169,7 +171,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         && request.getMethod().equals("POST")
                 || path.matches("/api/v1/search-requests/[^/]+(?:/evidence/[^/]+)?")
                         && request.getMethod().equals("GET");
-        if (collection || resource || fileOperation || settings || knowledgeBases || search) {
+        if (collection || resource || fileOperation || settings || knowledgeBases || search || chunkPreflight || processingUpdate) {
             request.setAttribute("localSession", session);
             chain.doFilter(request, response);
             return;

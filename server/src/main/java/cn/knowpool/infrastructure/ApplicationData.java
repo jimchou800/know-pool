@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 7) {
+            if (version > 8) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 7) {
+            if (version > 0 && version < 8) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -197,6 +197,17 @@ public final class ApplicationData implements AutoCloseable {
                     transaction.sql("ALTER TABLE index_runs ADD COLUMN config_snapshot TEXT NOT NULL DEFAULT '{}'").update();
                     transaction.sql("ALTER TABLE index_chunks ADD COLUMN source_range TEXT NOT NULL DEFAULT '{}'").update();
                     transaction.sql("PRAGMA user_version=7").update();
+                    return null;
+                });
+            }
+            if (version < 8) {
+                write(transaction -> {
+                    transaction.sql("ALTER TABLE index_runs ADD COLUMN preflight TEXT").update();
+                    transaction.sql("CREATE TABLE processing_config_history(id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,payload TEXT NOT NULL,collection_name TEXT NOT NULL)").update();
+                    transaction.sql("INSERT INTO processing_config_history SELECT json_extract(config,'$.id'),id,config,'kp_'||replace(id,'-','') FROM knowledge_bases").update();
+                    transaction.sql("CREATE TABLE processing_rebuilds(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,config_version_id TEXT NOT NULL,ready INTEGER NOT NULL DEFAULT 0)").update();
+                    transaction.sql("CREATE TABLE staged_indexes(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL)").update();
+                    transaction.sql("PRAGMA user_version=8").update();
                     return null;
                 });
             }

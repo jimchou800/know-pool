@@ -118,8 +118,8 @@ public final class KnowledgeBases {
                 config.put("id", configId)
                         .put("knowledgeBaseId", id)
                         .put("createdAt", now)
-                        .put("parserRuleVersion", "1")
-                        .put("chunkRuleVersion", "1")
+                        .put("parserRuleVersion", DocumentSources.RULE_VERSION)
+                        .put("chunkRuleVersion", ChunkPlans.RULE_VERSION)
                         .put("lengthMeterVersion", "unicode-code-points-1")
                         .set("input", input.path("processing"));
                 try {
@@ -365,10 +365,12 @@ public final class KnowledgeBases {
                   WHEN SUM(t.state='queued')>0 THEN 'queued'
                   WHEN SUM(t.state IN ('failed','interrupted'))>0 THEN 'failed'
                   ELSE 'idle' END
-                FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id
-                WHERE f.knowledge_base_id=?
+                FROM tasks t WHERE t.id IN (
+                  SELECT task_id FROM knowledge_base_files WHERE knowledge_base_id=?
+                  UNION SELECT r.task_id FROM processing_rebuilds r
+                  WHERE r.knowledge_base_id=? AND r.config_version_id=json_extract(?, '$.targetConfigVersionId'))
                 """)
-                .param(id)
+                .params(id, id, json.writeValueAsString(value))
                 .query(String.class)
                 .single();
         value.put("processingState", state);
@@ -384,6 +386,81 @@ public final class KnowledgeBases {
                     .param(id)
                     .query(String.class)
                     .single());
+        });
+    }
+
+    public JsonNode config(String id, String version) {
+        return data.read(jdbc -> {
+            get(jdbc, id);
+            return jdbc.sql("SELECT payload FROM processing_config_history WHERE id=? AND knowledge_base_id=?")
+                    .params(version, id).query(String.class).optional().map(json::readTree)
+                    .orElseGet(() -> {
+                        JsonNode current = config(id);
+                        if (!current.path("id").asText().equals(version)) throw new ApiFailure(404, "NOT_FOUND", "处理配置版本不存在。", null);
+                        return current;
+                    });
+        });
+    }
+
+    String collection(String id, String version) {
+        return data.read(jdbc -> jdbc.sql("SELECT collection_name FROM processing_config_history WHERE id=? AND knowledge_base_id=?")
+                .params(version, id).query(String.class).optional().orElse("kp_" + id.replace("-", "")));
+    }
+
+    public ConnectionTests.Accepted updateConfig(String id, String session, String key, JsonNode input) {
+        String validKey = ModelSettingsService.identifier(key, "Idempotency-Key");
+        return data.write(jdbc -> {
+            ObjectNode base = (ObjectNode) get(jdbc, id);
+            String operation = "updateProcessingConfig:" + id;
+            var previous = jdbc.sql("SELECT payload,request_fingerprint FROM tasks WHERE session_id=? AND operation=? AND idempotency_key=?")
+                    .params(session, operation, validKey).query((row, n) -> new String[]{row.getString(1), row.getString(2)}).list();
+            if (!previous.isEmpty()) {
+                if (!json.readTree(previous.getFirst()[1]).equals(input)) throw new ApiFailure(409, "CONFLICT", "同一幂等键不能修改不同配置。", null);
+                return new ConnectionTests.Accepted(json.readValue(previous.getFirst()[0], ConnectionTests.Task.class));
+            }
+            JsonNode embedding = input.path("embedding");
+            var model = settings.historical(embedding.path("modelConfigVersionId").asText());
+            if (model.endpoint() == null || !model.endpoint().equals(embedding.at("/modelSnapshot/endpoint").asText())
+                    || !model.model().equals(embedding.at("/modelSnapshot/model").asText()))
+                throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "嵌入快照与已保存版本不匹配。", "/embedding/modelSnapshot");
+            if (settings.vectorConnection().endpoint() == null) throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "请先设置向量连接。", null);
+            if (jdbc.sql("SELECT COUNT(*) FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE t.state IN ('queued','running')")
+                    .query(Integer.class).single() >= 17) throw new ApiFailure(429, "QUEUE_FULL", "配置重建队列已满。", null);
+            JsonNode oldConfig = config(id);
+            jdbc.sql("INSERT OR IGNORE INTO processing_config_history VALUES(?,?,?,?)").params(oldConfig.path("id").asText(), id,
+                    json.writeValueAsString(oldConfig), "kp_" + id.replace("-", "")).update();
+            String taskId = UUID.randomUUID().toString(), version = UUID.randomUUID().toString(), now = Instant.now().toString();
+            ObjectNode config = json.createObjectNode().put("id", version).put("knowledgeBaseId", id).put("createdAt", now)
+                    .put("parserRuleVersion", DocumentSources.RULE_VERSION).put("chunkRuleVersion", ChunkPlans.RULE_VERSION)
+                    .put("lengthMeterVersion", "unicode-code-points-1");
+            config.set("input", input);
+            jdbc.sql("INSERT INTO processing_config_history VALUES(?,?,?,?)").params(version, id, json.writeValueAsString(config), "kp_" + id.replace("-", "") + "_" + version.replace("-", "")).update();
+            for (String payload : jdbc.sql("SELECT payload FROM tasks WHERE state IN ('queued','running') AND kind IN ('index_file','rebuild_knowledge_base') AND json_extract(payload,'$.knowledgeBaseId')=?").param(id).query(String.class).list()) {
+                ObjectNode cancelled = (ObjectNode) json.readTree(payload);
+                cancelled.put("state", "cancelled").put("phase", "completed").put("finishedAt", now).putNull("failure").putNull("resultResourceId");
+                cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, cancelled);
+                jdbc.sql("UPDATE tasks SET state='cancelled',payload=? WHERE id=?").params(json.writeValueAsString(cancelled), cancelled.path("id").asText()).update();
+            }
+            base.put("targetConfigVersionId", version).put("processingState", "queued").put("updatedAt", now);
+            jdbc.sql("UPDATE knowledge_bases SET config=?,payload=? WHERE id=?").params(json.writeValueAsString(config), json.writeValueAsString(base), id).update();
+            ConnectionTests.Task parent = new ConnectionTests.Task(taskId, "rebuild_knowledge_base", "queued", "queued", now, null, null,
+                    id, null, null, version, null, 0, 0, null, null, List.of(), null);
+            jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'rebuild_knowledge_base','queued',?,?,?,?,?)")
+                    .params(taskId, json.writeValueAsString(parent), session, operation, validKey, json.writeValueAsString(input)).update();
+            jdbc.sql("INSERT INTO processing_rebuilds(task_id,knowledge_base_id,config_version_id) VALUES(?,?,?)").params(taskId, id, version).update();
+            cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(parent));
+            for (String file : jdbc.sql("SELECT file_id FROM knowledge_base_files WHERE knowledge_base_id=?").param(id).query(String.class).list()) {
+                var source = files.sourceFiles(jdbc, "file", file).getFirst();
+                String childId = UUID.randomUUID().toString();
+                ConnectionTests.Task child = new ConnectionTests.Task(childId, "index_file", "queued", "queued", now, null, null,
+                        id, file, source.contentVersionId(), version, null, 0, 0, null, null, List.of(), null);
+                jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'index_file','queued',?,'internal','index_file',?,'')")
+                        .params(childId, json.writeValueAsString(child), childId).update();
+                jdbc.sql("UPDATE knowledge_base_files SET task_id=?,content_version_id=?,config_version_id=? WHERE knowledge_base_id=? AND file_id=?")
+                        .params(childId, source.contentVersionId(), version, id, file).update();
+                cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(child));
+            }
+            return new ConnectionTests.Accepted(parent);
         });
     }
 

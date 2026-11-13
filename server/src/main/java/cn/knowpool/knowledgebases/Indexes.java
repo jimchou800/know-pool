@@ -31,6 +31,7 @@ public final class Indexes {
     private final VectorCollections vectors;
     private final JsonMapper json;
     private final DocumentSources documentSources;
+    private final ChunkPlans chunkPlans;
     private volatile boolean stopping;
     private final java.util.concurrent.ScheduledExecutorService worker =
             Executors.newSingleThreadScheduledExecutor(r -> {
@@ -47,7 +48,7 @@ public final class Indexes {
             Embeddings embeddings,
             VectorCollections vectors,
             JsonMapper json,
-            DocumentSources documentSources) {
+            DocumentSources documentSources, ChunkPlans chunkPlans) {
         this.data = data;
         this.files = files;
         this.bases = bases;
@@ -56,6 +57,7 @@ public final class Indexes {
         this.vectors = vectors;
         this.json = json;
         this.documentSources = documentSources;
+        this.chunkPlans = chunkPlans;
         data.write(jdbc -> {
             for (String payload : jdbc.sql("SELECT payload FROM tasks WHERE kind='index_file' AND state='running'")
                     .query(String.class)
@@ -87,11 +89,16 @@ public final class Indexes {
     private void next() {
         if (stopping) return;
         try {
+            rebuilds();
             List<String> ids = data.read(jdbc -> jdbc.sql(
                             "SELECT id FROM tasks WHERE kind='index_file' AND state IN ('queued','running') ORDER BY id LIMIT 1")
                     .query(String.class)
                     .list());
-            if (!ids.isEmpty()) run(ids.getFirst());
+            if (!ids.isEmpty()) {
+                boolean waiting = data.read(jdbc -> jdbc.sql("SELECT COUNT(*) FROM tasks t JOIN processing_rebuilds r ON r.knowledge_base_id=json_extract(t.payload,'$.knowledgeBaseId') AND r.config_version_id=json_extract(t.payload,'$.targetConfigVersionId') JOIN tasks p ON p.id=r.task_id WHERE t.id=? AND r.ready=0 AND p.state IN ('queued','running')")
+                        .param(ids.getFirst()).query(Integer.class).single() > 0);
+                if (!waiting) run(ids.getFirst());
+            }
         } catch (RuntimeException failure) {
             // 持久任务保留现场，下一轮仅从安全检查点领取。
         }
@@ -102,6 +109,93 @@ public final class Indexes {
                 .param(id)
                 .query(String.class)
                 .single());
+    }
+
+    private void rebuilds() {
+        var pending = data.read(jdbc -> jdbc.sql("SELECT r.task_id,r.knowledge_base_id,r.config_version_id,r.ready FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE t.state IN ('queued','running') ORDER BY r.task_id")
+                .query((row, n) -> new String[]{row.getString(1), row.getString(2), row.getString(3), row.getString(4)}).list());
+        for (String[] rebuild : pending) {
+            String id = rebuild[0], kb = rebuild[1], configId = rebuild[2];
+            try {
+                if (!bases.get(kb).path("targetConfigVersionId").asText().equals(configId)) {
+                    data.write(jdbc -> { finish(jdbc, task(jdbc,id), "cancelled", null, null, null); return null; });
+                    continue;
+                }
+                if (rebuild[3].equals("0")) {
+                    data.write(jdbc -> {
+                        ObjectNode value = task(jdbc,id);
+                        value.put("state", "running").put("phase", "initializing");
+                        if (value.path("startedAt").isNull()) value.put("startedAt", Instant.now().toString());
+                        persist(jdbc,value); return null;
+                    });
+                    JsonNode embedding = bases.config(kb, configId).at("/input/embedding");
+                    var connection = settings.vectorConnection();
+                    String collection = bases.collection(kb, configId);
+                    JsonNode actual = null;
+                    for (int attempt = 1; attempt <= 3; attempt++) {
+                        int currentAttempt = attempt;
+                        data.write(jdbc -> { ObjectNode value = task(jdbc,id); value.put("attempt",currentAttempt); persist(jdbc,value); return null; });
+                        try {
+                            JsonNode existing = vectors.request(connection.endpoint(), connection.secret(), collection,"GET",null);
+                            if (existing == null) vectors.request(connection.endpoint(), connection.secret(), collection,"PUT",
+                                    json.writeValueAsString(java.util.Map.of("vectors",java.util.Map.of("size",embedding.path("dimensions").asInt(),"distance",VectorCollections.distance(embedding.path("distance").asText())))));
+                            actual = vectors.request(connection.endpoint(), connection.secret(), collection,"GET",null);
+                            break;
+                        } catch (java.io.IOException failure) {
+                            if (attempt == 3 || failure instanceof VectorCollections.Failure rejected && !rejected.retryable()) throw failure;
+                            retryDelay(attempt);
+                        } catch (ApiFailure failure) {
+                            if (failure.status() != 503 || attempt == 3) throw failure;
+                            retryDelay(attempt);
+                        }
+                    }
+                    if (actual == null || actual.at("/result/config/params/vectors/size").asInt() != embedding.path("dimensions").asInt()
+                            || !actual.at("/result/config/params/vectors/distance").asText().equals(VectorCollections.distance(embedding.path("distance").asText())))
+                        throw new ApiFailure(500,"INTEGRITY_FAILED","目标向量集合配置校验失败。",null);
+                    data.write(jdbc -> { jdbc.sql("UPDATE processing_rebuilds SET ready=1 WHERE task_id=?").param(id).update(); return null; });
+                }
+                data.write(jdbc -> {
+                    ObjectNode parent = task(jdbc,id);
+                    if (!List.of("queued","running").contains(parent.path("state").asText())) return null;
+                    List<JsonNode> children = jdbc.sql("SELECT t.payload FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.config_version_id=?")
+                            .params(kb, configId).query(String.class).list().stream().map(json::readTree).toList();
+                    parent.put("progressTotal", children.size()).put("progressCompleted", children.stream().filter(t -> t.path("state").asText().equals("succeeded")).count()).put("phase","initializing");
+                    for (JsonNode child : children) {
+                        String state = child.path("state").asText();
+                        if (List.of("failed","interrupted","cancelled").contains(state)) {
+                            finish(jdbc,parent,"failed","INTEGRITY_FAILED","整库重建中有文件未完成，旧生效索引继续服务。",null);
+                            return null;
+                        }
+                        if (!state.equals("succeeded")) { persist(jdbc,parent); return null; }
+                    }
+                    if (!bases.get(kb).path("targetConfigVersionId").asText().equals(configId)) {
+                        finish(jdbc,parent,"cancelled",null,null,null); return null;
+                    }
+                    var staged = jdbc.sql("SELECT s.task_id,s.file_id,s.content_version_id,s.index_id FROM staged_indexes s JOIN knowledge_base_files f ON f.task_id=s.task_id AND f.knowledge_base_id=s.knowledge_base_id AND f.file_id=s.file_id AND f.content_version_id=s.content_version_id AND f.config_version_id=s.config_version_id WHERE s.knowledge_base_id=? AND s.config_version_id=?")
+                            .params(kb,configId).query((row,n)->new String[]{row.getString(1),row.getString(2),row.getString(3),row.getString(4)}).list();
+                    if (staged.size() != children.size()) throw new ApiFailure(500,"INTEGRITY_FAILED","整库待切换结果不完整。",null);
+                    for (String[] item : staged) {
+                        var old = jdbc.sql("SELECT content_version_id,index_id FROM effective_files WHERE knowledge_base_id=? AND file_id=?")
+                                .params(kb,item[1]).query((row,n)->new String[]{row.getString(1),row.getString(2)}).list();
+                        jdbc.sql("INSERT OR IGNORE INTO index_switches VALUES(?,?,?,?,?,?,?,?,?,?)").params(UUID.randomUUID().toString(),item[0],kb,item[1],old.isEmpty()?null:old.getFirst()[0],item[2],old.isEmpty()?null:old.getFirst()[1],item[3],configId,Instant.now().toString()).update();
+                    }
+                    jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=?").param(kb).update();
+                    for (String[] item : staged) jdbc.sql("INSERT INTO effective_files VALUES(?,?,?,?,?)").params(kb,item[1],item[2],configId,item[3]).update();
+                    ObjectNode base = (ObjectNode) bases.get(kb);
+                    base.put("effectiveConfigVersionId",configId).put("effectiveIndexVersionId",id).put("searchableFileCount",staged.size());
+                    jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(base),kb).update();
+                    finish(jdbc,parent,"succeeded",null,null,kb);
+                    return null;
+                });
+            } catch (java.io.IOException | RuntimeException failure) {
+                data.write(jdbc -> {
+                    ObjectNode parent = task(jdbc,id);
+                    if (List.of("queued","running").contains(parent.path("state").asText()))
+                        finish(jdbc,parent,"failed",failure instanceof ApiFailure api ? api.code() : "VECTOR_UNAVAILABLE","整库重建失败，旧生效索引继续服务。",null);
+                    return null;
+                });
+            }
+        }
     }
 
     private boolean eligible(JdbcClient jdbc, JsonNode task) {
@@ -119,6 +213,8 @@ public final class Indexes {
                 .list();
         if (configs.isEmpty()
                 || !configs.getFirst().equals(task.path("targetConfigVersionId").asText())) return false;
+        if (jdbc.sql("SELECT COUNT(*) FROM processing_rebuilds r JOIN tasks p ON p.id=r.task_id WHERE r.knowledge_base_id=? AND r.config_version_id=? AND p.state IN ('failed','cancelled','interrupted')")
+                .params(kb, task.path("targetConfigVersionId").asText()).query(Integer.class).single() > 0) return false;
         List<FileService.SourceFile> source;
         try {
             source = files.sourceFiles(jdbc, "file", file);
@@ -192,7 +288,7 @@ public final class Indexes {
         try {
             ObjectNode task = phase(id, "parsing", 0, null);
             JsonNode config =
-                    bases.config(task.path("knowledgeBaseId").asText()).path("input");
+                    bases.config(task.path("knowledgeBaseId").asText(), task.path("targetConfigVersionId").asText()).path("input");
             String index = data.write(jdbc -> {
                 jdbc.sql("INSERT OR IGNORE INTO index_runs(task_id,id,phase,parser_version,config_snapshot) VALUES(?,?,'parsing',?,?)")
                         .params(id, UUID.randomUUID().toString(), DocumentSources.RULE_VERSION, json.writeValueAsString(config))
@@ -210,13 +306,15 @@ public final class Indexes {
                 if (config.at("/chunking/strategy").asText().equals("page")
                         && !source.version().fileType().equals("pdf"))
                     throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "按页切片仅适用于PDF。", null);
-                DocumentSources.Parsed document = documentSources.parse(source);
+                DocumentSources.Parsed document = documentSources.parse(source, config.path("chunking"));
                 phase(id, "chunking", 0, null);
-                List<JsonNode> parsed = splitSources(document, config.path("chunking"), index);
+                List<JsonNode> parsed = chunkPlans.build(document, config.path("chunking"), index);
+                ObjectNode preflight = chunkPlans.report(task, parsed, document.warnings(), completeSources(document, parsed));
                 data.write(jdbc -> {
                     if (!eligible(jdbc, task(jdbc, id))) throw new ApiFailure(409, "TASK_CANCELLED", "任务资格已失效。", null);
                     jdbc.sql("UPDATE index_runs SET parser_version=?,source_map=?,config_snapshot=? WHERE id=?")
                             .params(DocumentSources.RULE_VERSION, json.writeValueAsString(documentSources.provenance(source, document)), json.writeValueAsString(config), index).update();
+                    jdbc.sql("UPDATE index_runs SET preflight=? WHERE id=?").params(json.writeValueAsString(preflight), index).update();
                     ObjectNode current = task(jdbc, id);
                     current.set("warnings", json.valueToTree(document.warnings()));
                     persist(jdbc, current);
@@ -232,13 +330,15 @@ public final class Indexes {
                                 .update();
                     return null;
                 });
+                if (parsed.isEmpty()) throw new ApiFailure(422, "PARSING_FAILED", "资料正文为空，预检未生成切片。", null);
+                if (!preflight.path("integrityPassed").asBoolean()) throw new ApiFailure(422, "INTEGRITY_FAILED", "切片完整性检查失败，已阻止发布。", null);
                 chunks = chunks(index);
             }
             var embedding = config.path("embedding");
             var snapshot = settings.embeddingSnapshot(
                     embedding.path("modelConfigVersionId").asText());
             var connection = settings.vectorConnection();
-            String collection = "kp_" + task.path("knowledgeBaseId").asText().replace("-", "");
+            String collection = bases.collection(task.path("knowledgeBaseId").asText(), task.path("targetConfigVersionId").asText());
             for (int i = 0; i < chunks.size(); i++) {
                 JsonNode chunk = chunks.get(i);
                 String chunkId = chunk.path("id").asText();
@@ -467,123 +567,31 @@ public final class Indexes {
                 .list());
     }
 
-    private List<JsonNode> splitSources(DocumentSources.Parsed document, JsonNode config, String index) {
-        var result = new java.util.ArrayList<JsonNode>();
-        int unitIndex = 0;
-        var sequences = new java.util.HashMap<String, Integer>();
-        for (DocumentSources.Source source : document.sources()) {
-            int cursor = 0, continuation = 0;
-            int sourceOrdinal = unitIndex++;
-            for (JsonNode value : split(source.text(), config, index + ":" + sourceOrdinal)) {
-                ObjectNode chunk = (ObjectNode) value;
-                String text = chunk.path("text").asText();
-                int start = source.text().indexOf(text, cursor);
-                if (start < 0) throw new ApiFailure(500, "INTEGRITY_FAILED", "切片无法回溯原文。", null);
-                int end = start + text.length();
-                ObjectNode location = source.location().deepCopy();
-                if (source.pageEnds() != null) {
-                    int first = 0, last = 0;
-                    while (first < source.pageEnds().length - 1 && source.pageEnds()[first] <= start) first++;
-                    while (last < source.pageEnds().length - 1 && source.pageEnds()[last] < end) last++;
-                    location.put("pageStart", first + 1).put("pageEnd", last + 1);
-                } else {
-                    int first = source.lineStart() + (int) source.text().substring(0, start).chars().filter(c -> c == '\n').count();
-                    int last = first + (int) text.substring(0, Math.max(0, text.length() - 1)).chars().filter(c -> c == '\n').count();
-                    location.put("lineStart", first).put("lineEnd", last);
-                    if (!location.path("tableRowStart").isNull()) {
-                        int firstRow = Math.max(0, first - source.lineStart() - 1);
-                        int lastRow = Math.max(0, last - source.lineStart() - 1);
-                        location.put("tableRowStart", firstRow).put("tableRowEnd", lastRow);
-                    }
-                }
-                if (!location.path("structureId").isNull()) {
-                    String structure = location.path("structureId").asText();
-                    int sequence = sequences.getOrDefault(structure, 0);
-                    location.put("continuationIndex", sequence);
-                    sequences.put(structure, sequence + 1);
-                } else if (location.path("format").asText().equals("text")) location.put("continuationIndex", continuation++);
-                chunk.set("sourceRange", json.createObjectNode().put("sourceOrdinal", sourceOrdinal).put("utf16Start", start).put("utf16EndExclusive", end).put("ruleVersion", DocumentSources.RULE_VERSION));
-                chunk.set("location", location);
-                result.add(chunk);
-                cursor = start + (text.isEmpty() ? 0 : Character.charCount(text.codePointAt(0)));
-            }
-        }
-        return result;
+    public JsonNode preflight(String id) {
+        String valid = ModelSettingsService.identifier(id, "taskId");
+        return data.read(jdbc -> jdbc.sql("SELECT r.preflight FROM index_runs r JOIN tasks t ON t.id=r.task_id WHERE r.task_id=? AND t.kind='index_file' AND r.preflight IS NOT NULL")
+                .param(valid).query(String.class).optional().map(json::readTree)
+                .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "目标预检尚未生成或任务不存在。", null)));
     }
 
-    private List<JsonNode> split(String text, JsonNode config, String index) {
-        var result = new java.util.ArrayList<JsonNode>();
-        List<Integer> sentences = sentenceEnds(text);
-        int start = 0, ordinal = 0, overlap = config.path("overlapCodePoints").asInt();
-        long lineStart = 1;
-        while (start < text.length()) {
-            int end = start;
-            for (int count = 0; count < 2000 && end < text.length(); count++)
-                end += Character.charCount(text.codePointAt(end));
-            if (end < text.length() && !config.path("strategy").asText().equals("fixed")) {
-                int position = java.util.Collections.binarySearch(sentences, end);
-                int sentence = sentences.get(position >= 0 ? position : -position - 2);
-                if (sentence > start) end = sentence;
-                else {
-                    int delimiter = start;
-                    for (int cursor = start; cursor < end; ) {
-                        int cp = text.codePointAt(cursor);
-                        cursor += Character.charCount(cp);
-                        if ("，、；,;：:".indexOf(cp) >= 0) delimiter = cursor;
-                    }
-                    if (delimiter > start) end = delimiter;
-                }
+    private boolean completeSources(DocumentSources.Parsed document, List<JsonNode> chunks) {
+        for (int unit = 0; unit < document.sources().size(); unit++) {
+            int covered = 0;
+            for (JsonNode chunk : chunks) {
+                if (chunk.at("/sourceRange/sourceOrdinal").asInt() != unit) continue;
+                int start = chunk.at("/sourceRange/utf16Start").asInt(), end = chunk.at("/sourceRange/utf16EndExclusive").asInt();
+                String source = document.sources().get(unit).text();
+                if (start < 0 || start > covered || end <= start || end > source.length()
+                        || !chunk.path("text").asText().equals(chunk.at("/sourceRange/injectedPrefix").asText("") + source.substring(start,end))
+                        || chunk.path("text").asText().codePointCount(0, chunk.path("text").asText().length()) > 2000) return false;
+                covered = Math.max(covered, end);
             }
-            ObjectNode location = json.createObjectNode()
-                    .put("format", "text")
-                    .put("lineStart", lineStart)
-                    .put(
-                            "lineEnd",
-                            lineStart
-                                    + text.substring(start, Math.max(start, end - 1))
-                                            .chars()
-                                            .filter(c -> c == '\n')
-                                            .count());
-            for (String field : List.of(
-                    "pageStart",
-                    "pageEnd",
-                    "paragraphId",
-                    "structureId",
-                    "tableRowStart",
-                    "tableRowEnd",
-                    "tableColumnStart",
-                    "tableColumnEnd",
-                    "codeLanguage",
-                    "codeBlockId")) location.putNull(field);
-            location.put("continuationIndex", ordinal);
-            location.set("titlePath", json.createArrayNode());
-            ObjectNode chunk = json.createObjectNode()
-                    .put(
-                            "id",
-                            UUID.nameUUIDFromBytes((index + ":" + ordinal++).getBytes(StandardCharsets.UTF_8))
-                                    .toString())
-                    .put("text", text.substring(start, end));
-            chunk.set("location", location);
-            result.add(chunk);
-            if (end == text.length()) break;
-            int next = end;
-            int sentenceIndex = java.util.Collections.binarySearch(sentences, end);
-            if (overlap > 0 && sentenceIndex >= 0) {
-                int nextSentenceEnd = sentences.get(sentenceIndex + 1);
-                int available = Math.min(overlap, 2000 - Math.min(2000, text.codePointCount(end, nextSentenceEnd)));
-                int earliest = text.offsetByCodePoints(end, -Math.min(available, text.codePointCount(start, end)));
-                int position = java.util.Collections.binarySearch(sentences, earliest);
-                int boundary = sentences.get(position >= 0 ? position : -position - 1);
-                if (boundary < end) next = boundary;
-            }
-            lineStart +=
-                    text.substring(start, next).chars().filter(c -> c == '\n').count();
-            start = next;
+            if (covered != document.sources().get(unit).text().length()) return false;
         }
-        return result;
+        return true;
     }
 
-    private static List<Integer> sentenceEnds(String text) {
+    static List<Integer> sentenceEnds(String text) {
         var ends = new java.util.ArrayList<Integer>();
         ends.add(0);
         for (int cursor = 0; cursor < text.length(); ) {
@@ -636,6 +644,12 @@ public final class Indexes {
                     file = task.path("fileId").asText(),
                     content = task.path("targetContentVersionId").asText(),
                     config = task.path("targetConfigVersionId").asText();
+            if (jdbc.sql("SELECT COUNT(*) FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE r.knowledge_base_id=? AND r.config_version_id=? AND t.state IN ('queued','running')")
+                    .params(kb, config).query(Integer.class).single() > 0) {
+                jdbc.sql("INSERT OR REPLACE INTO staged_indexes VALUES(?,?,?,?,?,?)").params(id, kb, file, content, config, index).update();
+                finish(jdbc, task, "succeeded", null, null, index);
+                return null;
+            }
             List<String[]> previous = jdbc.sql(
                             "SELECT content_version_id,index_id FROM effective_files WHERE knowledge_base_id=? AND file_id=?")
                     .params(kb, file)
@@ -677,7 +691,9 @@ public final class Indexes {
 
     public JsonNode retrieve(String kb, String query) {
         SearchSnapshot snapshot = data.write(jdbc -> {
-            JsonNode config = bases.config(kb).path("input").path("embedding");
+            JsonNode base = bases.get(kb);
+            String effective = base.path("effectiveConfigVersionId").asText();
+            JsonNode config = (effective.isEmpty() ? bases.config(kb) : bases.config(kb, effective)).path("input").path("embedding");
             var captured = new java.util.LinkedHashMap<String, CapturedFile>();
             jdbc.sql(
                             "SELECT file_id,content_version_id,config_version_id,index_id FROM effective_files WHERE knowledge_base_id=?")
@@ -695,7 +711,7 @@ public final class Indexes {
                     })
                     .list();
             return new SearchSnapshot(
-                    config, java.util.Map.copyOf(captured), Instant.now().toString());
+                    config, java.util.Map.copyOf(captured), Instant.now().toString(), bases.collection(kb, effective));
         });
         JsonNode config = snapshot.config();
         List<String> indexes = List.copyOf(snapshot.files().keySet());
@@ -720,7 +736,7 @@ public final class Indexes {
             JsonNode response = vectors.request(
                     connection.endpoint(),
                     connection.secret(),
-                    "kp_" + kb.replace("-", "") + "/points/query",
+                    snapshot.collection() + "/points/query",
                     "POST",
                     json.writeValueAsString(body));
             if (!response.at("/result/points").isArray())
@@ -841,7 +857,7 @@ public final class Indexes {
 
     private record CapturedFile(String fileId, String contentVersionId, String configVersionId, String filename) {}
 
-    private record SearchSnapshot(JsonNode config, java.util.Map<String, CapturedFile> files, String capturedAt) {}
+    private record SearchSnapshot(JsonNode config, java.util.Map<String, CapturedFile> files, String capturedAt, String collection) {}
 
     private void availability(String kb, String reason) {
         data.write(jdbc -> {

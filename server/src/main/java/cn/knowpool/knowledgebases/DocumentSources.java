@@ -44,12 +44,41 @@ final class DocumentSources {
     }
 
     record Source(String text, ObjectNode location, int[] pageEnds, int lineStart) {}
-    record Parsed(List<Source> sources, List<String> warnings) {}
+    record Parsed(List<Source> sources, List<String> warnings, List<JsonNode> removals) {
+        Parsed(List<Source> sources, List<String> warnings) { this(sources, warnings, List.of()); }
+    }
 
-    Parsed parse(FileService.VersionContent source) throws IOException {
+    Parsed parse(FileService.VersionContent source, JsonNode config) throws IOException {
         String format = source.version().fileType();
         if (format.equals("pdf")) {
             List<String> pages = PdfExtractionWorker.extract(source.bytes(), data.directory().resolve("extraction"), limits);
+            var removals = new ArrayList<JsonNode>();
+            if (config.path("removePageHeadersFooters").asBoolean() && pages.size() > 1) {
+                var headers = new java.util.HashMap<String, Integer>();
+                var footers = new java.util.HashMap<String, Integer>();
+                for (String page : pages) {
+                    List<String> lines = page.lines().filter(line -> !line.isBlank()).toList();
+                    if (lines.size() > 2) {
+                        headers.merge(lines.getFirst(), 1, Integer::sum);
+                        footers.merge(lines.getLast(), 1, Integer::sum);
+                    }
+                }
+                var cleaned = new ArrayList<String>();
+                for (int page = 0; page < pages.size(); page++) {
+                    String original = pages.get(page);
+                    List<String> lines = original.lines().filter(line -> !line.isBlank()).toList();
+                    int first = 0, last = original.length();
+                    if (lines.size() > 2 && headers.getOrDefault(lines.getFirst(), 0) >= Math.max(2, (pages.size()+1)/2)) {
+                        first = original.indexOf(lines.getFirst()) + lines.getFirst().length();
+                        if (first < original.length() && original.charAt(first) == '\n') first++;
+                    }
+                    if (lines.size() > 2 && footers.getOrDefault(lines.getLast(), 0) >= Math.max(2, (pages.size()+1)/2)) last = original.lastIndexOf(lines.getLast());
+                    if (first > 0) removals.add(json.createObjectNode().put("page", page+1).put("utf16Start", 0).put("utf16EndExclusive", first).put("text", original.substring(0, first)));
+                    if (last < original.length()) removals.add(json.createObjectNode().put("page", page+1).put("utf16Start", last).put("utf16EndExclusive", original.length()).put("text", original.substring(last)));
+                    cleaned.add(original.substring(first, last));
+                }
+                pages = cleaned;
+            }
             StringBuilder text = new StringBuilder();
             int[] ends = new int[pages.size()];
             for (int i = 0; i < pages.size(); i++) {
@@ -58,16 +87,19 @@ final class DocumentSources {
             }
             ObjectNode location = location("pdf");
             location.put("pageStart", 1).put("pageEnd", pages.size());
-            return new Parsed(List.of(new Source(text.toString(), location, ends, 0)),
-                    List.of("PDF按文字几何位置提取，复杂多栏、图像正文及表格语义不保证恢复；页码始终保留原文件位置。"));
+            var warnings = new ArrayList<String>();
+            warnings.add("PDF按文字几何位置提取，复杂多栏、图像正文及表格语义不保证恢复；页码始终保留原文件位置。");
+            if (!removals.isEmpty()) warnings.add("已按显式配置删除多页首尾完全相同的重复行，删除内容及原页偏移已记录于来源映射。");
+            return new Parsed(text.toString().isBlank() ? List.of() : List.of(new Source(text.toString(), location, ends, 0)), List.copyOf(warnings), List.copyOf(removals));
         }
         String text = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(source.bytes())).toString();
         if (text.startsWith("\ufeff")) text = text.substring(1);
         text = text.replace("\r\n", "\n").replace('\r', '\n');
         if (text.codePointCount(0, text.length()) > limits.maxExtractedCodePoints())
             throw new ApiFailure(422, "RESOURCE_LIMIT", "全文提取超过文字量限制。", null);
-        if (text.isBlank()) throw new ApiFailure(422, "PARSING_FAILED", "资料正文为空。", null);
+        if (text.isBlank()) return new Parsed(List.of(), List.of("资料正文为空，不能生成生效索引。"));
         if (format.equals("text")) return new Parsed(List.of(new Source(text, location("text"), null, 1)), List.of());
+        if (config.path("strategy").asText().equals("fixed")) return new Parsed(List.of(new Source(text, location("markdown"), null, 1)), List.of());
         Parser parser = Parser.builder().includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES)
                 .extensions(List.of(TablesExtension.create())).build();
         Node document = parser.parse(text);
@@ -126,7 +158,7 @@ final class DocumentSources {
             }
         }
         result.sort(java.util.Comparator.comparingInt(Source::lineStart));
-        if (result.isEmpty()) throw new ApiFailure(422, "PARSING_FAILED", "Markdown没有可定位正文。", null);
+        if (result.isEmpty()) return new Parsed(List.of(), List.of("Markdown没有可定位正文。"));
         return new Parsed(List.copyOf(result), List.of());
     }
 
@@ -170,6 +202,7 @@ final class DocumentSources {
                 .put("ruleVersion", RULE_VERSION).put("normalization", "utf8-bom-crlf-1")
                 .put("lengthMeter", "unicode-code-point-1");
         var units = value.putArray("sources");
+        value.set("removedPageMargins", json.valueToTree(parsed.removals()));
         for (Source unit : parsed.sources()) {
             ObjectNode item = units.addObject();
             item.set("location", unit.location());
