@@ -72,6 +72,10 @@ it('六种任务状态和进度通过真实客户端读取，不把失败当成�
   s.reply({ items: [], nextCursor: null });
   expect((await s.api.tasks(id)).items).toEqual([]);
   observed('listKnowledgeBaseTasks', s.requests.at(-1));
+  const queued = { ...file.task };
+  s.reply({ items: [queued], nextCursor: null });
+  expect((await s.api.tasks(id)).items[0].progressTotal).toBeNull();
+  observed('listKnowledgeBaseTasks', s.requests.at(-1));
 });
 
 it('索引完成与失败回读实际消费生效版本及知识库依赖故障', async () => {
@@ -88,6 +92,7 @@ it('索引完成与失败回读实际消费生效版本及知识库依赖故障'
       finishedAt: time,
       progressCompleted: 1,
       progressTotal: 1,
+      warnings: ['固定索引提示'],
       attempt: 1,
       failure,
       resultResourceId: failed ? null : otherId,
@@ -204,6 +209,32 @@ it('管理请求六状态无索引和依赖失败实际消费，成功命中及�
   s.reply(empty);
   expect((await api.get(id, id)).result.outcome).toBe('no_matches');
   observed('getSearchRequest', s.requests.at(-1));
+  const named = {
+    ...search,
+    task: {
+      ...search.task,
+      targetConfigVersionId: null,
+      warnings: ['固定任务提示'],
+    },
+    result: {
+      ...search.result,
+      evidence: [
+        {
+          ...evidence,
+          currentFilename: '当前资料.txt',
+          location: { ...evidence.location, continuationIndex: 0 },
+        },
+      ],
+    },
+  };
+  s.reply(named);
+  expect(await api.submit(id, '版本规则', otherId)).toEqual(named);
+  observed('testKnowledgeBaseSearch', s.requests.at(-1));
+  expect(await api.get(id, id)).toEqual(named);
+  observed('getSearchRequest', s.requests.at(-1));
+  s.reply(named.result.evidence[0]);
+  expect(await api.evidence(id, otherId, id)).toEqual(named.result.evidence[0]);
+  observed('getSearchEvidence', s.requests.at(-1));
   const unavailable = {
     ...search,
     task: {
@@ -302,7 +333,7 @@ it('全部公开检索错误由实际会话客户端消费而不自动重提', a
         requestId: id,
         code,
         message: '固定查询错误',
-        fieldErrors: [],
+        fieldErrors: [{ field: '/requestId', code, message: '固定字段错误' }],
         retryable: false,
       },
     });
@@ -348,6 +379,18 @@ it('阶段和终态实际流消费验证事件名、帧身份、恢复头与重�
     },
   });
   expect(received).toEqual(events);
+  const resumed = [];
+  await watchTask(otherId, {
+    lastEventId: `${otherId}:1`,
+    onEvent: (item) => resumed.push(item),
+    fetcher: async (_, options) => {
+      expect(options.headers['Last-Event-ID']).toBe(`${otherId}:1`);
+      return new Response(frames, {
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    },
+  });
+  expect(resumed).toEqual([events[1]]);
   const prefix = '#/paths/~1tasks~1{taskId}~1events/get';
   observations.push({
     operationId: 'watchTask',
@@ -359,11 +402,55 @@ it('阶段和终态实际流消费验证事件名、帧身份、恢复头与重�
       `${prefix}/x-sse/events/terminal`,
       `${prefix}/x-sse/id`,
       `${prefix}/x-sse/terminalStates`,
+      `${prefix}/responses/200/content/text~1event-stream/schema/type`,
     ],
     assertions: [
       '真实客户端按阶段和终态事件名解析，帧标识匹配任务与安全序号，终态后关闭；同源凭据且无URL令牌。',
     ],
   });
+});
+it('事件错误正文由实际订阅客户端校验并保留字段说明', async () => {
+  for (const [status, code] of [
+    [400, 'INVALID_REQUEST'],
+    [401, 'SESSION_EXPIRED'],
+    [403, 'ORIGIN_REJECTED'],
+    [404, 'NOT_FOUND'],
+    [429, 'QUEUE_FULL'],
+    [500, 'INTERNAL_ERROR'],
+  ]) {
+    const detail = {
+      requestId: id,
+      code,
+      message: '固定订阅错误',
+      retryable: false,
+      fieldErrors: [{ field: '/taskId', code, message: '固定任务字段错误' }],
+    };
+    let sent;
+    await expect(
+      watchTask(otherId, {
+        lastEventId: `${otherId}:1`,
+        fetcher: async (url, options) => {
+          sent = { url, options };
+          return Response.json(detail, { status });
+        },
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('固定订阅错误'),
+      code,
+      fieldErrors: detail.fieldErrors,
+    });
+    expect(sent.options.headers['Last-Event-ID']).toBe(`${otherId}:1`);
+    observations.push({
+      operationId: 'watchTask',
+      method: 'get',
+      url: `/tasks/${otherId}/events`,
+      params: {},
+      headers: sent.options.headers,
+      body: null,
+      status,
+      response: detail,
+    });
+  }
 });
 afterAll(() => {
   execFileSync('python', ['scripts/settings-evidence.py', '08'], {

@@ -379,6 +379,14 @@ export async function checkKnowledgeBases(page, tests) {
     assert.ok(eventRequest.cookie?.includes('KNOW_POOL_SESSION='));
     assert.equal(new URL(stream.url()).search, '');
     assert.equal(eventRequest['x-csrf-token'], undefined);
+    assert.match(
+      eventRequest['last-event-id'],
+      new RegExp(`^${indexedTaskId}:[1-9][0-9]*$`),
+    );
+    assert.ok(
+      eventRequest['last-event-id'].length >= 38 &&
+        eventRequest['last-event-id'].length <= 53,
+    );
     const streamCapture = page
       .evaluate(async (url) => {
         const response = await fetch(url, { credentials: 'same-origin' });
@@ -551,6 +559,18 @@ export async function checkKnowledgeBases(page, tests) {
         `${ssePrefix}/x-sse/id`,
         `${ssePrefix}/x-sse/lastEventIdHeader`,
         `${ssePrefix}/x-sse/terminalStates`,
+        `${ssePrefix}/description`,
+        `${ssePrefix}/parameters/0/required`,
+        `${ssePrefix}/parameters/0/schema/type`,
+        `${ssePrefix}/parameters/0/schema/format`,
+        `${ssePrefix}/parameters/1/required`,
+        `${ssePrefix}/parameters/1/schema/type`,
+        `${ssePrefix}/parameters/1/schema/minLength`,
+        `${ssePrefix}/parameters/1/schema/maxLength`,
+        `${ssePrefix}/parameters/1/schema/pattern`,
+        '#/paths/~1knowledge-bases~1{knowledgeBaseId}~1search-test/post/description',
+        '#/paths/~1search-requests~1{requestId}/get/description',
+        '#/paths/~1search-requests~1{requestId}~1evidence~1{evidenceId}/get/description',
       ],
       assertions: [
         '真实浏览器中断一次事件流后先GET原任务，再恢复Cookie鉴权同源事件流；没有URL令牌或新建索引提交',

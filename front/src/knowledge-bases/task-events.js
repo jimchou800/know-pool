@@ -46,8 +46,52 @@ export async function watchTask(
       signal,
     },
   );
+  if (!response.ok) {
+    let detail;
+    try {
+      detail = await response.json();
+    } catch {
+      throw new Error('任务通知中断，请查询原任务。');
+    }
+    if (
+      exact(detail, [
+        'requestId',
+        'code',
+        'message',
+        'fieldErrors',
+        'retryable',
+      ]) &&
+      typeof detail.requestId === 'string' &&
+      uuid.test(detail.requestId) &&
+      [
+        'INVALID_REQUEST',
+        'SESSION_EXPIRED',
+        'ORIGIN_REJECTED',
+        'NOT_FOUND',
+        'QUEUE_FULL',
+        'INTERNAL_ERROR',
+      ].includes(detail.code) &&
+      typeof detail.message === 'string' &&
+      typeof detail.retryable === 'boolean' &&
+      Array.isArray(detail.fieldErrors) &&
+      detail.fieldErrors.every(
+        (item) =>
+          exact(item, ['field', 'code', 'message']) &&
+          ['field', 'code', 'message'].every(
+            (key) => typeof item[key] === 'string',
+          ),
+      )
+    ) {
+      const failure = new Error(
+        `${detail.message} 请求标识：${detail.requestId}`,
+      );
+      failure.code = detail.code;
+      failure.fieldErrors = detail.fieldErrors;
+      throw failure;
+    }
+    throw new Error('任务通知中断，请查询原任务。');
+  }
   if (
-    !response.ok ||
     !/^text\/event-stream(?:;|$)/i.test(
       response.headers.get('content-type') || '',
     ) ||
