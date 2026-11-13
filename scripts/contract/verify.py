@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '19'
+TICKET = '20'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
@@ -37,10 +37,12 @@ SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset'
          'watchQuestionTask', 'getConversationEvidence',
          'listConversations', 'getConversation', 'renameConversation', 'updateConversationScope',
          'listConversationTurns', 'submitQuestion', 'deleteConversation',
-         'getProcessingConfigVersion', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles')
+         'getProcessingConfigVersion', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles',
+         'getDatasetDeleteImpact', 'deleteDataset', 'getFileDeleteImpact', 'deleteFile',
+         'getKnowledgeBaseDeleteImpact', 'deleteKnowledgeBase', 'listTasks', 'retryCleanupTask')
 BUSINESS_OPERATIONS = {
     'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
-    'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion'},
+    'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion', 'deleteDataset', 'deleteFile', 'deleteKnowledgeBase'},
     'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask', 'submitQuestion', 'deleteConversation', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles'},
     'sse': {'watchTask', 'getTask', 'watchQuestionTask', 'getQuestionTask'},
 }

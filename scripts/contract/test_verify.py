@@ -92,9 +92,9 @@ class ContractGateTests(unittest.TestCase):
     def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
         """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
         operations = verify.inventory(self.document)
-        self.assertEqual(verify.TICKET, '19')
-        self.assertEqual(len(verify.SCOPE), 77)
-        self.assertEqual(len(set(verify.SCOPE)), 77)
+        self.assertEqual(verify.TICKET, '20')
+        self.assertEqual(len(verify.SCOPE), 85)
+        self.assertEqual(len(set(verify.SCOPE)), 85)
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix
@@ -102,7 +102,7 @@ class ContractGateTests(unittest.TestCase):
             self.assertEqual(verify.coverage({'tests': []}, 'watchTask', pointer), [])
         rules = {
             'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
-            'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion'},
+            'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion', 'deleteDataset', 'deleteFile', 'deleteKnowledgeBase'},
             'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask', 'submitQuestion', 'deleteConversation', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles'},
             'sse': {'watchTask', 'getTask', 'watchQuestionTask', 'getQuestionTask'},
         }
@@ -270,6 +270,15 @@ class ContractGateTests(unittest.TestCase):
         for name in ('retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles'):
             self.assertTrue(all(key.rsplit('/', 1)[-1] in {'409', '422', '429', '503'} for key in mapping['操作'][name]))
             self.assertIn(name, verify.SCOPE)
+
+    def test_deletion_requires_missing_current_filename_and_cleanup_conflict(self):
+        """公开删除后历史快照缺失当前文件名及清理重试状态冲突均不可豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-20.json').read_bytes())
+        self.assertFalse(any('/Evidence/properties/currentFilename/anyOf/1/' in key
+                             for conditions in mapping['操作'].values() for key in conditions))
+        self.assertNotIn('#/paths/~1tasks~1{taskId}~1retry-cleanup/post/responses/409',
+                         mapping['操作']['retryCleanupTask'])
+        self.assertIn('listTasks', verify.SCOPE)
 
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
