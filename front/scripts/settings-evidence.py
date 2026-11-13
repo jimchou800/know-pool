@@ -114,7 +114,7 @@ for index, item in enumerate(json.load(sys.stdin)):
         assert not validator(schema).is_valid(item['input'])
         found = set()
         rejected_field(schema, prefix + '/requestBody/content/application~1json/schema', item['field'], item['input'][item['field']], found)
-        tests.append({'name': name + '：调用方拒绝空生成预算', 'passed': True, 'operationIds': [name],
+        tests.append({'name': name + '：调用方拒绝空生成预算：' + item['field'], 'passed': True, 'operationIds': [name],
                       'constraintIds': sorted(found & set(operation['constraints'])),
                       'assertions': ['实际提交空预算后客户端拒绝，断言无Axios请求；非法输入经正式契约校验，秘密和正文不输出。']})
         continue
