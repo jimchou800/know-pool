@@ -266,6 +266,10 @@ if profile in ('indexing', 'indexing-events'):
             {'getTask', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'terminalSnapshotCanBeResumed': ('真实阶段终态事件及恢复游标，订阅不改变持久状态序号。', {'watchTask'}),
         'boundedSubscriptionsReleaseOnDisconnectAndEmitHeartbeat': ('真实订阅容量、断线释放及注释心跳不改变序号，阶段和终态随任务状态变化。', {'watchTask'}),
+        'everyOperationRejectsUnsafeRequests': ('真实会话及来源拒绝、未知查询、分页与标识边界和本机异常响应。',
+            {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
+             'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
+             'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}),
     }
     if profile == 'indexing-events':
         selected_operations = {'watchTask', 'getTask'}

@@ -66,6 +66,11 @@ class IndexingEvidenceTests(unittest.TestCase):
         self.assertEqual(check(item, 'getSystemStatus'), (set(), []))
         with self.assertRaisesRegex(AssertionError, '未声明'):
             check({**item, 'behaviorChecks': ['everythingPassed']}, 'getTask')
+        description = self.module['behavior_assertions']
+        observed = {'behavior': 'everyOperationRejectsUnsafeRequests'}
+        self.assertTrue(description(observed, 'testKnowledgeBaseSearch'))
+        self.assertEqual(description({**observed, 'behavior': ''}, 'testKnowledgeBaseSearch'), [])
+        self.assertEqual(check(observed, 'testKnowledgeBaseSearch'), (set(), []))
 
     def test_profile_records_observed_sse_without_body_or_unclaimed_behavior(self):
         root = Path(self.directory.name)
