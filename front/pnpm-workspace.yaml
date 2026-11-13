@@ -1,2 +1,4 @@
 allowBuilds:
   esbuild: true
+patchedDependencies:
+  pdfjs-dist@6.5.438: patches/pdfjs-dist@6.5.438.patch

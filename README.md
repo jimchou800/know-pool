@@ -6,7 +6,7 @@
 
 需求与技术访谈已确认。`front/` 已提供三套浅色界面原型，覆盖首页与问答页，可点击切换方案、新建与切换问答、查看模拟处理进度和原文依据抽屉。用户已采纳方案 1“紧凑高效”为后续界面设计基线；其余两套保留为探索记录。
 
-演示原型使用固定样例，不调用真实模型或后端。技术任务 01 的正式工作台、本机会话、安全及统一构建，02 的数据集管理及 03 的单份文本上传、预览与原格式下载已通过端到端验收，见[01 实施记录](.scratch/technical-design/implementation-01.md)、[02 实施记录](.scratch/technical-design/implementation-02.md)与[03 实施记录](.scratch/technical-design/implementation-03.md)。其余业务尚未验收；后续变更须重新验证，不沿用旧快照结论。
+演示原型使用固定样例，不调用真实模型或后端。技术任务 01 的正式工作台、本机会话、安全及统一构建，02 的数据集管理、03 的单份文本上传、预览与原格式下载及 04 的安全文档预览与定位已通过端到端验收，见[01 实施记录](.scratch/technical-design/implementation-01.md)、[02 实施记录](.scratch/technical-design/implementation-02.md)、[03 实施记录](.scratch/technical-design/implementation-03.md)与[04 实施记录](.scratch/technical-design/implementation-04.md)。其余业务尚未验收；后续变更须重新验证，不沿用旧快照结论。
 
 ## 运行界面原型
 

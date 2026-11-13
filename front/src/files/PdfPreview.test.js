@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   pending: null,
   renderFailure: '',
   pagePending: null,
+  failureName: 'Error',
 }));
 vi.mock('pdfjs-dist', () => ({
   GlobalWorkerOptions: {},
@@ -40,7 +41,11 @@ vi.mock('pdfjs-dist', () => ({
       promise:
         state.pending ||
         (state.fail
-          ? Promise.reject(new Error('损坏'))
+          ? Promise.reject(
+              Object.assign(new Error('固定引擎错误'), {
+                name: state.failureName,
+              }),
+            )
           : Promise.resolve(document)),
     };
   }),
@@ -53,6 +58,7 @@ vi.mock('pdfjs-dist', () => ({
 }));
 afterEach(() => {
   state.fail = false;
+  state.failureName = 'Error';
   state.pending = null;
   state.pagePending = null;
   state.renderFailure = '';
@@ -60,6 +66,7 @@ afterEach(() => {
   state.height = 800;
   state.items = [{ str: '中文正文' }];
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 it('文字PDF单页显示可翻页定位并在关闭时释放文档', async () => {
   HTMLCanvasElement.prototype.getContext = vi.fn(() => ({}));
@@ -94,16 +101,45 @@ it.each(['损坏', 'Image exceeded maximum allowed size and was removed.'])(
     const wrapper = mount(PdfPreview, { props: { bytes: new ArrayBuffer(1) } });
     await flushPromises();
     expect(wrapper.get('[role=alert]').text()).toContain(
-      message === '损坏' ? '文件损坏' : '资源限制',
+      message === '损坏' ? '预览失败，请重试' : '资源限制',
     );
     wrapper.unmount();
   },
 );
-it('PDF损坏加载失败会清理资源', async () => {
+it.each([
+  ['InvalidPDFException', '文件损坏'],
+  ['PasswordException', '不支持加密'],
+  ['Error', '预览失败，请重试'],
+])('PDF加载类型%s分别提示且清理资源', async (name, expected) => {
   state.fail = true;
+  state.failureName = name;
   const wrapper = mount(PdfPreview, { props: { bytes: new ArrayBuffer(1) } });
   await flushPromises();
-  expect(wrapper.get('[role=alert]').text()).toContain('格式不支持');
+  expect(wrapper.get('[role=alert]').text()).toContain(expected);
+  wrapper.unmount();
+});
+it('观察器初次及高度变化不覆盖用户输入或清除页码错误', async () => {
+  let observe;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback) {
+        observe = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const wrapper = mount(PdfPreview, { props: { bytes: new ArrayBuffer(1) } });
+  await flushPromises();
+  await wrapper.get('input').setValue(3);
+  observe([{ contentRect: { width: 0, height: 100 } }]);
+  await flushPromises();
+  expect(wrapper.get('input').element.value).toBe('3');
+  await wrapper.get('form').trigger('submit');
+  observe([{ contentRect: { width: 0, height: 130 } }]);
+  await flushPromises();
+  expect(wrapper.get('[role=alert]').text()).toContain('1至2');
   wrapper.unmount();
 });
 it.each(['画布', '文字'])(

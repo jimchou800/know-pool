@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  pdfjs-dist@6.5.438: fcd21930dc48658af9aed392a49cf6d333fdb8037ca4c06e8ed9754d117f0d39
+
 importers:
 
   .:
@@ -19,7 +22,7 @@ importers:
         version: 15.0.3
       pdfjs-dist:
         specifier: 6.5.438
-        version: 6.5.438
+        version: 6.5.438(patch_hash=fcd21930dc48658af9aed392a49cf6d333fdb8037ca4c06e8ed9754d117f0d39)
       pinia:
         specifier: 3.0.4
         version: 3.0.4(vue@3.5.42)
@@ -3938,7 +3941,7 @@ snapshots:
 
   pathval@2.0.1: {}
 
-  pdfjs-dist@6.5.438:
+  pdfjs-dist@6.5.438(patch_hash=fcd21930dc48658af9aed392a49cf6d333fdb8037ca4c06e8ed9754d117f0d39):
     optionalDependencies:
       '@napi-rs/canvas': 1.1.0
 

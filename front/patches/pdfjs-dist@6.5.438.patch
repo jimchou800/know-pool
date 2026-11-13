@@ -1,0 +1,54 @@
+diff --git a/build/pdf.mjs b/build/pdf.mjs
+index b3300439a5c0e7ef36c13d19794d172326169e24..d8e4d3732bf0aae59606ae52f2e56500da5ac9c7 100644
+--- a/build/pdf.mjs
++++ b/build/pdf.mjs
+@@ -16962,18 +16962,17 @@ class PDFPageProxy {
+         if (this._transport.destroyed) {
+           return;
+         }
++        intentState.displayReadyCapability?.reject(reason);
++        intentState.opListReadCapability?.reject(reason);
+         if (intentState.operatorList) {
+           intentState.operatorList.lastChunk = true;
+           for (const internalRenderTask of intentState.renderTasks) {
++            internalRenderTask.cancel?.(reason);
+             internalRenderTask.operatorListChanged();
+           }
+           this.#tryCleanup();
+         }
+-        if (intentState.displayReadyCapability) {
+-          intentState.displayReadyCapability.reject(reason);
+-        } else if (intentState.opListReadCapability) {
+-          intentState.opListReadCapability.reject(reason);
+-        } else {
++        if (!intentState.displayReadyCapability && !intentState.opListReadCapability) {
+           throw reason;
+         }
+       });
+diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
+index 443668ffb47acfa7a1341d360aa575b96b6c7f51..36ea8a6f876a5665cae922342e14fe0b5f6fe0ee 100644
+--- a/legacy/build/pdf.mjs
++++ b/legacy/build/pdf.mjs
+@@ -23360,18 +23360,17 @@ class PDFPageProxy {
+         if (this._transport.destroyed) {
+           return;
+         }
++        intentState.displayReadyCapability?.reject(reason);
++        intentState.opListReadCapability?.reject(reason);
+         if (intentState.operatorList) {
+           intentState.operatorList.lastChunk = true;
+           for (const internalRenderTask of intentState.renderTasks) {
++            internalRenderTask.cancel?.(reason);
+             internalRenderTask.operatorListChanged();
+           }
+           this.#tryCleanup();
+         }
+-        if (intentState.displayReadyCapability) {
+-          intentState.displayReadyCapability.reject(reason);
+-        } else if (intentState.opListReadCapability) {
+-          intentState.opListReadCapability.reject(reason);
+-        } else {
++        if (!intentState.displayReadyCapability && !intentState.opListReadCapability) {
+           throw reason;
+         }
+       });

@@ -279,10 +279,13 @@ export async function checkDocumentPreviews(page, tests) {
     );
     const started = Date.now();
     await upload(sample.name, 'application/pdf', bytes);
-    await page
-      .locator('.pdf-preview [role=alert]')
-      .filter({ hasText: '资源限制' })
-      .waitFor();
+    await page.locator('.pdf-preview').waitFor();
+    await page.locator('.pdf-preview [role=alert]').waitFor();
+    assert.match(
+      await page.locator('.pdf-preview').innerText(),
+      /资源限制/,
+      sample.file,
+    );
     assert.equal(
       await page
         .locator('.pdf-preview canvas')

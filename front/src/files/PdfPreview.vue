@@ -24,6 +24,16 @@ let disposed = false;
 let timedOut = false;
 let timer;
 let observer;
+function previewFailure(failure) {
+  if (failure.name === 'InvalidPDFException')
+    return 'PDF 文件损坏，请下载原文件核对。';
+  if (failure.name === 'PasswordException')
+    return '不支持加密 PDF，请提供未加密的文字 PDF。';
+  if (failure.message?.includes('maximum allowed size'))
+    return 'PDF 图像超过资源限制，请下载原文件查看。';
+  if (failure.message?.includes('资源限制')) return failure.message;
+  return 'PDF 预览失败，请重试或下载原文件查看。';
+}
 function cancelPage() {
   renderTask?.cancel();
   textLayer?.cancel();
@@ -48,12 +58,12 @@ function deadline() {
     release();
   }, 15_000);
 }
-async function showPage(number) {
+async function showPage(number, navigate = true) {
   const current = ++sequence;
   cancelPage();
   busy.value = true;
   error.value = '';
-  fieldError.value = '';
+  if (navigate) fieldError.value = '';
   deadline();
   try {
     const page = await document.getPage(number);
@@ -105,14 +115,10 @@ async function showPage(number) {
     await Promise.all([renderTask.promise, textLayer.render()]);
     if (disposed || current !== sequence) return;
     pageNumber.value = number;
-    pageInput.value = number;
+    if (navigate) pageInput.value = number;
   } catch (failure) {
     if (!disposed && current === sequence) {
-      error.value = failure.message.includes('maximum allowed size')
-        ? 'PDF 图像超过资源限制，请下载原文件查看。'
-        : failure.message.includes('资源限制')
-          ? failure.message
-          : 'PDF 预览失败：文件损坏或格式不支持，请下载原文件查看。';
+      error.value = previewFailure(failure);
       cancelPage();
       layer.value?.replaceChildren();
       if (canvas.value) canvas.value.width = canvas.value.height = 0;
@@ -160,15 +166,19 @@ onMounted(async () => {
     await nextTick();
     await showPage(1);
     if (!disposed && typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(() => {
-        if (!busy.value && !error.value) void showPage(pageNumber.value);
+      let width = host.value.clientWidth;
+      observer = new ResizeObserver(([entry]) => {
+        const nextWidth = entry.contentRect.width;
+        if (nextWidth === width) return;
+        width = nextWidth;
+        if (!busy.value && !error.value) void showPage(pageNumber.value, false);
       });
       observer.observe(host.value);
     }
-  } catch {
+  } catch (failure) {
     if (!disposed && !timedOut) {
       clearTimeout(timer);
-      error.value = 'PDF 预览失败：文件损坏或格式不支持，请下载原文件查看。';
+      error.value = previewFailure(failure);
       busy.value = false;
       release();
     }
