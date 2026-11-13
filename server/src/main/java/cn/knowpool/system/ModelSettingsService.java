@@ -55,6 +55,18 @@ public final class ModelSettingsService {
                 .view();
     }
 
+    public GenerationSnapshot generationSnapshot() {
+        return data.read(jdbc -> {
+            Snapshot value=current(jdbc,"generation");
+            if (!value.view().complete()) throw new cn.knowpool.infrastructure.ApiFailure(422,"MODEL_CONFIG_INVALID","请先保存完整生成模型及预算配置。",null);
+            return new GenerationSnapshot(value.endpoint(),value.model(),value.secret(),value.contextWindowTokens(),value.maxOutputTokens());
+        });
+    }
+
+    public record GenerationSnapshot(String endpoint,String model,String secret,long contextWindowTokens,long maxOutputTokens) {
+        @Override public String toString() { return "生成配置快照"; }
+    }
+
     public EmbeddingSnapshot embeddingSnapshot(String id) {
         return data.read(jdbc -> {
             Snapshot value = historical(jdbc, identifier(id, "modelConfigVersionId"));

@@ -377,6 +377,71 @@ public final class SearchRequests {
 
     private record Retrieval(JsonNode evidence,ObjectNode scope) {}
 
+    public void reserveQuestion() {
+        if (!capacity.tryAcquire()) throw new ApiFailure(429,"QUEUE_FULL","知识服务队列已满，请稍后重试。",null);
+    }
+
+    public void releaseQuestion() { capacity.release(); }
+
+    public void executeQuestion(Runnable action) {
+        worker.execute(() -> { try { action.run(); } finally { Thread.interrupted();capacity.release(); } });
+    }
+
+    public Grounding beginGrounding(List<String> selectedIds) {
+        var cache=new Indexes.QueryVectors();
+        try {
+            return data.write(jdbc -> {
+                var eligible=new java.util.ArrayList<String>();var omitted=json.createArrayNode();
+                for (String kb:selectedIds) {
+                    try {
+                        if (bases.get(kb).path("publicationState").asText().equals("published")) eligible.add(kb);
+                        else omit(omitted,kb,"not_published","知识库未发布或已下线。");
+                    } catch (ApiFailure failure) { if (failure.status()!=404) throw failure;omit(omitted,kb,"deleted","知识库不存在或已被删除。"); }
+                }
+                for (String kb:new java.util.ArrayList<>(eligible)) {
+                    try { indexes.captureAll(List.of(kb),cache); }
+                    catch (ApiFailure failure) { eligible.remove(kb);omit(omitted,kb,"unavailable","知识库配置或生效索引不可用。"); }
+                }
+                return new Grounding(List.copyOf(selectedIds),eligible,omitted,cache);
+            });
+        } catch (RuntimeException failure) { cache.close();throw failure; }
+    }
+
+    public final class Grounding implements AutoCloseable {
+        private final List<String> selectedIds;
+        private final List<String> eligible;
+        private final tools.jackson.databind.node.ArrayNode initialOmitted;
+        private final Indexes.QueryVectors cache;
+        private Grounding(List<String> selectedIds,List<String> eligible,tools.jackson.databind.node.ArrayNode omitted,Indexes.QueryVectors cache) {
+            this.selectedIds=selectedIds;this.eligible=eligible;this.initialOmitted=omitted;this.cache=cache;
+        }
+        public JsonNode retrieve(List<String> queries,java.util.function.BooleanSupplier cancelled,java.util.function.Consumer<JsonNode> progress) {
+            var omitted=initialOmitted.deepCopy();var used=json.createArrayNode();
+            ObjectNode scope=json.createObjectNode();scope.set("selectedKnowledgeBaseIds",json.valueToTree(selectedIds));scope.set("usedKnowledgeBaseIds",used);scope.set("omitted",omitted);scope.put("incomplete",!omitted.isEmpty());
+            progress.accept(scope.deepCopy());
+            var routes=new java.util.LinkedHashMap<String,JsonNode>();
+            int quota=Math.max(1,Math.max(400,Math.min(10000,candidateBudget))/(Math.max(1,selectedIds.size())*queries.size()));
+            for (String kb:eligible) {
+                if (cancelled.getAsBoolean()) return json.createObjectNode().set("scope",scope);
+                var local=new java.util.LinkedHashMap<String,JsonNode>();
+                try {
+                    for (int n=0;n<queries.size();n++) {
+                        if (cancelled.getAsBoolean()) return json.createObjectNode().set("scope",scope);
+                        local.put(kb+":"+n,indexes.retrieve(kb,queries.get(n),cache,quota,cancelled));
+                    }
+                    used.add(kb);routes.putAll(local);
+                } catch (ApiFailure failure) {
+                    if (cancelled.getAsBoolean()) return json.createObjectNode().set("scope",scope);
+                    omit(omitted,kb,failure.code().equals("NO_EFFECTIVE_INDEX")?"no_effective_index":"unavailable","知识库生效索引或依赖不可用。");
+                }
+                scope.put("incomplete",!omitted.isEmpty());progress.accept(scope.deepCopy());
+            }
+            ObjectNode result=json.createObjectNode();result.set("scope",scope);result.set("evidence",fuse(routes));return result;
+        }
+        public boolean remainsEligible(JsonNode evidence) { return indexes.remainsEligible(evidence); }
+        @Override public void close() { cache.close(); }
+    }
+
     private ObjectNode scope(String kb, String reason) {
         ObjectNode scope = json.createObjectNode().put("incomplete", reason != null);
         scope.set("selectedKnowledgeBaseIds", json.createArrayNode().add(kb));

@@ -14,9 +14,10 @@ public final class TaskCancellationController {
     private final ConnectionTests tasks;
     private final Indexes indexes;
     private final SearchRequests searches;
+    private final cn.knowpool.questions.Questions questions;
 
-    public TaskCancellationController(ConnectionTests tasks, Indexes indexes, SearchRequests searches) {
-        this.tasks = tasks; this.indexes = indexes; this.searches = searches;
+    public TaskCancellationController(ConnectionTests tasks, Indexes indexes, SearchRequests searches,cn.knowpool.questions.Questions questions) {
+        this.tasks = tasks; this.indexes = indexes; this.searches = searches;this.questions=questions;
     }
 
     @PostMapping("/api/v1/tasks/{taskId}/cancel")
@@ -27,6 +28,7 @@ public final class TaskCancellationController {
         return switch (task.kind()) {
             case "index_file", "rebuild_knowledge_base" -> indexes.cancel(taskId);
             case "search" -> searches.cancel(taskId);
+            case "question" -> questions.cancel(taskId).path("task");
             default -> throw new ApiFailure(409,"CONFLICT","此任务类型不允许取消。",null);
         };
     }

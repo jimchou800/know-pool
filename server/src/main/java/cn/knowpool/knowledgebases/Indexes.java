@@ -789,6 +789,16 @@ public final class Indexes {
     }
 
     public JsonNode retrieve(String kb, String query, QueryVectors cache, int candidateLimit, java.util.function.BooleanSupplier cancelled) {
+        SearchSnapshot snapshot=cache.snapshots.get(kb);
+        if (snapshot==null) snapshot=capture(kb,cache);
+        return retrieveCaptured(kb,query,cache,candidateLimit,cancelled,snapshot);
+    }
+
+    public void captureAll(List<String> ids,QueryVectors cache) {
+        data.write(jdbc -> { for (String id:ids) if (!cache.snapshots.containsKey(id)) capture(id,cache); return null; });
+    }
+
+    private SearchSnapshot capture(String kb,QueryVectors cache) {
         SearchSnapshot snapshot = data.write(jdbc -> {
             JsonNode base = bases.get(kb);
             String effective = base.path("effectiveConfigVersionId").asText();
@@ -810,21 +820,29 @@ public final class Indexes {
                     })
                     .list();
             SearchSnapshot value = new SearchSnapshot(
-                    config, java.util.Map.copyOf(captured), Instant.now().toString(), bases.collection(kb, effective));
+                    config, java.util.Map.copyOf(captured), Instant.now().toString(), bases.collection(kb, effective),settings.embeddingSnapshot(config.path("modelConfigVersionId").asText()),settings.vectorConnection());
             for (String index : captured.keySet()) readers.merge(index,1,Integer::sum);
             return value;
         });
+        cache.snapshots.put(kb,snapshot);
+        cache.releases.add(() -> { synchronized (data) {
+            for (String index:snapshot.files().keySet()) readers.computeIfPresent(index,(key,count) -> count<=1?null:count-1);
+        } });
+        return snapshot;
+    }
+
+    private JsonNode retrieveCaptured(String kb,String query,QueryVectors cache,int candidateLimit,java.util.function.BooleanSupplier cancelled,SearchSnapshot snapshot) {
         JsonNode config = snapshot.config();
         List<String> indexes = List.copyOf(snapshot.files().keySet());
         if (indexes.isEmpty()) throw new ApiFailure(422, "NO_EFFECTIVE_INDEX", "请先完成资料处理，再检索生效索引。", null);
         try {
             if (cancelled.getAsBoolean()) throw new ApiFailure(409,"TASK_CANCELLED","检索已被取消。",null);
-            var connection = settings.vectorConnection();
-            var model = settings.embeddingSnapshot(config.path("modelConfigVersionId").asText());
+            var connection = snapshot.connection();
+            var model = snapshot.model();
             QueryVectorKey key = new QueryVectorKey(model,config.path("dimensions").asInt(),query);
             float[] vector = cache.values.get(key);
             if (vector == null) {
-                if (cache.values.size() >= 100) throw new ApiFailure(422,"MODEL_CONFIG_INVALID","本次检索嵌入空间数量超过安全预算。",null);
+                if (cache.values.size() >= 400) throw new ApiFailure(422,"MODEL_CONFIG_INVALID","本次检索查询嵌入调用数量超过安全预算。",null);
                 vector = embeddings.embed(model,query,config.path("dimensions").asInt()).vector();
                 cache.values.put(key,vector);
             }
@@ -870,17 +888,14 @@ public final class Indexes {
             if (List.of("MODEL_UNAVAILABLE", "VECTOR_UNAVAILABLE").contains(failure.code()))
                 availability(kb, failure.getMessage());
             throw failure;
-        } finally {
-            cache.releases.add(() -> { synchronized (data) {
-                for (String index : snapshot.files().keySet()) readers.computeIfPresent(index,(key,count) -> count <= 1 ? null : count-1);
-            } });
         }
     }
 
     public static final class QueryVectors implements AutoCloseable {
+        private final java.util.Map<String,SearchSnapshot> snapshots=new java.util.HashMap<>();
         private final java.util.Map<QueryVectorKey,float[]> values = new java.util.HashMap<>();
         private final java.util.List<Runnable> releases=new java.util.ArrayList<>();
-        @Override public void close() { releases.forEach(Runnable::run);releases.clear();values.clear(); }
+        @Override public void close() { releases.forEach(Runnable::run);releases.clear();values.clear();snapshots.clear(); }
     }
 
     private record QueryVectorKey(ModelSettingsService.EmbeddingSnapshot model, int dimensions, String query) {}
@@ -988,7 +1003,7 @@ public final class Indexes {
 
     private record CapturedFile(String fileId, String contentVersionId, String configVersionId, String filename) {}
 
-    private record SearchSnapshot(JsonNode config, java.util.Map<String, CapturedFile> files, String capturedAt, String collection) {}
+    private record SearchSnapshot(JsonNode config, java.util.Map<String, CapturedFile> files, String capturedAt, String collection,ModelSettingsService.EmbeddingSnapshot model,ModelSettingsService.VectorConnection connection) {}
 
     private void availability(String kb, String reason) {
         data.write(jdbc -> {

@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 12) {
+            if (version > 13) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 12) {
+            if (version > 0 && version < 13) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -237,6 +237,15 @@ public final class ApplicationData implements AutoCloseable {
                 write(transaction -> {
                     transaction.sql("CREATE TABLE search_instances(id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
                     transaction.sql("PRAGMA user_version=12").update();
+                    return null;
+                });
+            }
+            if (version < 13) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE conversations(id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
+                    transaction.sql("CREATE TABLE question_tasks(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)").update();
+                    transaction.sql("CREATE TABLE conversation_evidence(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)").update();
+                    transaction.sql("PRAGMA user_version=13").update();
                     return null;
                 });
             }

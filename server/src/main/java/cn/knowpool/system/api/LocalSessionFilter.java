@@ -176,6 +176,10 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 || path.matches("/api/v1/search-requests/[^/]+(?:/evidence/[^/]+)?")
                         && request.getMethod().equals("GET");
         boolean cancellation = path.matches("/api/v1/tasks/[^/]+/cancel") && request.getMethod().equals("POST");
+        cancellation = cancellation || path.equals("/api/v1/conversations/first-question") && request.getMethod().equals("POST")
+                || path.matches("/api/v1/question-tasks/[^/]+(?:/events)?") && request.getMethod().equals("GET")
+                || path.matches("/api/v1/question-tasks/[^/]+/cancel") && request.getMethod().equals("POST")
+                || path.matches("/api/v1/conversations/[^/]+/evidence/[^/]+") && request.getMethod().equals("GET");
         search = search || request.getMethod().equals("POST") && (path.equals("/api/v1/search-instances") || path.matches("/api/v1/search-instances/[^/]+/requests"));
         search = search || path.equals("/api/v1/search-instances") && request.getMethod().equals("GET")
                 || path.matches("/api/v1/search-instances/[^/]+") && Set.of("GET","DELETE").contains(request.getMethod())
