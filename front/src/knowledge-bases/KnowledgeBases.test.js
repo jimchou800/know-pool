@@ -10,6 +10,7 @@ import {
   id,
   otherId,
   source,
+  file,
   setup,
 } from '../../test-fixtures/knowledge-bases';
 
@@ -163,6 +164,7 @@ it('创建网络结果不确定时同键同负载恢复，不能悄悄创建第�
   await wrapper.get('form').trigger('submit');
   await flushPromises();
   expect(wrapper.get('fieldset').attributes('disabled')).toBeDefined();
+  expect(button('创建知识库').attributes('disabled')).toBeDefined();
   failure = false;
   await button('继续确认本次创建').trigger('click');
   await flushPromises();
@@ -173,6 +175,44 @@ it('创建网络结果不确定时同键同负载恢复，不能悄悄创建第�
   );
   expect(posts[0].data).toBe(posts[1].data);
 });
+for (const [kind, label, item] of [
+  ['sources', '更多来源', source],
+  ['files', '更多文件', file],
+]) {
+  it(`${label}重复点击只请求并追加同一页一次`, async () => {
+    const s = await open(`/knowledge-bases/${id}`, (r) => {
+      if (r.url === '/knowledge-bases')
+        return { items: [record], nextCursor: null };
+      if (r.url.endsWith('/processing-config')) return config;
+      if (r.url.endsWith(`/${kind}`))
+        return { items: [], nextCursor: '下一页' };
+      if (r.url.endsWith('/sources') || r.url.endsWith('/files'))
+        return { items: [], nextCursor: null };
+      return record;
+    });
+    let resolve;
+    const response = new Promise((done) => {
+      resolve = done;
+    });
+    s.reply((r) => (r.url.endsWith(`/${kind}`) ? response : record));
+    const more = button(label);
+    await more.trigger('click');
+    await more.trigger('click');
+    await flushPromises();
+    expect(
+      s.requests.filter(
+        (r) => r.url.endsWith(`/${kind}`) && r.params?.cursor === '下一页',
+      ),
+    ).toHaveLength(1);
+    resolve({ items: [item], nextCursor: null });
+    await flushPromises();
+    expect(
+      wrapper.findAll(
+        `[aria-label="${kind === 'sources' ? '关联来源' : '知识库文件'}"] li`,
+      ),
+    ).toHaveLength(1);
+  });
+}
 it('失败任务保留脱敏原因，显式重新创建使用新键', async () => {
   let failure = true;
   const s = await creating(() =>

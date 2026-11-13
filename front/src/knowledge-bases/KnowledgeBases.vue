@@ -32,6 +32,7 @@ const cursors = ref([undefined]),
   nextCursor = ref(null);
 const sourceCursor = ref(null),
   fileCursor = ref(null);
+const moreLoading = ref({ sources: false, files: false });
 let listSequence = 0,
   detailSequence = 0;
 const creating = ref(false),
@@ -207,6 +208,7 @@ async function allPages(load) {
   return items;
 }
 async function openForm(create) {
+  if (saving.value || pending.value || createKey.value) return;
   const sequence = ++formSequence;
   creating.value = create;
   editing.value = !create;
@@ -457,6 +459,7 @@ async function nextPage() {
 }
 async function loadDetail() {
   const sequence = ++detailSequence;
+  moreLoading.value = { sources: false, files: false };
   selected.value = null;
   snapshot.value = null;
   sources.value = [];
@@ -504,7 +507,9 @@ async function loadDetail() {
   }
 }
 async function loadMore(kind) {
+  if (!selected.value || moreLoading.value[kind]) return;
   const sequence = detailSequence;
+  moreLoading.value[kind] = true;
   detailError.value = '';
   try {
     const result = await api[kind](
@@ -522,6 +527,8 @@ async function loadMore(kind) {
     await loadNames();
   } catch (failure) {
     if (sequence === detailSequence) detailError.value = failure.message;
+  } finally {
+    if (sequence === detailSequence) moreLoading.value[kind] = false;
   }
 }
 watch(() => route.path, loadDetail, { immediate: true });
@@ -551,7 +558,7 @@ loadPage(0);
       <button
         ref="createButton"
         class="primary-button"
-        :disabled="!writable || saving || !!pending"
+        :disabled="!writable || saving || !!pending || !!createKey"
         @click="openForm(true)"
       >
         创建知识库
@@ -1123,7 +1130,11 @@ loadPage(0);
                   }}
                 </li>
               </ul>
-              <button v-if="sourceCursor !== null" @click="loadMore('sources')">
+              <button
+                v-if="sourceCursor !== null"
+                :disabled="moreLoading.sources"
+                @click="loadMore('sources')"
+              >
                 更多来源
               </button>
             </section>
@@ -1156,7 +1167,11 @@ loadPage(0);
                   <p v-if="file.failure">{{ file.failure.message }}</p>
                 </li>
               </ul>
-              <button v-if="fileCursor !== null" @click="loadMore('files')">
+              <button
+                v-if="fileCursor !== null"
+                :disabled="moreLoading.files"
+                @click="loadMore('files')"
+              >
                 更多文件
               </button>
             </section>
