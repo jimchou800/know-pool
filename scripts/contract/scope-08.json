@@ -1,6 +1,6 @@
 {
   "任务": "08",
-  "说明": "08继承已验收01至07三十五操作，复用getTask并新增事件订阅、索引任务列表及管理检索三操作，累计四十操作。完整九十五操作与原始约束保留；本草案基于1.0.4技术澄清，待双方独立审阅，不代表已批准或已验证。仅逐指针记录当前业务无法触发的分支；缺少测试不能豁免。",
+  "说明": "08继承已验收01至07并新增纯文本索引、任务事件和管理检索，累计四十操作。完整九十五操作与4325项本切片原始约束保留；逐指针依据任务类型、纯文本定位及已批准后续票据划界，不以缺测作为保留理由。修订须前后端分别确认同一字节摘要后使用，不代表实现验收。",
   "操作": {
     "initializeSession": {
       "#/components/schemas/FieldError/additionalProperties": "本票错误无字段级错误；非空数组时才触发子项结构。",
@@ -396,7 +396,8 @@
       "#/components/schemas/Task/allOf/2/then/then/properties/knowledgeBaseId/format": "索引列表和文件任务只含索引类型，管理检索只含search，不返回knowledge_base_create；创建成功与失败结果条件由createKnowledgeBase及getTask真实验证。",
       "#/components/schemas/Task/allOf/2/then/then/properties/knowledgeBaseId/type": "索引列表和文件任务只含索引类型，管理检索只含search，不返回knowledge_base_create；创建成功与失败结果条件由createKnowledgeBase及getTask真实验证。",
       "#/components/schemas/Task/allOf/2/then/then/properties/resultResourceId/format": "索引列表和文件任务只含索引类型，管理检索只含search，不返回knowledge_base_create；创建成功与失败结果条件由createKnowledgeBase及getTask真实验证。",
-      "#/components/schemas/Task/allOf/2/then/then/properties/resultResourceId/type": "索引列表和文件任务只含索引类型，管理检索只含search，不返回knowledge_base_create；创建成功与失败结果条件由createKnowledgeBase及getTask真实验证。"
+      "#/components/schemas/Task/allOf/2/then/then/properties/resultResourceId/type": "索引列表和文件任务只含索引类型，管理检索只含search，不返回knowledge_base_create；创建成功与失败结果条件由createKnowledgeBase及getTask真实验证。",
+      "#/components/schemas/Task/properties/warnings/items/type": "08列表的index_file严格纯文本解析，编码、预算或完整性异常终止任务，无非致命结构降级警告来源；恢复费用不确定通过TaskFailure表达。创建库补偿警告属于create_knowledge_base，不能挪作文件索引警告证据。09/10验证文档及结构降级警告，数组、字段及消费方非法元素拒绝继续适用。"
     },
     "watchTask": {
       "#/paths/~1tasks~1{taskId}~1events/get/responses/503": "事件订阅只读取原任务阶段，不外发模型或向量请求，依赖失败由任务终态通知及查询表达；全局维护暂停由后续运行数据切片提供，当前无独立503触发机制。独立订阅容量429已经可达，必须真实验证，不随本项保留。"
@@ -416,7 +417,12 @@
       "#/components/schemas/Task/allOf/2/then/then/properties/resultResourceId/format": "索引列表和文件任务只含索引类型，管理检索只含search，不返回knowledge_base_create；创建成功与失败结果条件由createKnowledgeBase及getTask真实验证。",
       "#/components/schemas/Task/allOf/2/then/then/properties/resultResourceId/type": "索引列表和文件任务只含索引类型，管理检索只含search，不返回knowledge_base_create；创建成功与失败结果条件由createKnowledgeBase及getTask真实验证。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1tasks/get/responses/429": "此操作仅本地分页或读取运行期请求、证据及身份墓碑，不入执行队列、不外发，当前没有独立容量拒绝机制；后续全局资源限额或维护能力建立对应拒绝机制时再验证此状态，不能挪用提交或事件订阅的429。异步任务失败及不存在、失效身份仍须按本操作真实查询验证。",
-      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1tasks/get/responses/503": "此操作只读本地任务或运行期事实，不调用模型及向量服务，依赖故障由原任务失败表达而非查询503；数据迁移等全局维护暂停能力由后续运行数据切片提供，届时验证对应503。原任务失败、404和适用410仍须真实验证，消费方共享故障处理不豁免。"
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1tasks/get/responses/503": "此操作只读本地任务或运行期事实，不调用模型及向量服务，依赖故障由原任务失败表达而非查询503；数据迁移等全局维护暂停能力由后续运行数据切片提供，届时验证对应503。原任务失败、404和适用410仍须真实验证，消费方共享故障处理不豁免。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type": "08列表仅返回绑定实际知识库、资料、目标内容版本及目标配置版本的index_file任务，四项身份创建后保留至终态；不以未来整库重建任务伪造本票空绑定。字段必填、联合类型及实际非空分支继续验证。",
+      "#/components/schemas/Task/properties/warnings/items/type": "08列表的index_file严格纯文本解析，编码、预算或完整性异常终止任务，无非致命结构降级警告来源；恢复费用不确定通过TaskFailure表达。创建库补偿警告属于create_knowledge_base，不能挪作文件索引警告证据。09/10验证文档及结构降级警告，数组、字段及消费方非法元素拒绝继续适用。"
     },
     "testKnowledgeBaseSearch": {
       "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "08后台阶段有限重试仍属于原任务，不创建显式重试来源任务；retryOfTaskId非空留给后续单项及全部失败重试入口，必填、联合类型及空分支仍适用。",
@@ -469,7 +475,25 @@
       "#/components/schemas/SearchResult/properties/additionalQueries/items/pattern": "管理检索不调用查询预处理，additionalQueries恒为空；非空附加查询子项由后续预处理切片验证，数组类型及上限仍适用。",
       "#/components/schemas/SearchResult/properties/additionalQueries/items/type": "管理检索不调用查询预处理，additionalQueries恒为空；非空附加查询子项由后续预处理切片验证，数组类型及上限仍适用。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1search-test/post/responses/503": "有效管理检索受理返回202，受理后模型或向量依赖失效必须产生原任务失败，不能以同步503替代或伪装无命中；全局维护暂停由后续运行数据切片提供，当前没有受理前503机制。依赖失败、同键不重复外发及容量429仍须真实验证。",
-      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1search-test/post/responses/422": "管理入口结构或范围非法为400、知识库不存在为404、同键不同负载409、容量429；其他有效提交均202。无索引或依赖失效在受理后异步失败并保留实际范围，不存在额外同步业务前置拒绝；后续全局维护或配置前置建立独立拒绝条件时验证422，当前不能用其他操作422冒充。"
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1search-test/post/responses/422": "管理入口结构或范围非法为400、知识库不存在为404、同键不同负载409、容量429；其他有效提交均202。无索引或依赖失效在受理后异步失败并保留实际范围，不存在额外同步业务前置拒绝；后续全局维护或配置前置建立独立拒绝条件时验证422，当前不能用其他操作422冒充。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "管理检索固定路径指定的当前单库，任务必绑定该库；空库身份仅可能属于其他任务类型，当前非空分支与范围一致性继续验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/type": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/format": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/format": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/type": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/format": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/type": "管理检索按阶段和结果表达执行事实，没有预先可知的索引工作单元总数，不制造进度分母；08查询任务总量为空，已知总量的index_file任务仍须真实验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/minimum": "管理检索按阶段和结果表达执行事实，没有预先可知的索引工作单元总数，不制造进度分母；08查询任务总量为空，已知总量的index_file任务仍须真实验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/maximum": "管理检索按阶段和结果表达执行事实，没有预先可知的索引工作单元总数，不制造进度分母；08查询任务总量为空，已知总量的index_file任务仍须真实验证。",
+      "#/components/schemas/Task/properties/warnings/items/type": "08管理检索严格单库且不调用预处理，不允许依赖故障伪装空结果或部分成功；失败通过TaskFailure及scope表达，没有多库部分遗漏或预处理降级的非致命警告来源。非空警告由14/15对应管线验证；数组及字段本身、消费方非法警告拒绝仍适用。",
+      "#/components/schemas/SearchResult/properties/warnings/items/type": "08管理检索严格单库且不调用预处理，不允许依赖故障伪装空结果或部分成功；失败通过TaskFailure及scope表达，没有多库部分遗漏或预处理降级的非致命警告来源。非空警告由14/15对应管线验证；数组及字段本身、消费方非法警告拒绝仍适用。",
+      "#/components/schemas/Location/properties/lineStart/anyOf/1/type": "08仅处理纯文本，正式Location条件要求真实起止行范围，不允许null替代文本定位；其他格式的空行坐标由09文档解析验证。实际行号、范围关系及字段结构继续适用。",
+      "#/components/schemas/Location/properties/lineEnd/anyOf/1/type": "08仅处理纯文本，正式Location条件要求真实起止行范围，不允许null替代文本定位；其他格式的空行坐标由09文档解析验证。实际行号、范围关系及字段结构继续适用。",
+      "#/components/schemas/Location/properties/paragraphId/anyOf/0/type": "08纯文本以真实行范围定位；09明确验收标题、段落固定样例，10验收结构定位，结构身份非空留对应文档及结构切片，不能给行定位伪造段落或结构身份。字段与实际空分支继续验证。",
+      "#/components/schemas/Location/properties/structureId/anyOf/0/type": "08纯文本以真实行范围定位；09明确验收标题、段落固定样例，10验收结构定位，结构身份非空留对应文档及结构切片，不能给行定位伪造段落或结构身份。字段与实际空分支继续验证。",
+      "#/components/schemas/Location/properties/continuationIndex/anyOf/1/type": "08纯文本每片保留从0开始的稳定顺序号，单片也为0；本票不产生无顺序身份的切片。仅保留本票空分支，09/10按结构分片细化其不适用时的空语义，不宣称正式契约普遍禁止null；非空范围及实际顺序继续验证。",
+      "#/components/schemas/Evidence/properties/currentFilename/anyOf/1/type": "08没有资料删除的公开入口；证据捕获前核验有效源，元数据不可用使请求范围失败，捕获后返回当次运行期快照，不凭空清空当前名。删除及永久历史引用由后续切片验证空当前名；当前名字符串与实际重命名仍须验证。"
     },
     "getSearchRequest": {
       "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "08后台阶段有限重试仍属于原任务，不创建显式重试来源任务；retryOfTaskId非空留给后续单项及全部失败重试入口，必填、联合类型及空分支仍适用。",
@@ -522,7 +546,25 @@
       "#/components/schemas/SearchResult/properties/additionalQueries/items/pattern": "管理检索不调用查询预处理，additionalQueries恒为空；非空附加查询子项由后续预处理切片验证，数组类型及上限仍适用。",
       "#/components/schemas/SearchResult/properties/additionalQueries/items/type": "管理检索不调用查询预处理，additionalQueries恒为空；非空附加查询子项由后续预处理切片验证，数组类型及上限仍适用。",
       "#/paths/~1search-requests~1{requestId}/get/responses/429": "此操作仅本地分页或读取运行期请求、证据及身份墓碑，不入执行队列、不外发，当前没有独立容量拒绝机制；后续全局资源限额或维护能力建立对应拒绝机制时再验证此状态，不能挪用提交或事件订阅的429。异步任务失败及不存在、失效身份仍须按本操作真实查询验证。",
-      "#/paths/~1search-requests~1{requestId}/get/responses/503": "此操作只读本地任务或运行期事实，不调用模型及向量服务，依赖故障由原任务失败表达而非查询503；数据迁移等全局维护暂停能力由后续运行数据切片提供，届时验证对应503。原任务失败、404和适用410仍须真实验证，消费方共享故障处理不豁免。"
+      "#/paths/~1search-requests~1{requestId}/get/responses/503": "此操作只读本地任务或运行期事实，不调用模型及向量服务，依赖故障由原任务失败表达而非查询503；数据迁移等全局维护暂停能力由后续运行数据切片提供，届时验证对应503。原任务失败、404和适用410仍须真实验证，消费方共享故障处理不豁免。",
+      "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "管理检索固定路径指定的当前单库，任务必绑定该库；空库身份仅可能属于其他任务类型，当前非空分支与范围一致性继续验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/type": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/format": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/format": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/type": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/0/format": "08管理检索是库级只读请求，可命中多个资料，不建设或切换单文件内容、目标配置版本；任务不伪造单一目标身份，各实际生效版本由Evidence独立绑定。字段必填、联合类型及实际空分支继续验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/type": "管理检索按阶段和结果表达执行事实，没有预先可知的索引工作单元总数，不制造进度分母；08查询任务总量为空，已知总量的index_file任务仍须真实验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/minimum": "管理检索按阶段和结果表达执行事实，没有预先可知的索引工作单元总数，不制造进度分母；08查询任务总量为空，已知总量的index_file任务仍须真实验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/maximum": "管理检索按阶段和结果表达执行事实，没有预先可知的索引工作单元总数，不制造进度分母；08查询任务总量为空，已知总量的index_file任务仍须真实验证。",
+      "#/components/schemas/Task/properties/warnings/items/type": "08管理检索严格单库且不调用预处理，不允许依赖故障伪装空结果或部分成功；失败通过TaskFailure及scope表达，没有多库部分遗漏或预处理降级的非致命警告来源。非空警告由14/15对应管线验证；数组及字段本身、消费方非法警告拒绝仍适用。",
+      "#/components/schemas/SearchResult/properties/warnings/items/type": "08管理检索严格单库且不调用预处理，不允许依赖故障伪装空结果或部分成功；失败通过TaskFailure及scope表达，没有多库部分遗漏或预处理降级的非致命警告来源。非空警告由14/15对应管线验证；数组及字段本身、消费方非法警告拒绝仍适用。",
+      "#/components/schemas/Location/properties/lineStart/anyOf/1/type": "08仅处理纯文本，正式Location条件要求真实起止行范围，不允许null替代文本定位；其他格式的空行坐标由09文档解析验证。实际行号、范围关系及字段结构继续适用。",
+      "#/components/schemas/Location/properties/lineEnd/anyOf/1/type": "08仅处理纯文本，正式Location条件要求真实起止行范围，不允许null替代文本定位；其他格式的空行坐标由09文档解析验证。实际行号、范围关系及字段结构继续适用。",
+      "#/components/schemas/Location/properties/paragraphId/anyOf/0/type": "08纯文本以真实行范围定位；09明确验收标题、段落固定样例，10验收结构定位，结构身份非空留对应文档及结构切片，不能给行定位伪造段落或结构身份。字段与实际空分支继续验证。",
+      "#/components/schemas/Location/properties/structureId/anyOf/0/type": "08纯文本以真实行范围定位；09明确验收标题、段落固定样例，10验收结构定位，结构身份非空留对应文档及结构切片，不能给行定位伪造段落或结构身份。字段与实际空分支继续验证。",
+      "#/components/schemas/Location/properties/continuationIndex/anyOf/1/type": "08纯文本每片保留从0开始的稳定顺序号，单片也为0；本票不产生无顺序身份的切片。仅保留本票空分支，09/10按结构分片细化其不适用时的空语义，不宣称正式契约普遍禁止null；非空范围及实际顺序继续验证。",
+      "#/components/schemas/Evidence/properties/currentFilename/anyOf/1/type": "08没有资料删除的公开入口；证据捕获前核验有效源，元数据不可用使请求范围失败，捕获后返回当次运行期快照，不凭空清空当前名。删除及永久历史引用由后续切片验证空当前名；当前名字符串与实际重命名仍须验证。"
     },
     "getSearchEvidence": {
       "#/components/schemas/Location/properties/pageStart/anyOf/0/maximum": "08只解析纯文本，不能伪造PDF页码、表格坐标或代码结构；对应非空位置由文档解析切片验证，位置对象与字段必填、联合类型及实际空分支仍适用。",
@@ -554,7 +596,13 @@
       "#/components/schemas/Location/allOf/0/then/properties/pageStart/minimum": "08纯文本格式不触发PDF页码条件；文本起止行及结束不早于开始仍必须真实验证，PDF条件由后续文档解析验证。",
       "#/components/schemas/Location/allOf/0/then/properties/pageStart/type": "08纯文本格式不触发PDF页码条件；文本起止行及结束不早于开始仍必须真实验证，PDF条件由后续文档解析验证。",
       "#/paths/~1search-requests~1{requestId}~1evidence~1{evidenceId}/get/responses/429": "此操作仅本地分页或读取运行期请求、证据及身份墓碑，不入执行队列、不外发，当前没有独立容量拒绝机制；后续全局资源限额或维护能力建立对应拒绝机制时再验证此状态，不能挪用提交或事件订阅的429。异步任务失败及不存在、失效身份仍须按本操作真实查询验证。",
-      "#/paths/~1search-requests~1{requestId}~1evidence~1{evidenceId}/get/responses/503": "此操作只读本地任务或运行期事实，不调用模型及向量服务，依赖故障由原任务失败表达而非查询503；数据迁移等全局维护暂停能力由后续运行数据切片提供，届时验证对应503。原任务失败、404和适用410仍须真实验证，消费方共享故障处理不豁免。"
+      "#/paths/~1search-requests~1{requestId}~1evidence~1{evidenceId}/get/responses/503": "此操作只读本地任务或运行期事实，不调用模型及向量服务，依赖故障由原任务失败表达而非查询503；数据迁移等全局维护暂停能力由后续运行数据切片提供，届时验证对应503。原任务失败、404和适用410仍须真实验证，消费方共享故障处理不豁免。",
+      "#/components/schemas/Location/properties/lineStart/anyOf/1/type": "08仅处理纯文本，正式Location条件要求真实起止行范围，不允许null替代文本定位；其他格式的空行坐标由09文档解析验证。实际行号、范围关系及字段结构继续适用。",
+      "#/components/schemas/Location/properties/lineEnd/anyOf/1/type": "08仅处理纯文本，正式Location条件要求真实起止行范围，不允许null替代文本定位；其他格式的空行坐标由09文档解析验证。实际行号、范围关系及字段结构继续适用。",
+      "#/components/schemas/Location/properties/paragraphId/anyOf/0/type": "08纯文本以真实行范围定位；09明确验收标题、段落固定样例，10验收结构定位，结构身份非空留对应文档及结构切片，不能给行定位伪造段落或结构身份。字段与实际空分支继续验证。",
+      "#/components/schemas/Location/properties/structureId/anyOf/0/type": "08纯文本以真实行范围定位；09明确验收标题、段落固定样例，10验收结构定位，结构身份非空留对应文档及结构切片，不能给行定位伪造段落或结构身份。字段与实际空分支继续验证。",
+      "#/components/schemas/Location/properties/continuationIndex/anyOf/1/type": "08纯文本每片保留从0开始的稳定顺序号，单片也为0；本票不产生无顺序身份的切片。仅保留本票空分支，09/10按结构分片细化其不适用时的空语义，不宣称正式契约普遍禁止null；非空范围及实际顺序继续验证。",
+      "#/components/schemas/Evidence/properties/currentFilename/anyOf/1/type": "08没有资料删除的公开入口；证据捕获前核验有效源，元数据不可用使请求范围失败，捕获后返回当次运行期快照，不凭空清空当前名。删除及永久历史引用由后续切片验证空当前名；当前名字符串与实际重命名仍须验证。"
     }
   },
   "当前安全行为": [
