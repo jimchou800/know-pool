@@ -228,7 +228,7 @@ public final class Indexes {
                     String collection = bases.collection(kb, configId);
                     JsonNode actual = null;
                     int previous=data.read(jdbc -> task(jdbc,id).path("attempt").asInt());
-                    if (previous>=3) throw new ApiFailure(503,"VECTOR_UNAVAILABLE","集合初始化尝试已达到上限，请显式重试失败资料。");
+                    if (previous>=3) throw new ApiFailure(503,"VECTOR_UNAVAILABLE","集合初始化尝试已达到上限，请显式重试失败资料。",null);
                     for (int attempt = previous+1; attempt <= 3; attempt++) {
                         int currentAttempt = attempt;
                         data.write(jdbc -> { requireRebuild(jdbc,id,kb,configId);ObjectNode value = task(jdbc,id); value.put("attempt",currentAttempt); persist(jdbc,value); return null; });
