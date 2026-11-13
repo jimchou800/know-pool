@@ -24,6 +24,18 @@ assert.equal(third.contractSha256, sixth.contractSha256);
 assert.equal(third.implementationSha256, sixth.implementationSha256);
 assert.equal(sixth.contractSha256, seventh.contractSha256);
 assert.equal(sixth.implementationSha256, seventh.implementationSha256);
+const tests = [
+  ...first.tests,
+  ...second.tests,
+  ...third.tests,
+  ...sixth.tests,
+  ...seventh.tests,
+];
+assert.equal(
+  new Set(tests.map((test) => test.name)).size,
+  tests.length,
+  '消费证据测试名称必须全局唯一',
+);
 await writeFile(
   'artifacts/contract-consumer.json',
   JSON.stringify(
@@ -36,13 +48,7 @@ await writeFile(
         ...sixth.scope,
         ...seventh.scope,
       ],
-      tests: [
-        ...first.tests,
-        ...second.tests,
-        ...third.tests,
-        ...sixth.tests,
-        ...seventh.tests,
-      ],
+      tests,
     },
     null,
     2,

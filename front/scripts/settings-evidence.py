@@ -111,6 +111,9 @@ def self_check():
 
 
 self_check()
+ticket = sys.argv[1] if len(sys.argv) > 1 else '06'
+assert ticket in ('06', '07')
+domain = {'06': '设置', '07': '知识库'}[ticket]
 tests = []
 for index, item in enumerate(json.load(sys.stdin)):
     name = item['operationId']
@@ -128,7 +131,7 @@ for index, item in enumerate(json.load(sys.stdin)):
         assert not validator(schema).is_valid(item['input'])
         found = set()
         rejected_field(schema, prefix + '/requestBody/content/application~1json/schema', item['field'], item['input'][item['field']], found)
-        tests.append({'name': name + '：调用方拒绝空生成预算：' + item['field'], 'passed': True, 'operationIds': [name],
+        tests.append({'name': domain + '：' + name + '：调用方拒绝空生成预算：' + item['field'], 'passed': True, 'operationIds': [name],
                       'constraintIds': sorted(found & set(operation['constraints'])),
                       'assertions': ['实际提交空预算后客户端拒绝，断言无Axios请求；非法输入经正式契约校验，秘密和正文不输出。']})
         continue
@@ -174,7 +177,7 @@ for index, item in enumerate(json.load(sys.stdin)):
         if 'required' in parameter:
             found.add(pointer + '/required')
         reached(schema, pointer + '/schema', value, found)
-    tests.append({'name': name + '：实际消费观察' + str(index + 1), 'passed': True,
+    tests.append({'name': domain + '：' + name + '：实际消费观察' + str(index + 1), 'passed': True,
                   'operationIds': [name], 'constraintIds': sorted(found & set(operation['constraints'])),
                   'requests': [{'method': method.upper(), 'path': '/api/v1' + item['url'],
                                 'hasProtection': 'x-csrf-token' in headers,
@@ -185,8 +188,6 @@ report = {'timestamp': datetime.now(timezone.utc).isoformat(),
           'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
           'implementationSha256': verification.snapshot()[0],
           'scope': list(dict.fromkeys(test['operationIds'][0] for test in tests)), 'tests': tests}
-ticket = sys.argv[1] if len(sys.argv) > 1 else '06'
-assert ticket in ('06', '07')
 output = root / f'front/artifacts/contract-consumer-{ticket}.json'
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
