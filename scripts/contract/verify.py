@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '15'
+TICKET = '16'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
@@ -32,12 +32,14 @@ SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset'
          'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase',
          'createSearchInstance', 'submitSearch',
          'listSearchInstances', 'getSearchInstance', 'renameSearchInstance',
-         'updateSearchInstanceScope', 'deleteSearchInstance', 'cancelSearchRequest')
+         'updateSearchInstanceScope', 'deleteSearchInstance', 'cancelSearchRequest',
+         'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask',
+         'watchQuestionTask', 'getConversationEvidence')
 BUSINESS_OPERATIONS = {
-    'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch'},
-    'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch'},
-    'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch'},
-    'sse': {'watchTask', 'getTask'},
+    'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence'},
+    'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion'},
+    'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask'},
+    'sse': {'watchTask', 'getTask', 'watchQuestionTask', 'getQuestionTask'},
 }
 SECURITY_BEHAVIORS = (
     '仅回环监听及 Host 白名单',
@@ -136,7 +138,7 @@ def inventory(document):
                     reference = '#/x-business-constraints/' + rule
                     resolve(document, reference)
                     constraints.add(reference)
-            if identifier == 'watchTask':
+            if identifier in {'watchTask', 'watchQuestionTask'}:
                 for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
                     reference = prefix + '/x-sse/' + suffix
                     resolve(document, reference)
