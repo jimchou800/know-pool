@@ -899,6 +899,16 @@ public final class KnowledgeBases {
                             .put("usingPreviousVersion",!row.getString(1).equals(value.path("targetContentVersionId").asText()) || !row.getString(2).equals(value.path("targetConfigVersionId").asText()));
                     return true;
                 }).list();
+        if (!value.path("targetConfigVersionId").isNull() && !value.path("targetConfigVersionId").equals(value.path("effectiveConfigVersionId"))) {
+            jdbc.sql("SELECT t.payload FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE r.knowledge_base_id=? AND r.config_version_id=?")
+                    .params(kb,value.path("targetConfigVersionId").asText()).query(String.class).optional().ifPresent(payload -> {
+                        JsonNode parent=json.readTree(payload);String state=parent.path("state").asText();
+                        if (List.of("queued","running").contains(state) && value.at("/task/state").asText().equals("succeeded")) value.put("updateState","processing");
+                        if (List.of("failed","cancelled","interrupted").contains(state)) {
+                            value.put("updateState","failed");if (value.path("failure").isNull()) value.set("failure",parent.path("failure").deepCopy());
+                        }
+                    });
+        }
         return value;
     }
 

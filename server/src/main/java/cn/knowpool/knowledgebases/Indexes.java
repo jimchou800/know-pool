@@ -199,6 +199,12 @@ public final class Indexes {
         }
     }
 
+    private void requireRebuild(JdbcClient jdbc,String id,String kb,String config) {
+        if (!List.of("queued","running").contains(task(jdbc,id).path("state").asText())
+                || !bases.get(kb).path("targetConfigVersionId").asText().equals(config))
+            throw new ApiFailure(409,"TASK_CANCELLED","整库重建已取消或目标配置已被替换。",null);
+    }
+
     private void rebuilds() {
         var pending = data.read(jdbc -> jdbc.sql("SELECT r.task_id,r.knowledge_base_id,r.config_version_id,r.ready FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE t.state IN ('queued','running') ORDER BY r.task_id")
                 .query((row, n) -> new String[]{row.getString(1), row.getString(2), row.getString(3), row.getString(4)}).list());
@@ -211,6 +217,7 @@ public final class Indexes {
                 }
                 if (rebuild[3].equals("0")) {
                     data.write(jdbc -> {
+                        requireRebuild(jdbc,id,kb,configId);
                         ObjectNode value = task(jdbc,id);
                         value.put("state", "running").put("phase", "initializing");
                         if (value.path("startedAt").isNull()) value.put("startedAt", Instant.now().toString());
@@ -222,7 +229,7 @@ public final class Indexes {
                     JsonNode actual = null;
                     for (int attempt = 1; attempt <= 3; attempt++) {
                         int currentAttempt = attempt;
-                        data.write(jdbc -> { ObjectNode value = task(jdbc,id); value.put("attempt",currentAttempt); persist(jdbc,value); return null; });
+                        data.write(jdbc -> { requireRebuild(jdbc,id,kb,configId);ObjectNode value = task(jdbc,id); value.put("attempt",currentAttempt); persist(jdbc,value); return null; });
                         try {
                             JsonNode existing = vectors.request(connection.endpoint(), connection.secret(), collection,"GET",null);
                             if (existing == null) vectors.request(connection.endpoint(), connection.secret(), collection,"PUT",
@@ -240,7 +247,7 @@ public final class Indexes {
                     if (actual == null || actual.at("/result/config/params/vectors/size").asInt() != embedding.path("dimensions").asInt()
                             || !actual.at("/result/config/params/vectors/distance").asText().equals(VectorCollections.distance(embedding.path("distance").asText())))
                         throw new ApiFailure(500,"INTEGRITY_FAILED","目标向量集合配置校验失败。",null);
-                    data.write(jdbc -> { jdbc.sql("UPDATE processing_rebuilds SET ready=1 WHERE task_id=?").param(id).update(); return null; });
+                    data.write(jdbc -> { requireRebuild(jdbc,id,kb,configId);jdbc.sql("UPDATE processing_rebuilds SET ready=1 WHERE task_id=?").param(id).update(); return null; });
                 }
                 data.write(jdbc -> {
                     ObjectNode parent = task(jdbc,id);

@@ -64,6 +64,11 @@ public final class KnowledgeBaseController {
         return service.config(identifier(knowledgeBaseId));
     }
 
+    @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/processing-config/versions/{configVersionId}")
+    public JsonNode configVersion(@PathVariable String knowledgeBaseId,@PathVariable String configVersionId,HttpServletRequest request) {
+        query(request,Set.of());return service.config(identifier(knowledgeBaseId),ModelSettingsService.identifier(configVersionId,"configVersionId"));
+    }
+
     @PutMapping(value = "/api/v1/knowledge-bases/{knowledgeBaseId}/processing-config", consumes = "application/json")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public ConnectionTests.Accepted updateConfig(@PathVariable String knowledgeBaseId, @RequestBody JsonNode input, HttpServletRequest request) {
