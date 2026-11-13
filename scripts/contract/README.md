@@ -1,6 +1,6 @@
 # 接口实现证据门禁
 
-本工具对当前已领取的技术任务累积生成实现报告。06 在独立集成分支继承已验收的 01 至 05，范围为二十七操作，新增模型及向量配置、历史凭据与异步探测；06 进行中，不能沿用旧快照结论。完整契约的 95 个操作保持原分母，范围外操作逐项列为未实现；不将切片结果宣传为全项目完成。现行 `1.0.2` 设计签认入口为 `docs/agents/api/reviews/contract-06-frontend.md` 与 `contract-06-backend.md`，06 适用映射由两个实际实施代理独立双签。正式契约及适用映射通过 `.gitattributes` 固定换行以保持字节摘要。
+本工具对当前已领取的技术任务累积生成实现报告。07 继承已验收的 01 至 06，范围为三十五操作，新增知识库创建、维护、目标配置快照和来源文件；07 进行中，不能沿用旧快照结论。完整契约的 95 个操作保持原分母，范围外操作逐项列为未实现；不将切片结果宣传为全项目完成。现行 `1.0.3` 设计签认入口为 `docs/agents/api/reviews/contract-07-frontend.md` 与 `contract-07-backend.md`，07 适用映射须由两个实际实施代理独立双签。正式契约及适用映射通过 `.gitattributes` 固定换行以保持字节摘要。
 
 先安装固定工具依赖：
 
@@ -12,7 +12,7 @@ python scripts/contract/verify.py --snapshot
 python scripts/contract/verify.py
 ```
 
-已安装在 `.runtime/contract-tools` 的同版依赖也可使用。前后端测试分别自动生成 `server/target/contract/provider-evidence.json` 和 `front/artifacts/contract-consumer.json`，包括同一契约与实现摘要、测试名称、操作标识、实际验证过的约束指针及结果。不得把读取约束清单后无条件填入测试映射作为实际验证。提供方须运行真实接口；消费方须观察实际请求与渲染，固定替身不替代最终真实浏览器联调。原始测试结果、请求结构与断言在各自证据中追溯，报告不保存真实会话值或模型凭据。
+已安装在 `.runtime/contract-tools` 的同版依赖也可使用。后端测试分别自动生成 `server/target/contract/provider-evidence.json`、`provider-settings-evidence.json` 和 `provider-knowledge-bases-evidence.json`，前端测试生成 `front/artifacts/contract-consumer.json`，这些文件包括同一契约与实现摘要、测试名称、操作标识、实际验证过的约束指针及结果。缺少任一默认提供方文件或跨文件重名、过期均拒绝。不得把读取约束清单后无条件填入测试映射作为实际验证。结构校验仅映射实际值触发的分支；描述行为须追溯到对应真实行为断言，不能由结构遍历代替。提供方须运行真实接口；消费方须观察实际请求与渲染，固定替身不替代最终真实浏览器联调。原始测试结果、请求结构与断言在各自证据中追溯，报告不保存真实会话值或模型凭据。
 
 `run_live.py` 在后端打包后，以独立的 `.runtime/live-checks/` 测试数据目录和临时回环端口启动发行包，调用前端真实浏览器断言与截图脚本，再关闭其启动的应用进程。它不会使用用户真实数据目录或调用模型。浏览器证据输出到 `front/artifacts/contract-browser.json`，作为消费方补充；缺少或过期也会阻断报告。生成器同时核对 Vitest 标准结果 `front/artifacts/vitest.json` 与后端原始测试报告，失败、空测试或跳过测试不能靠自报映射通过。
 

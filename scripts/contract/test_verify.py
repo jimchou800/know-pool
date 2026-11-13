@@ -14,16 +14,16 @@ class ContractGateTests(unittest.TestCase):
     def test_merges_provider_files_and_rejects_duplicate_or_stale_evidence(self):
         """独立证据均须有效，跨文件重名和过期不得被合并掩盖。"""
         with tempfile.TemporaryDirectory() as directory:
-            paths = [Path(directory) / name for name in ('files.json', 'settings.json')]
+            paths = [Path(directory) / name for name in ('files.json', 'settings.json', 'knowledge-bases.json')]
             def write(index, name, implementation='实现'):
                 paths[index].write_text(json.dumps({
                     'contractSha256': '契约', 'implementationSha256': implementation,
                     'tests': [{'name': name, 'passed': True, 'operationIds': ['getTask'], 'constraintIds': []}],
                     'routes': [{'method': 'GET', 'path': '/api/v1/tasks/{taskId}'}],
                 }), encoding='utf-8')
-            write(0, '资料'); write(1, '设置')
+            write(0, '资料'); write(1, '设置'); write(2, '知识库')
             merged = verify.read_evidence_files(paths, '契约', '实现')
-            self.assertEqual([test['name'] for test in merged['tests']], ['资料', '设置'])
+            self.assertEqual([test['name'] for test in merged['tests']], ['资料', '设置', '知识库'])
             self.assertEqual(len(merged['routes']), 1)
             write(1, '资料')
             with self.assertRaisesRegex(ValueError, '重复'):
@@ -31,7 +31,8 @@ class ContractGateTests(unittest.TestCase):
             write(1, '设置', '过期')
             with self.assertRaisesRegex(ValueError, '过期'):
                 verify.read_evidence_files(paths, '契约', '实现')
-            paths[1].unlink()
+            write(1, '设置')
+            paths[2].unlink()
             with self.assertRaises(FileNotFoundError):
                 verify.read_evidence_files(paths, '契约', '实现')
 
@@ -56,6 +57,20 @@ class ContractGateTests(unittest.TestCase):
             with patch.object(verify, 'ROOT', Path(directory)):
                 with self.assertRaises(FileNotFoundError):
                     verify.scope_mapping('契约')
+
+    def test_knowledge_base_scope_keeps_live_resource_and_task_branches(self):
+        """创建成功资源与实际任务分支不得沿用连接测试豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-07.json').read_bytes())
+        self.assertEqual(verify.TICKET, '07')
+        self.assertEqual(len(verify.SCOPE), 35)
+        self.assertTrue(set(verify.SCOPE[27:]).issubset(mapping['操作']))
+        for field in ('knowledgeBaseId', 'resultResourceId', 'fileId', 'targetContentVersionId'):
+            self.assertNotIn('#/components/schemas/Task/properties/' + field + '/anyOf/0/type',
+                             mapping['操作']['getTask'])
+        self.assertFalse(any(pointer.startswith('#/components/schemas/Task/allOf/2/then')
+                             for pointer in mapping['操作']['getTask']))
+        self.assertIn('#/components/schemas/Task/allOf/2/then',
+                      mapping['操作']['testVectorConfig'])
 
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
