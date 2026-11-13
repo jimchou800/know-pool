@@ -295,6 +295,11 @@ const validFile = (v) =>
       t.fileId === v.fileId,
   ) &&
   nullable(v.failure, validFailure);
+const validExclusion = (v) =>
+  exact(v, ['knowledgeBaseId', 'fileId', 'createdAt']) &&
+  identifier(v.knowledgeBaseId) &&
+  identifier(v.fileId) &&
+  date(v.createdAt);
 export function createKnowledgeBaseClient(session) {
   async function page(id, suffix, valid, cursor) {
     const value = await session.request({
@@ -311,6 +316,66 @@ export function createKnowledgeBaseClient(session) {
     );
   }
   return {
+    async removeSource(id, sourceId) {
+      if (!identifier(sourceId)) throw new Error('来源标识无效。');
+      const response = await session.request({
+        method: 'delete',
+        url: path(id) + `/sources/${sourceId.toLowerCase()}`,
+        rawResponse: true,
+      });
+      verify(
+        response,
+        response.status === 204 &&
+          (response.data === '' ||
+            response.data === null ||
+            response.data === undefined),
+      );
+    },
+    exclusions: (id, cursor) => page(id, '/exclusions', validExclusion, cursor),
+    async exclude(id, fileId) {
+      if (!identifier(fileId)) throw new Error('资料标识无效。');
+      const value = await session.request({
+        method: 'put',
+        url: path(id) + `/exclusions/${fileId.toLowerCase()}`,
+      });
+      return verify(
+        value,
+        validExclusion(value) &&
+          value.knowledgeBaseId.toLowerCase() === id.toLowerCase() &&
+          value.fileId.toLowerCase() === fileId.toLowerCase(),
+      );
+    },
+    async include(id, fileId) {
+      if (!identifier(fileId)) throw new Error('资料标识无效。');
+      const response = await session.request({
+        method: 'delete',
+        url: path(id) + `/exclusions/${fileId.toLowerCase()}`,
+        rawResponse: true,
+      });
+      verify(
+        response,
+        response.status === 204 &&
+          (response.data === '' ||
+            response.data === null ||
+            response.data === undefined),
+      );
+    },
+    async fileKnowledgeBases(fileId, cursor) {
+      if (!identifier(fileId)) throw new Error('资料标识无效。');
+      const value = await session.request({
+        method: 'get',
+        url: `/files/${fileId.toLowerCase()}/knowledge-bases`,
+        params: params(cursor),
+      });
+      return verify(
+        value,
+        validPage(
+          value,
+          (v) =>
+            validFile(v) && v.fileId.toLowerCase() === fileId.toLowerCase(),
+        ),
+      );
+    },
     async list(cursor) {
       const value = await session.request({
         method: 'get',

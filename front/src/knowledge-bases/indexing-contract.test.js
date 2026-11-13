@@ -737,6 +737,110 @@ it('未知字段、非整数计数、非法样例位置与超量样例拒绝，�
     await expect(api.get(taskId)).rejects.toThrow('任务标识');
 });
 
+it('来源撤销与排除实际请求严格消费空响应，反向列表保留独立来源及未纳入事实', async () => {
+  const s = await setup(() => null);
+  const exclusion = { knowledgeBaseId: id, fileId: otherId, createdAt: time };
+  s.reply(exclusion);
+  expect(await s.api.exclude(id, otherId)).toEqual(exclusion);
+  observed('excludeKnowledgeBaseFile', s.requests.at(-1));
+  s.reply({ items: [exclusion], nextCursor: '下一页' });
+  expect(await s.api.exclusions(id, '上一页')).toEqual({
+    items: [exclusion],
+    nextCursor: '下一页',
+  });
+  observed('listKnowledgeBaseExclusions', s.requests.at(-1));
+  const excluded = {
+    ...file,
+    excluded: true,
+    included: false,
+    sources: [],
+    task: null,
+    targetContentVersionId: null,
+    targetConfigVersionId: null,
+    updateState: 'not_included',
+  };
+  for (const item of [file, excluded]) {
+    s.reply({ items: [item], nextCursor: null });
+    expect(await s.api.fileKnowledgeBases(otherId)).toEqual({
+      items: [item],
+      nextCursor: null,
+    });
+    observed('listFileKnowledgeBases', s.requests.at(-1));
+    expect(await s.api.files(id)).toEqual({ items: [item], nextCursor: null });
+    observed('listKnowledgeBaseFiles', s.requests.at(-1));
+  }
+  s.reply({ items: [], nextCursor: null });
+  expect(await s.api.exclusions(id)).toEqual({ items: [], nextCursor: null });
+  observed('listKnowledgeBaseExclusions', s.requests.at(-1));
+  expect(await s.api.fileKnowledgeBases(otherId, '上一页')).toEqual({
+    items: [],
+    nextCursor: null,
+  });
+  observed('listFileKnowledgeBases', s.requests.at(-1));
+  s.reply({ httpStatus: 204, body: '' });
+  await s.api.removeSource(id, otherId);
+  observed('removeKnowledgeBaseSource', s.requests.at(-1));
+  await s.api.include(id, otherId);
+  observed('includeKnowledgeBaseFile', s.requests.at(-1));
+  expect(s.requests.at(-1).headers.get('X-CSRF-Token')).toBeTruthy();
+});
+it('来源及排除五操作公开错误由真实客户端保留字段反馈，不自动重试', async () => {
+  const s = await setup(() => null);
+  const calls = [
+    ['removeKnowledgeBaseSource', () => s.api.removeSource(id, otherId)],
+    ['excludeKnowledgeBaseFile', () => s.api.exclude(id, otherId)],
+    ['includeKnowledgeBaseFile', () => s.api.include(id, otherId)],
+    ['listKnowledgeBaseExclusions', () => s.api.exclusions(id)],
+    ['listFileKnowledgeBases', () => s.api.fileKnowledgeBases(otherId)],
+  ];
+  for (const [operationId, call] of calls) {
+    for (const [status, code] of [
+      [400, 'INVALID_REQUEST'],
+      [401, 'SESSION_EXPIRED'],
+      [403, 'CSRF_REJECTED'],
+      [404, 'NOT_FOUND'],
+      [409, 'CONFLICT'],
+      [422, 'INVALID_REQUEST'],
+      [429, 'QUEUE_FULL'],
+      [500, 'INTERNAL_ERROR'],
+      [503, 'DEPENDENCY_UNAVAILABLE'],
+    ]) {
+      if (operationId.startsWith('list') && [409, 422].includes(status))
+        continue;
+      s.reply({
+        errorStatus: status,
+        body: {
+          requestId: id,
+          code,
+          message: '固定来源错误',
+          fieldErrors: [{ field: '/fileId', code, message: '固定身份错误' }],
+          retryable: false,
+        },
+      });
+      await expect(call()).rejects.toThrow('固定来源错误');
+      observed(operationId, s.requests.at(-1));
+    }
+  }
+});
+it('来源排除拒绝跨身份响应及伪空正文，非法标识与游标不发送', async () => {
+  const s = await setup(() => null);
+  for (const invalid of ['', null, 4, '错误']) {
+    await expect(s.api.exclude(id, invalid)).rejects.toThrow('资料标识');
+    await expect(s.api.include(id, invalid)).rejects.toThrow('资料标识');
+    await expect(s.api.removeSource(id, invalid)).rejects.toThrow('来源标识');
+    await expect(s.api.fileKnowledgeBases(invalid)).rejects.toThrow('资料标识');
+  }
+  expect(s.requests).toHaveLength(0);
+  for (const cursor of ['', 2, '字'.repeat(2049)])
+    await expect(s.api.exclusions(id, cursor)).rejects.toThrow('分页位置');
+  s.reply({ httpStatus: 204, body: { result: '伪正文' } });
+  await expect(s.api.include(id, otherId)).rejects.toThrow('响应格式');
+  s.reply({ knowledgeBaseId: otherId, fileId: otherId, createdAt: time });
+  await expect(s.api.exclude(id, otherId)).rejects.toThrow('响应格式');
+  s.reply({ items: [{ ...file, fileId: id }], nextCursor: null });
+  await expect(s.api.fileKnowledgeBases(otherId)).rejects.toThrow('响应格式');
+});
+
 afterAll(() => {
   execFileSync('python', ['scripts/settings-evidence.py', '08'], {
     input: JSON.stringify(observations),

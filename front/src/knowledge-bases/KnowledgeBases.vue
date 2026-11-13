@@ -8,6 +8,8 @@ import { createFileClient } from '../files/client';
 import IndexTasks from './IndexTasks.vue';
 import ManagementSearch from './ManagementSearch.vue';
 import ProcessingEditor from './ProcessingEditor.vue';
+import SourceAction from './SourceAction.vue';
+import Exclusions from './Exclusions.vue';
 import '../datasets/datasets.css';
 import './knowledge-bases.css';
 
@@ -1029,6 +1031,12 @@ loadPage(0);
                   关联资料
                 </button>
               </div>
+              <p>
+                数据集中的新增及内容更新会自动排队同步；多个来源独立保留，重复关联不重复创建索引。排除优先全部来源。
+              </p>
+              <button :disabled="detailLoading" @click="loadDetail">
+                刷新同步状态
+              </button>
               <form
                 v-if="associating"
                 class="dataset-form knowledge-form"
@@ -1131,6 +1139,14 @@ loadPage(0);
                   {{ source.type === 'dataset' ? '数据集' : '单份资料' }}：{{
                     sourceNames[source.resourceId] || source.resourceId
                   }}
+                  <SourceAction
+                    :client="client"
+                    :knowledge-base-id="selected.id"
+                    :resource-id="source.id"
+                    action="remove"
+                    :writable="writable"
+                    @changed="loadDetail"
+                  />
                 </li>
               </ul>
               <button
@@ -1168,6 +1184,33 @@ loadPage(0);
                     >
                   </p>
                   <p v-if="file.failure">{{ file.failure.message }}</p>
+                  <p>
+                    最新内容版本：{{
+                      file.latestContentVersionId
+                    }}；目标内容版本：{{
+                      file.targetContentVersionId || '未排队'
+                    }}
+                  </p>
+                  <p v-if="!file.sources.length">
+                    无有效来源，取消排除也不会自动纳入。
+                  </p>
+                  <ul>
+                    <li v-for="source in file.sources" :key="source.id">
+                      {{
+                        source.type === 'dataset' ? '数据集来源' : '单文件来源'
+                      }}：{{
+                        sourceNames[source.resourceId] || source.resourceId
+                      }}
+                    </li>
+                  </ul>
+                  <SourceAction
+                    :client="client"
+                    :knowledge-base-id="selected.id"
+                    :resource-id="file.fileId"
+                    :action="file.excluded ? 'include' : 'exclude'"
+                    :writable="writable"
+                    @changed="loadDetail"
+                  />
                 </li>
               </ul>
               <button
@@ -1178,6 +1221,13 @@ loadPage(0);
                 更多文件
               </button>
             </section>
+            <Exclusions
+              :key="`exclusions-${selected.id}`"
+              :client="client"
+              :knowledge-base-id="selected.id"
+              :writable="writable"
+              @changed="loadDetail"
+            />
             <ProcessingEditor
               v-if="snapshot"
               :key="`processing-${selected.id}`"
