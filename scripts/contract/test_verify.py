@@ -92,9 +92,9 @@ class ContractGateTests(unittest.TestCase):
     def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
         """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
         operations = verify.inventory(self.document)
-        self.assertEqual(verify.TICKET, '09')
-        self.assertEqual(len(verify.SCOPE), 41)
-        self.assertEqual(len(set(verify.SCOPE)), 41)
+        self.assertEqual(verify.TICKET, '10')
+        self.assertEqual(len(verify.SCOPE), 43)
+        self.assertEqual(len(set(verify.SCOPE)), 43)
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix
@@ -129,7 +129,7 @@ class ContractGateTests(unittest.TestCase):
 
     def test_indexing_scope_keeps_reachable_publication_and_result_branches(self):
         """索引执行后已可达的版本、进度、失败及结果分支不得沿用旧豁免。"""
-        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-09.json').read_bytes())
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-10.json').read_bytes())
         operations = verify.inventory(self.document)
         verify.check_scope(mapping, operations)
         for identifier, conditions in mapping['操作'].items():
