@@ -354,6 +354,11 @@ export async function checkKnowledgeBases(page, tests) {
     assert.ok(eventRequest.cookie?.includes('KNOW_POOL_SESSION='));
     assert.equal(new URL(stream.url()).search, '');
     assert.equal(eventRequest['x-csrf-token'], undefined);
+    const streamCapture = page.evaluate(async (url) => {
+      const response = await fetch(url, { credentials: 'same-origin' });
+      if (!response.ok) throw new Error('事件独立读取失败');
+      return response.text();
+    }, `/api/v1/tasks/${indexedTaskId}/events`);
     releaseEmbedding();
     embeddingGate = undefined;
     let indexed;
@@ -378,7 +383,7 @@ export async function checkKnowledgeBases(page, tests) {
       indexed.effectiveContentVersionId,
       indexed.latestContentVersionId,
     );
-    const eventFrames = (await stream.text())
+    const eventFrames = (await streamCapture)
       .replace(/\r\n/g, '\n')
       .split('\n\n')
       .filter((frame) => frame.includes('data:'));
