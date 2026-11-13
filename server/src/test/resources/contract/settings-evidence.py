@@ -22,6 +22,10 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'instanceLifecycleCost': ({'searchInstanceMetadataAndRestartKeepOnlyConditions','searchInstanceCancellationDeletionAndLateResultsStayIsolated'}, {'listSearchInstances','createSearchInstance','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest','submitSearch'},
+        '#/x-business-constraints/cost', '范围保存、切换读取和重启不触发嵌入，重启只恢复条件，原请求和证据失效；取消和删除不重发，资料及其他实例不受影响。'),
+    'instanceLifecycleVersions': ({'searchInstanceMetadataAndRestartKeepOnlyConditions','searchInstanceCancellationDeletionAndLateResultsStayIsolated'}, {'deleteSearchInstance','cancelSearchRequest','submitSearch','getSearchRequest'},
+        '#/x-business-constraints/indexSwitch', '提交元数据失败不替换当前请求，删除事务失败不取消旧任务；成功删除使临时结果失效，取消及删除后的迟到响应不得复活实例。'),
     'multiSearchVersions': ({'multiSearchScopesFusionAndCostsAreExplicit','multiSearchLatestRequestAndQueueStayAtomic'}, {'submitSearch','getSearchRequest','getSearchEvidence'},
         '#/x-business-constraints/indexSwitch', '多库固定生效版本证据按来源位置去重融合，不比较跨模型原始分数；同实例新提交取消旧请求，旧响应不能覆盖新失败或复活结果。'),
     'multiSearchPublication': ({'multiSearchScopesFusionAndCostsAreExplicit','multiSearchLatestRequestAndQueueStayAtomic'}, {'submitSearch'},
@@ -276,10 +280,12 @@ if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
                            'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig',
                            'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources',
                            'listIndexSwitches','cancelTask','downloadVersionFile','previewVersionFile',
-                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult','createSearchInstance','submitSearch',
+                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult','createSearchInstance','submitSearch','listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'searchInstanceMetadataAndRestartKeepOnlyConditions': ('真实实例允许重名、首查自动名及不覆盖手改，稳定分页、条件保存、事务失败不改旧指针；重启恢复条件不恢复正文或自动外发，原结果证据四一零，确认删除及同键原清理任务。', {'listSearchInstances','createSearchInstance','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest','submitSearch','getSearchRequest','getSearchEvidence','getTask'}),
+        'searchInstanceCancellationDeletionAndLateResultsStayIsolated': ('切换读取不互相取消，显式取消保留已核范围；删除事务失败保留原请求，成功后任务取消及请求失效，迟到不复活，其他实例及资料保持，管理和普通终态取消幂等。', {'listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest','getSearchRequest','getTask'}),
         'multiSearchScopesFusionAndCostsAreExplicit': ('真实最小实例和多库去重融合、固定身份、部分范围警示、全部故障与空命中区分、同键只嵌入一次及非法安全拒绝。', {'createSearchInstance','submitSearch','getSearchRequest','getSearchEvidence','getTask'}),
         'multiSearchLatestRequestAndQueueStayAtomic': ('真实同实例新提交取消旧请求，满队列拒绝不取消当前请求，排队期间下线重新核资格，旧迟到不能恢复结果。', {'createSearchInstance','submitSearch','getSearchRequest','getTask'}),
         'publicationAndChecksKeepIndependentStates': ('真实发布门槛、幂等发布下线、排除后自动下线、恢复不自动发布；收费确认、固定输入及活动异键合并、同键不重复调用，外部失败正常探测且发布状态保持。', {'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getKnowledgeBase','getTask','getConnectionTestResult'}),

@@ -31,11 +31,13 @@ class IndexChunkingHttpTest {
     private static boolean versionsPassed;
     private static boolean publicationPassed;
     private static boolean multiSearchPassed;
+    private static boolean instancesPassed;
 
     @org.junit.jupiter.api.extension.RegisterExtension
     final org.junit.jupiter.api.extension.TestWatcher completed = new org.junit.jupiter.api.extension.TestWatcher() {
         @Override
         public void testSuccessful(org.junit.jupiter.api.extension.ExtensionContext context) {
+            if (context.getRequiredTestMethod().getName().startsWith("searchInstance")) instancesPassed = true;
             if (context.getRequiredTestMethod().getName().startsWith("multiSearch")) multiSearchPassed = true;
             if (context.getRequiredTestMethod().getName().equals("publicationAndChecksKeepIndependentStates")) publicationPassed = true;
             if (context.getRequiredTestMethod().getName().equals("publicContractBranchesRemainReachable"))
@@ -48,6 +50,168 @@ class IndexChunkingHttpTest {
             if (context.getRequiredTestMethod().getName().equals("runningSearchAndRebuildCancellationRejectLateResults")) versionsPassed = true;
         }
     };
+
+    @Test
+    @DisplayName("实例允许重名且不覆盖手改名称，持久最近查询范围，重启仅恢复条件不收费恢复结果")
+    void searchInstanceMetadataAndRestartKeepOnlyConditions() throws Exception {
+        var inputs=new java.util.concurrent.CopyOnWriteArrayList<String>();
+        HttpServer vector=indexedVector(inputs,() -> {});
+        Path directory=Files.createTempDirectory(Path.of("target"),"instance-lifecycle-http-").toAbsolutePath();
+        String first,second,automatic,request,evidence,kb;
+        try {
+            try (ConfigurableApplicationContext app=start(directory)) {
+                Client client=client(app);String processing=processing(client,vector.getAddress().getPort(),0,"{}","[]");
+                kb=createIndexedBase(client,processing,"实例生命周期资料库","仅留运行期证据的正文。");
+                assertThat(send(client,"/knowledge-bases/"+kb+"/publish","POST",null,null).statusCode()).isEqualTo(200);
+                first=JSON.readTree(send(client,"/search-instances","POST",null,null).body()).path("id").asText();
+                second=JSON.readTree(send(client,"/search-instances","POST",null,null).body()).path("id").asText();
+                automatic=JSON.readTree(send(client,"/search-instances","POST",null,null).body()).path("id").asText();
+                for (String id:java.util.List.of(first,second)) {
+                    JsonNode renamed=JSON.readTree(send(client,"/search-instances/"+id.toUpperCase(java.util.Locale.ROOT)+"/name","PATCH","{\"name\":\"相同手动名称\"}",null).body());
+                    assertThat(renamed.path("manuallyNamed").asBoolean()).isTrue();
+                    assertThat(read(client,"/search-instances/"+id).path("name").asText()).isEqualTo("相同手动名称");
+                }
+                JsonNode page=read(client,"/search-instances?limit=1");
+                assertThat(page.path("items").size()).isEqualTo(1);assertThat(page.path("nextCursor").asText()).isNotBlank();
+                JsonNode next=read(client,"/search-instances?limit=1&cursor="+page.path("nextCursor").asText());
+                assertThat(next.at("/items/0/id")).isNotEqualTo(page.at("/items/0/id"));
+                int before=inputs.size();
+                assertThat(send(client,"/search-instances/"+first+"/scope","PUT","{\"knowledgeBaseIds\":[]}",null).statusCode()).isEqualTo(200);
+                String scope="{\"knowledgeBaseIds\":[\""+kb+"\"]}";
+                assertThat(send(client,"/search-instances/"+first.toUpperCase(java.util.Locale.ROOT)+"/scope","PUT",scope,null).statusCode()).isEqualTo(200);
+                assertThat(inputs.size()).isEqualTo(before);
+                String body="{\"query\":\"首次提交查询\",\"knowledgeBaseIds\":[\""+kb+"\"]}";
+                JsonNode accepted=JSON.readTree(send(client,"/search-instances/"+first+"/requests","POST",body,UUID.randomUUID().toString()).body());
+                request=accepted.path("id").asText();
+                assertThat(await(client,accepted.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+                evidence=read(client,"/search-requests/"+request).at("/result/evidence/0/id").asText();
+                JsonNode current=read(client,"/search-instances/"+first);
+                assertThat(current.path("name").asText()).isEqualTo("相同手动名称");
+                assertThat(current.path("resultState").asText()).isEqualTo("available");
+                assertThat(current.path("currentRequestId").asText()).isEqualTo(request);
+                assertThat(read(client,"/search-instances/"+second).path("currentRequestId").isNull()).isTrue();
+                assertThat(read(client,"/search-requests/"+request).path("result").isNull()).isFalse();
+                JsonNode auto=JSON.readTree(send(client,"/search-instances/"+automatic+"/requests","POST",body,UUID.randomUUID().toString()).body());
+                assertThat(await(client,auto.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+                assertThat(read(client,"/search-instances/"+automatic).path("name").asText()).isEqualTo("首次提交查询");
+                JsonNode later=JSON.readTree(send(client,"/search-instances/"+automatic+"/requests","POST",body.replace("首次提交查询","后续查询"),UUID.randomUUID().toString()).body());
+                assertThat(await(client,later.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+                assertThat(read(client,"/search-instances/"+automatic).path("name").asText()).isEqualTo("首次提交查询");
+                try (var database=java.sql.DriverManager.getConnection("jdbc:sqlite:"+directory.resolve("application.sqlite"));var statement=database.createStatement()) {
+                    statement.execute("CREATE TRIGGER reject_instance_update BEFORE UPDATE ON search_instances BEGIN SELECT RAISE(ABORT,'固定实例事务故障'); END");
+                    try {
+                        assertThat(send(client,"/search-instances/"+first+"/requests","POST",body.replace("首次提交查询","不得提交查询"),UUID.randomUUID().toString()).statusCode()).isEqualTo(500);
+                        assertThat(read(client,"/search-instances/"+first).path("currentRequestId").asText()).isEqualTo(request);
+                        assertThat(read(client,"/search-instances/"+first).path("lastSubmittedQuery").asText()).isEqualTo("首次提交查询");
+                    } finally { statement.execute("DROP TRIGGER reject_instance_update"); }
+                    try (var rows=statement.executeQuery("SELECT payload FROM search_instances")) {
+                        while (rows.next()) assertThat(rows.getString(1)).doesNotContain("currentRequestId","resultState","仅留运行期证据的正文","evidence","taskId");
+                    }
+                }
+                assertThat(send(client,"/search-instances/"+first+"/name","PATCH","{\"name\":\" \"}",null).statusCode()).isEqualTo(400);
+                assertThat(send(client,"/search-instances/"+first+"/scope","PUT","{\"knowledgeBaseIds\":[\""+kb+"\",\""+kb+"\"]}",null).statusCode()).isEqualTo(400);
+                assertThat(send(client,"/search-instances?limit=0","GET",null,null).statusCode()).isEqualTo(400);
+                assertThat(send(client,"/search-instances?cursor=bad","GET",null,null).statusCode()).isEqualTo(400);
+            }
+            int count=inputs.size();
+            try (ConfigurableApplicationContext app=start(directory)) {
+                Client client=client(app);
+                JsonNode restored=read(client,"/search-instances/"+first);
+                assertThat(restored.path("name").asText()).isEqualTo("相同手动名称");
+                assertThat(restored.path("lastSubmittedQuery").asText()).isEqualTo("首次提交查询");
+                assertThat(restored.at("/knowledgeBaseIds/0").asText()).isEqualTo(kb);
+                assertThat(restored.path("currentRequestId").isNull()).isTrue();
+                assertThat(restored.path("resultState").asText()).isEqualTo("rerun_required");
+                assertThat(read(client,"/search-instances/"+second).path("resultState").asText()).isEqualTo("never_submitted");
+                assertThat(read(client,"/search-instances/"+automatic).path("lastSubmittedQuery").asText()).isEqualTo("后续查询");
+                assertThat(send(client,"/search-requests/"+request,"GET",null,null).statusCode()).isEqualTo(410);
+                assertThat(send(client,"/search-requests/"+request+"/evidence/"+evidence,"GET",null,null).statusCode()).isEqualTo(410);
+                assertThat(send(client,"/search-requests/"+request+"/cancel","POST",null,null).statusCode()).isEqualTo(410);
+                assertThat(inputs.size()).isEqualTo(count);
+                String key=UUID.randomUUID().toString(),route="/search-instances/"+first;
+                assertThat(send(client,route,"DELETE","{\"confirmed\":false}",key).statusCode()).isEqualTo(400);
+                HttpResponse<String> deleted=send(client,route,"DELETE","{\"confirmed\":true}",key);
+                assertThat(deleted.statusCode()).isEqualTo(202);
+                JsonNode task=JSON.readTree(deleted.body()).path("task");
+                assertThat(task.path("kind").asText()).isEqualTo("cleanup");
+                assertThat(task.path("state").asText()).isEqualTo("succeeded");
+                assertThat(task.path("startedAt").isNull()).isFalse();assertThat(task.path("finishedAt").isNull()).isFalse();
+                assertThat(task.path("progressTotal").asInt()).isEqualTo(1);
+                assertThat(JSON.readTree(send(client,route,"DELETE","{\"confirmed\":true}",key).body()).path("task")).isEqualTo(task);
+                assertThat(read(client,"/tasks/"+task.path("id").asText())).isEqualTo(task);
+                assertThat(send(client,route,"GET",null,null).statusCode()).isEqualTo(404);
+                assertThat(send(client,route,"DELETE","{\"confirmed\":true}",UUID.randomUUID().toString()).statusCode()).isEqualTo(404);
+                assertThat(read(client,"/search-instances").path("items").valueStream().noneMatch(row -> row.path("id").asText().equals(first))).isTrue();
+                assertThat(read(client,"/knowledge-bases/"+kb).path("searchableFileCount").asInt()).isEqualTo(1);
+            }
+        } finally { vector.stop(0); }
+    }
+
+    @Test
+    @DisplayName("切换读取不取消其他实例，取消保留已核范围，删除使原请求失效且迟到不复活")
+    void searchInstanceCancellationDeletionAndLateResultsStayIsolated() throws Exception {
+        var block=new java.util.concurrent.atomic.AtomicBoolean();
+        var entered=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
+        HttpServer vector=indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(),() -> {
+            if (block.get()) {
+                entered.countDown();
+                try { if (!release.await(15,java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("受控实例删除等待超时。"); }
+                catch (InterruptedException ignored) { }
+            }
+        });
+        Path directory=Files.createTempDirectory(Path.of("target"),"instance-delete-http-").toAbsolutePath();
+        try (ConfigurableApplicationContext app=start(directory)) {
+            Client client=client(app);String processing=processing(client,vector.getAddress().getPort(),0,"{}","[]");
+            String kb=createIndexedBase(client,processing,"实例删除保护库","实例删除不删除资料。");
+            assertThat(send(client,"/knowledge-bases/"+kb+"/publish","POST",null,null).statusCode()).isEqualTo(200);
+            String first=JSON.readTree(send(client,"/search-instances","POST",null,null).body()).path("id").asText();
+            String second=JSON.readTree(send(client,"/search-instances","POST",null,null).body()).path("id").asText();
+            String body="{\"query\":\"固定实例查询\",\"knowledgeBaseIds\":[\""+kb+"\",\""+UUID.randomUUID()+"\"]}";
+            block.set(true);
+            JsonNode running=JSON.readTree(send(client,"/search-instances/"+first+"/requests","POST",body,UUID.randomUUID().toString()).body());
+            assertThat(entered.await(5,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            JsonNode other=JSON.readTree(send(client,"/search-instances/"+second+"/requests","POST",body,UUID.randomUUID().toString()).body());
+            assertThat(read(client,"/search-instances/"+second).path("resultState").asText()).isEqualTo("running");
+            assertThat(read(client,"/search-instances/"+first).path("resultState").asText()).isEqualTo("running");
+            String cancel="/search-requests/"+running.path("id").asText()+"/cancel";
+            JsonNode cancelled=JSON.readTree(send(client,cancel,"POST",null,null).body());
+            assertThat(cancelled.at("/task/state").asText()).isEqualTo("cancelled");
+            assertThat(cancelled.at("/scope/omitted/0/reason").asText()).isEqualTo("deleted");
+            assertThat(cancelled.at("/scope/usedKnowledgeBaseIds").isEmpty()).isTrue();
+            assertThat(JSON.readTree(send(client,cancel,"POST",null,null).body())).isEqualTo(cancelled);
+            assertThat(read(client,"/search-instances/"+first).path("resultState").asText()).isEqualTo("cancelled");
+            String delete="/search-instances/"+second;
+            try (var database=java.sql.DriverManager.getConnection("jdbc:sqlite:"+directory.resolve("application.sqlite"));var statement=database.createStatement()) {
+                statement.execute("CREATE TRIGGER reject_instance_delete BEFORE DELETE ON search_instances BEGIN SELECT RAISE(ABORT,'固定实例删除故障'); END");
+                try {
+                    assertThat(send(client,delete,"DELETE","{\"confirmed\":true}",UUID.randomUUID().toString()).statusCode()).isEqualTo(500);
+                    assertThat(read(client,"/search-requests/"+other.path("id").asText()).at("/task/state").asText()).isIn("queued","running");
+                } finally { statement.execute("DROP TRIGGER reject_instance_delete"); }
+            }
+            assertThat(send(client,delete,"DELETE","{\"confirmed\":true}",UUID.randomUUID().toString()).statusCode()).isEqualTo(202);
+            assertThat(read(client,"/tasks/"+other.at("/task/id").asText()).path("state").asText()).isEqualTo("cancelled");
+            String cancelledPeer=JSON.readTree(send(client,"/search-instances","POST",null,null).body()).path("id").asText();
+            JsonNode peer=JSON.readTree(send(client,"/search-instances/"+cancelledPeer+"/requests","POST",body,UUID.randomUUID().toString()).body());
+            assertThat(send(client,"/search-requests/"+peer.path("id").asText()+"/cancel","POST",null,null).statusCode()).isEqualTo(200);
+            block.set(false);release.countDown();
+            String gate=JSON.readTree(send(client,"/search-instances","POST",null,null).body()).path("id").asText();
+            JsonNode completed=JSON.readTree(send(client,"/search-instances/"+gate+"/requests","POST",body,UUID.randomUUID().toString()).body());
+            assertThat(await(client,completed.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+            assertThat(send(client,delete,"GET",null,null).statusCode()).isEqualTo(404);
+            assertThat(send(client,"/search-requests/"+other.path("id").asText(),"GET",null,null).statusCode()).isEqualTo(410);
+            assertThat(read(client,"/search-requests/"+running.path("id").asText()).path("result").isNull()).isTrue();
+            assertThat(read(client,"/search-instances/"+first).path("resultState").asText()).isEqualTo("cancelled");
+            JsonNode terminal=read(client,"/search-requests/"+completed.path("id").asText());
+            assertThat(JSON.readTree(send(client,"/search-requests/"+completed.path("id").asText()+"/cancel","POST",null,null).body())).isEqualTo(terminal);
+            JsonNode management=search(client,kb);assertThat(await(client,management.at("/task/id").asText()).path("state").asText()).isEqualTo("succeeded");
+            assertThat(JSON.readTree(send(client,"/search-requests/"+management.path("id").asText()+"/cancel","POST",null,null).body()).path("instanceId").isNull()).isTrue();
+            for (String[] operation:java.util.List.of(new String[]{"/search-instances","GET",null},new String[]{"/search-instances/"+first,"GET",null},new String[]{"/search-instances/"+first+"/name","PATCH","{\"name\":\"合法名称\"}"},new String[]{"/search-instances/"+first+"/scope","PUT","{\"knowledgeBaseIds\":[]}"},new String[]{"/search-instances/"+first,"DELETE","{\"confirmed\":true}"},new String[]{cancel,"POST",null})) {
+                assertThat(send(new Client(client.base(),null,null),operation[0],operation[1],operation[2],UUID.randomUUID().toString()).statusCode()).isEqualTo(401);
+                if (!operation[1].equals("GET")) assertThat(send(new Client(client.base(),client.cookie(),null),operation[0],operation[1],operation[2],UUID.randomUUID().toString()).statusCode()).isEqualTo(403);
+                assertThat(send(client,operation[0]+"?unknown=1",operation[1],operation[2],UUID.randomUUID().toString()).statusCode()).isEqualTo(400);
+            }
+        } finally { block.set(false);release.countDown();vector.stop(0); }
+    }
 
     @Test
     @DisplayName("最小实例多库独立阈值与融合、同配置单次嵌入、范围缺失及全不可用分别表达")
@@ -1464,7 +1628,7 @@ class IndexChunkingHttpTest {
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
         if (java.util.Arrays.stream(Thread.currentThread().getStackTrace())
-                .anyMatch(frame -> java.util.Set.of("multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "publicContractBranchesRemainReachable", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(frame.getMethodName()))) {
+                .anyMatch(frame -> java.util.Set.of("searchInstanceMetadataAndRestartKeepOnlyConditions", "searchInstanceCancellationDeletionAndLateResultsStayIsolated", "multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "publicContractBranchesRemainReachable", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(frame.getMethodName()))) {
             java.util.Map<String, Object> item = new java.util.LinkedHashMap<>();
             item.put("path", response.request().uri().getRawPath() + (response.request().uri().getRawQuery() == null ? "" : "?" + response.request().uri().getRawQuery()));
             item.put("method", method);
@@ -1481,8 +1645,9 @@ class IndexChunkingHttpTest {
             java.util.Map<String, String> parameters = new java.util.LinkedHashMap<>();
             response.request().headers().map().forEach((name, values) -> parameters.put(name, values.getFirst()));
             item.put("parameters", parameters);
-            String behavior = java.util.Arrays.stream(Thread.currentThread().getStackTrace()).map(StackTraceElement::getMethodName).filter(name -> java.util.Set.of("multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(name)).findFirst().orElse("publicContractBranchesRemainReachable");
+            String behavior = java.util.Arrays.stream(Thread.currentThread().getStackTrace()).map(StackTraceElement::getMethodName).filter(name -> java.util.Set.of("searchInstanceMetadataAndRestartKeepOnlyConditions", "searchInstanceCancellationDeletionAndLateResultsStayIsolated", "multiSearchScopesFusionAndCostsAreExplicit", "multiSearchLatestRequestAndQueueStayAtomic", "publicationAndChecksKeepIndependentStates", "runningSearchAndRebuildCancellationRejectLateResults", "contentSwitchHistoryAndCancellationRemainBoundToVersions", "associationUnionExclusionsAndLateTasksStayConsistent", "preflightAndRebuildKeepVersionsAtomic", "markdownLocationsRemainBoundToOriginalSource", "pdfLocationsKeepCrossPageSourceAndBlankPages").contains(name)).findFirst().orElse("publicContractBranchesRemainReachable");
             item.put("behavior", behavior);
+            if (behavior.startsWith("searchInstance")) item.put("behaviorChecks", java.util.List.of("instanceLifecycleCost", "instanceLifecycleVersions"));
             if (behavior.startsWith("multiSearch")) item.put("behaviorChecks", java.util.List.of("multiSearchVersions", "multiSearchPublication", "multiSearchCost"));
             if (behavior.equals("publicationAndChecksKeepIndependentStates")) item.put("behaviorChecks", java.util.List.of("publicationStates", "checkDoesNotRepeatCalls"));
             if (behavior.equals("preflightAndRebuildKeepVersionsAtomic")) item.put("behaviorChecks", java.util.List.of("processingConfigurationSwitch"));
@@ -1615,7 +1780,7 @@ class IndexChunkingHttpTest {
 
     @org.junit.jupiter.api.AfterAll
     static void gapEvidence() throws Exception {
-        if (!gapsPassed && !documentPassed && !pdfPassed && !previewPassed && !associationsPassed && !versionsPassed && !publicationPassed && !multiSearchPassed) return;
+        if (!gapsPassed && !documentPassed && !pdfPassed && !previewPassed && !associationsPassed && !versionsPassed && !publicationPassed && !multiSearchPassed && !instancesPassed) return;
         GAP_OBSERVATIONS.getFirst().put("routes", GAP_ROUTES);
         Path root = Path.of(System.getProperty("maven.multiModuleProjectDirectory", ".."))
                 .toAbsolutePath()

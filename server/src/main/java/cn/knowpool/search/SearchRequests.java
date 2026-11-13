@@ -107,7 +107,7 @@ public final class SearchRequests {
         ObjectNode updated=(ObjectNode)instance(id);
         updated.put("name",name).put("manuallyNamed",true).put("updatedAt",Instant.now().toString());
         data.write(jdbc -> { saveInstance(jdbc,updated); return null; });
-        instances.put(id,updated);
+        instances.put(updated.path("id").asText(),updated);
         return updated.deepCopy();
     }
 
@@ -115,7 +115,7 @@ public final class SearchRequests {
         ObjectNode updated=(ObjectNode)instance(id);
         updated.set("knowledgeBaseIds",scope.deepCopy());updated.put("updatedAt",Instant.now().toString());
         data.write(jdbc -> { saveInstance(jdbc,updated); return null; });
-        instances.put(id,updated);
+        instances.put(updated.path("id").asText(),updated);
         return updated.deepCopy();
     }
 
@@ -159,9 +159,9 @@ public final class SearchRequests {
     }
 
     public synchronized JsonNode submitInstance(String session,String instance,String key,JsonNode input) {
-        ModelSettingsService.identifier(instance,"instanceId");
-        if (!instances.containsKey(instance)) throw new ApiFailure(404,"NOT_FOUND","检索实例不存在。",null);
-        return enqueue(session,null,instance,key,input);
+        String valid=ModelSettingsService.identifier(instance,"instanceId");
+        if (!instances.containsKey(valid)) throw new ApiFailure(404,"NOT_FOUND","检索实例不存在。",null);
+        return enqueue(session,null,valid,key,input);
     }
 
     public synchronized JsonNode submit(String session, String kb, String key, JsonNode input) {
@@ -442,7 +442,10 @@ public final class SearchRequests {
     }
 
     private void interrupt(String task) {
-        for (var entry:running.entrySet()) if (requests.get(entry.getKey()).at("/task/id").asText().equals(task)) entry.getValue().interrupt();
+        for (var entry:running.entrySet()) {
+            JsonNode request=requests.get(entry.getKey());
+            if (request!=null && request.at("/task/id").asText().equals(task)) entry.getValue().interrupt();
+        }
     }
 
     public synchronized JsonNode evidence(String id, String evidenceId) {
