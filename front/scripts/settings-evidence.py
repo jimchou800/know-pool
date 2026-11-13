@@ -39,6 +39,13 @@ def reached(schema, pointer, value, found, visited=None):
             for name, part in child.items():
                 if name in value:
                     reached(part, here + '/' + verification.escape(name), value[name], found, visited)
+        elif key == 'propertyNames' and isinstance(value, dict):
+            for name in value:
+                reached(child, here, name, found, set(visited))
+        elif key == 'additionalProperties' and isinstance(child, dict) and isinstance(value, dict):
+            for name, item in value.items():
+                if name not in schema.get('properties', {}):
+                    reached(child, here, item, found, set(visited))
         elif key == 'items' and isinstance(value, list):
             for item in value:
                 reached(child, here, item, found, set(visited))
@@ -73,6 +80,13 @@ def validate_response(schema, response):
 
 
 def self_check():
+    found = set()
+    reached({'type': 'object', 'propertyNames': {'pattern': '^user_'}, 'additionalProperties': {'type': 'string', 'maxLength': 2000}}, '#/test', {'user_topic': '内容'}, found)
+    assert '#/test/propertyNames/pattern' in found
+    assert '#/test/additionalProperties/maxLength' in found
+    found = set()
+    reached({'type': 'object', 'propertyNames': {'pattern': '^user_'}, 'additionalProperties': {'type': 'string'}}, '#/test', {}, found)
+    assert '#/test/propertyNames/pattern' not in found
     found = set()
     reached({'$ref': '#/components/schemas/CredentialChange'}, '#/test', {'action': 'clear'}, found)
     assert not any(pointer.startswith('#/components/schemas/ReplaceCredential/') for pointer in found)
@@ -171,6 +185,8 @@ report = {'timestamp': datetime.now(timezone.utc).isoformat(),
           'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
           'implementationSha256': verification.snapshot()[0],
           'scope': list(dict.fromkeys(test['operationIds'][0] for test in tests)), 'tests': tests}
-output = root / 'front/artifacts/contract-consumer-06.json'
+ticket = sys.argv[1] if len(sys.argv) > 1 else '06'
+assert ticket in ('06', '07')
+output = root / f'front/artifacts/contract-consumer-{ticket}.json'
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
