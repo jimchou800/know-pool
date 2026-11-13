@@ -160,7 +160,7 @@ try {
     operationIds: ['initializeSession', 'getSystemStatus'],
     constraintIds: ['security.1', 'security.4', 'security.7'],
     source: {
-      actor: '/root/frontend04',
+      actor: '/root/frontend06',
       files: sources,
       originalReports,
     },

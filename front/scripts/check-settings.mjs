@@ -307,7 +307,9 @@ export async function checkSettings(page, tests) {
     await mkdir('artifacts', { recursive: true });
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
-      await page.locator('.formal-main').evaluate(element => { element.scrollTop = 0; });
+      await page.locator('.formal-main').evaluate((element) => {
+        element.scrollTop = 0;
+      });
       assert.equal(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
@@ -357,7 +359,17 @@ export async function checkSettings(page, tests) {
         '浏览器无持久化',
         '三宽无横向溢出与截图',
       ],
-      constraintIds: [],
+      constraintIds: [
+        '#/paths/~1settings~1models~1generation/put/description',
+        '#/paths/~1settings~1models~1embedding/put/description',
+        '#/paths/~1settings~1models~1generation~1test/post/description',
+        '#/paths/~1settings~1models~1embedding~1test/post/description',
+        '#/paths/~1settings~1vector-store~1test/post/description',
+        '#/paths/~1settings~1models~1embedding~1versions~1{modelConfigVersionId}~1credential/put/description',
+        '#/paths/~1tasks~1{taskId}/get/description',
+        '#/paths/~1tasks~1{taskId}~1connection-test/get/description',
+        'security.7',
+      ],
     });
   } finally {
     page.off('request', observe);
