@@ -63,6 +63,13 @@ public final class FileService {
 
     public record SourceFile(String id, String datasetId, String contentVersionId) {}
 
+    public record ReferenceState(String filename,boolean originalAvailable) {}
+
+    public ReferenceState referenceState(String file,String version) {
+        return data.read(jdbc -> jdbc.sql("SELECT name,EXISTS(SELECT 1 FROM file_versions v WHERE v.file_id=files.id AND v.id=? AND v.available=1) AS original_available FROM files WHERE id=?")
+                .params(version,file).query((row,n) -> new ReferenceState(row.getString(1),row.getInt(2)==1)).optional().orElse(new ReferenceState(null,false)));
+    }
+
     public FileService(
             ApplicationData data,
             DatasetService datasets,

@@ -52,10 +52,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 13) {
+            if (version > 14) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 13) {
+            if (version > 0 && version < 14) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -246,6 +246,14 @@ public final class ApplicationData implements AutoCloseable {
                     transaction.sql("CREATE TABLE question_tasks(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)").update();
                     transaction.sql("CREATE TABLE conversation_evidence(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)").update();
                     transaction.sql("PRAGMA user_version=13").update();
+                    return null;
+                });
+            }
+            if (version < 14) {
+                write(transaction -> {
+                    transaction.sql("CREATE UNIQUE INDEX question_one_active ON question_tasks(conversation_id) WHERE json_extract(payload,'$.task.state') IN ('queued','running')").update();
+                    transaction.sql("CREATE INDEX conversation_turn_order ON question_tasks(conversation_id,json_extract(payload,'$.task.createdAt'),id)").update();
+                    transaction.sql("PRAGMA user_version=14").update();
                     return null;
                 });
             }
