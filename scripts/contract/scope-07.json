@@ -306,21 +306,66 @@
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
       "#/paths/~1knowledge-bases/get/responses/404": "集合级列表无按标识资源缺失分支；空列表为200，单库不存在和半初始化隐藏404仍须验证。",
       "#/paths/~1knowledge-bases/get/responses/429": "当前同步本地读写没有排队容量分支；创建任务的真实队列429仍适用。",
-      "#/paths/~1knowledge-bases/get/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。"
+      "#/paths/~1knowledge-bases/get/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。",
+      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/enum": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。"
     },
     "createKnowledgeBase": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
-      "#/paths/~1knowledge-bases/post/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。"
+      "#/paths/~1knowledge-bases/post/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/format": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
+      "#/components/schemas/Task/properties/fileId/anyOf/0/type": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/maximum": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/minimum": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
+      "#/components/schemas/Task/properties/progressTotal/anyOf/0/type": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
+      "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/type": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/format": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。",
+      "#/components/schemas/Task/properties/targetContentVersionId/anyOf/0/type": "创建任务不指向单个文件或内容版本，不是失败重试且总量未知；此字段恒为null，必填、anyOf及null分支仍验证。通用任务查询的文件与内容标识由index_file验证。"
     },
     "getKnowledgeBase": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}/get/responses/429": "当前同步本地读写没有排队容量分支；创建任务的真实队列429仍适用。",
-      "#/paths/~1knowledge-bases~1{knowledgeBaseId}/get/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。"
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}/get/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。",
+      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/enum": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。"
     },
     "updateKnowledgeBase": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}/patch/responses/429": "当前同步本地读写没有排队容量分支；创建任务的真实队列429仍适用。",
-      "#/paths/~1knowledge-bases~1{knowledgeBaseId}/patch/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。"
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}/patch/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。",
+      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/publishedAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/pattern": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineAt/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/enum": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/offlineReason/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveConfigVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBase/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。"
     },
     "getProcessingConfig": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
@@ -340,7 +385,13 @@
     "listKnowledgeBaseFiles": {
       "#/x-business-constraints/security": "完整全局安全含后续SSE；当前七项行为分别验证，不能以共享声明替代。",
       "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1files/get/responses/429": "当前同步本地读写没有排队容量分支；创建任务的真实队列429仍适用。",
-      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1files/get/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。"
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1files/get/responses/503": "本机读写不外发探测；创建异步远端初始化故障由原任务失败表达，不冒充受理接口503。后续迁移维护暂停分支保留。",
+      "#/components/schemas/KnowledgeBaseFile/properties/effectiveContentVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBaseFile/properties/effectiveContentVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBaseFile/properties/effectiveIndexVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBaseFile/properties/effectiveIndexVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBaseFile/properties/effectiveConfigVersionId/anyOf/0/format": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。",
+      "#/components/schemas/KnowledgeBaseFile/properties/effectiveConfigVersionId/anyOf/0/type": "07仅创建未发布知识库和待处理文件，尚无生效索引或发布下线历史；此字段恒为null，必填、anyOf及null分支仍适用，非空值由后续索引及发布切片验证。"
     }
   },
   "当前安全行为": [
