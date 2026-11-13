@@ -6,6 +6,8 @@ import {
   otherId,
   task,
   time,
+  record,
+  file,
 } from '../../test-fixtures/knowledge-bases';
 import { search, evidence, scope } from '../../test-fixtures/indexing';
 import { createManagementSearchClient } from './search-client';
@@ -72,6 +74,91 @@ it('六种任务状态和进度通过真实客户端读取，不把失败当成�
   observed('listKnowledgeBaseTasks', s.requests.at(-1));
 });
 
+it('索引完成与失败回读实际消费生效版本及知识库依赖故障', async () => {
+  const s = await setup(() => null);
+  for (const failed of [false, true]) {
+    const failure = failed
+      ? { code: 'MODEL_UNAVAILABLE', message: '固定嵌入故障', retryable: false }
+      : null;
+    const terminalTask = {
+      ...file.task,
+      state: failed ? 'failed' : 'succeeded',
+      phase: 'completed',
+      startedAt: time,
+      finishedAt: time,
+      progressCompleted: 1,
+      progressTotal: 1,
+      attempt: 1,
+      failure,
+      resultResourceId: failed ? null : otherId,
+    };
+    const indexed = {
+      ...file,
+      effectiveContentVersionId: otherId,
+      effectiveIndexVersionId: otherId,
+      effectiveConfigVersionId: otherId,
+      updateState: failed ? 'failed' : 'ready',
+      usingPreviousVersion: failed,
+      failure,
+      task: terminalTask,
+    };
+    s.reply({ items: [indexed], nextCursor: null });
+    expect((await s.api.files(id)).items[0]).toEqual(indexed);
+    observed('listKnowledgeBaseFiles', s.requests.at(-1));
+    const current = {
+      ...record,
+      effectiveIndexVersionId: otherId,
+      effectiveConfigVersionId: otherId,
+      includedFileCount: 1,
+      searchableFileCount: 1,
+      availability: failed ? 'unavailable' : 'available',
+      availabilityReason: failed ? '固定嵌入故障' : null,
+      processingState: failed ? 'failed' : 'idle',
+    };
+    s.reply({ items: [current], nextCursor: null });
+    expect((await s.api.list()).items[0]).toEqual(current);
+    observed('listKnowledgeBases', s.requests.at(-1));
+    s.reply(current);
+    expect(await s.api.get(id)).toEqual(current);
+    observed('getKnowledgeBase', s.requests.at(-1));
+    expect(
+      await s.api.update(id, { name: current.name, description: '' }),
+    ).toEqual(current);
+    observed('updateKnowledgeBase', s.requests.at(-1));
+  }
+});
+
+it('任务列表与原任务公开错误实际消费字段说明且不另建任务', async () => {
+  const s = await setup(() => null);
+  for (const [status, code] of [
+    [400, 'INVALID_REQUEST'],
+    [401, 'SESSION_EXPIRED'],
+    [403, 'ORIGIN_REJECTED'],
+    [404, 'NOT_FOUND'],
+    [429, 'QUEUE_FULL'],
+    [500, 'INTERNAL_ERROR'],
+    [503, 'DEPENDENCY_UNAVAILABLE'],
+  ]) {
+    s.reply({
+      errorStatus: status,
+      body: {
+        requestId: id,
+        code,
+        message: '固定任务查询错误',
+        fieldErrors: [{ field: '/cursor', code, message: '固定游标错误' }],
+        retryable: false,
+      },
+    });
+    await expect(s.api.tasks(id)).rejects.toThrow('固定任务查询错误');
+    observed('listKnowledgeBaseTasks', s.requests.at(-1));
+    await expect(s.api.task(otherId, 'index_file')).rejects.toThrow(
+      '固定任务查询错误',
+    );
+    observed('getTask', s.requests.at(-1));
+  }
+  expect(s.requests.every((item) => item.method === 'get')).toBe(true);
+});
+
 it('管理请求六状态无索引和依赖失败实际消费，成功命中及无命中独立', async () => {
   const s = await setup(() => search),
     api = createManagementSearchClient(s.client);
@@ -116,6 +203,48 @@ it('管理请求六状态无索引和依赖失败实际消费，成功命中及�
   };
   s.reply(empty);
   expect((await api.get(id, id)).result.outcome).toBe('no_matches');
+  observed('getSearchRequest', s.requests.at(-1));
+  const unavailable = {
+    ...search,
+    task: {
+      ...search.task,
+      state: 'failed',
+      resultResourceId: null,
+      failure: {
+        code: 'NO_EFFECTIVE_INDEX',
+        message: '当前库尚无生效索引',
+        retryable: false,
+      },
+    },
+    scope: {
+      selectedKnowledgeBaseIds: [id],
+      usedKnowledgeBaseIds: [],
+      omitted: [
+        {
+          knowledgeBaseId: id,
+          reason: 'no_effective_index',
+          message: '当前库尚无生效索引',
+        },
+      ],
+      incomplete: true,
+    },
+    result: null,
+  };
+  s.reply(unavailable);
+  expect(await api.submit(id, '固定查询', otherId)).toEqual(unavailable);
+  observed('testKnowledgeBaseSearch', s.requests.at(-1));
+  expect(await api.get(id, id)).toEqual(unavailable);
+  observed('getSearchRequest', s.requests.at(-1));
+  const warned = {
+    ...search,
+    result: { ...search.result, warnings: ['固定版本更新提示'] },
+  };
+  s.reply(warned);
+  expect((await api.submit(id, '版本规则', otherId)).result.warnings).toEqual([
+    '固定版本更新提示',
+  ]);
+  observed('testKnowledgeBaseSearch', s.requests.at(-1));
+  expect((await api.get(id, id)).result.warnings).toEqual(['固定版本更新提示']);
   observed('getSearchRequest', s.requests.at(-1));
   for (const updateState of ['ready', 'updating', 'failed']) {
     const item = {

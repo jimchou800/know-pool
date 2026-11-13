@@ -17,6 +17,15 @@ const page = await context.newPage();
 const requests = [];
 const requestURLs = [];
 const tests = [];
+const successfulResponses = [];
+page.on('response', (response) => {
+  if (
+    response.status() >= 200 &&
+    response.status() < 300 &&
+    new URL(response.url()).pathname.startsWith('/api/v1/')
+  )
+    successfulResponses.push(response);
+});
 try {
   page.on('request', (outgoing) => {
     const path = new URL(outgoing.url()).pathname;
@@ -190,6 +199,7 @@ try {
   await checkBatchFiles(page, tests);
   await checkSettings(page, tests);
   await checkKnowledgeBases(page, tests);
+  await checkRouteSecurity();
   await writeFile(
     'artifacts/contract-browser.json',
     JSON.stringify(
@@ -213,4 +223,107 @@ try {
 } finally {
   await context.close();
   await browser.close();
+}
+
+async function checkRouteSecurity() {
+  const prerequisites = [
+    '真实浏览器会话与状态消费',
+    '真实会话写请求保护先于未实现业务路由',
+    '真实后端拒绝无会话和非法来源',
+    '前端独立审阅后端回环主机、安全Cookie与日志保护证据',
+    '真实浏览器索引事件中断原任务恢复与单库版本保护',
+  ];
+  for (const name of prerequisites)
+    assert.ok(tests.some((test) => test.name === name && test.passed));
+  const contract = JSON.parse(
+    await readFile('../docs/agents/api/openapi.yaml', 'utf8'),
+  );
+  const routes = Object.entries(contract.paths).flatMap(([path, methods]) =>
+    Object.entries(methods)
+      .filter(([, operation]) => operation.operationId)
+      .map(([method, operation]) => ({
+        method: method.toUpperCase(),
+        operationId: operation.operationId,
+        pattern: new RegExp(
+          '^/api/v1' +
+            path
+              .split(/(\{[^}]+\})/)
+              .map((part) =>
+                part.startsWith('{')
+                  ? '[^/]+'
+                  : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+              )
+              .join('') +
+            '$',
+        ),
+      })),
+  );
+  const consumed = new Map();
+  for (const response of successfulResponses) {
+    const outgoing = response.request();
+    const url = new URL(response.url());
+    const route = routes.find(
+      (item) =>
+        item.method === outgoing.method() && item.pattern.test(url.pathname),
+    );
+    if (route && !consumed.has(route.operationId))
+      consumed.set(route.operationId, { route, response, url });
+  }
+  const anonymous = await request.newContext({ baseURL });
+  try {
+    for (const [operationId, { route, response, url }] of consumed) {
+      const write = !['GET', 'HEAD', 'OPTIONS'].includes(route.method);
+      const publicSession = operationId === 'initializeSession';
+      const headers = await response.request().allHeaders();
+      assert.ok((await response.allHeaders())['x-request-id']);
+      if (!publicSession)
+        assert.ok(headers.cookie?.includes('KNOW_POOL_SESSION='));
+      if (write) assert.ok(headers['x-csrf-token']);
+      assert.ok(
+        [...url.searchParams.keys()].every(
+          (name) => !/token|credential|secret|session|csrf/i.test(name),
+        ),
+      );
+      const rejected = await context.request.fetch(url.href, {
+        method: route.method,
+        headers: { Origin: 'http://untrusted.invalid' },
+      });
+      assert.equal(rejected.status(), 403);
+      assert.equal((await rejected.json()).code, 'ORIGIN_REJECTED');
+      if (!publicSession) {
+        const expired = await anonymous.fetch(url.href, {
+          method: route.method,
+        });
+        assert.equal(expired.status(), 401);
+        assert.equal((await expired.json()).code, 'SESSION_EXPIRED');
+      }
+      if (write) {
+        const unprotected = await context.request.fetch(url.href, {
+          method: route.method,
+        });
+        assert.equal(unprotected.status(), 403);
+        assert.equal((await unprotected.json()).code, 'CSRF_REJECTED');
+      }
+      tests.push({
+        name: `真实浏览器已消费路由安全保护：${operationId}`,
+        passed: true,
+        operationIds: [operationId],
+        constraintIds: ['#/x-business-constraints/security'],
+        prerequisites,
+        route: { method: route.method, path: url.pathname },
+        assertions: [
+          '本次浏览器实际成功消费且响应具有真实后端请求标识；请求无敏感查询参数',
+          '同一具体路由非法来源被实际拒绝，状态403且错误码一致',
+          publicSession
+            ? '公共会话初始化遵循已验证Cookie属性及来源规则'
+            : '正常请求携带会话Cookie，同一具体路由匿名请求被实际拒绝为401',
+          write
+            ? '正常写请求携带保护信息；缺保护请求被实际拒绝为403，未发送业务正文及幂等键'
+            : '读取路由不要求写保护信息；共享安全行为由本次快照前置测试验证',
+        ],
+      });
+    }
+  } finally {
+    await anonymous.dispose();
+  }
 }

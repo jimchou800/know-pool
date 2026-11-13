@@ -321,14 +321,43 @@ export async function checkKnowledgeBases(page, tests) {
     assert.equal((await add('dataset')).status(), 409);
     await page.getByRole('button', { name: '取消关联', exact: true }).click();
     const indexedTaskId = filesReply.items[0].task.id;
-    const streamPattern = `**/api/v1/tasks/${indexedTaskId}/events`;
-    await page.route(streamPattern, async (route) => {
-      await page.unroute(streamPattern);
-      await route.abort('failed');
+    const streamPath = `/api/v1/tasks/${indexedTaskId}/events`;
+    await page.evaluate((path) => {
+      const originalFetch = window.fetch;
+      window.fetch = async (input, options) => {
+        if (new URL(input, location.href).pathname !== path)
+          return originalFetch(input, options);
+        window.fetch = originalFetch;
+        const controller = new AbortController();
+        options?.signal?.addEventListener('abort', () => controller.abort(), {
+          once: true,
+        });
+        const response = await originalFetch(input, {
+          ...options,
+          signal: controller.signal,
+        });
+        setTimeout(
+          () => controller.abort(new TypeError('固定事件连接中断')),
+          100,
+        );
+        return response;
+      };
+    }, streamPath);
+    let disconnected = false;
+    const disconnect = page.waitForEvent('requestfailed', {
+      predicate: (request) => {
+        if (new URL(request.url()).pathname !== streamPath) return false;
+        disconnected = true;
+        return true;
+      },
     });
     const recovery = page.waitForResponse(
       (reply) =>
+        disconnected &&
         new URL(reply.url()).pathname === `/api/v1/tasks/${indexedTaskId}`,
+    );
+    const subscribed = page.waitForResponse(
+      (reply) => disconnected && new URL(reply.url()).pathname === streamPath,
     );
     await page
       .getByRole('button', { name: '刷新处理任务', exact: true })
@@ -337,12 +366,8 @@ export async function checkKnowledgeBases(page, tests) {
       .getByRole('button', { name: '跟踪处理任务', exact: true })
       .first()
       .click();
+    await disconnect;
     assert.equal((await recovery).status(), 200);
-    const subscribed = page.waitForResponse(
-      (reply) =>
-        new URL(reply.url()).pathname ===
-        `/api/v1/tasks/${indexedTaskId}/events`,
-    );
     const stream = await subscribed;
     assert.equal(stream.status(), 200);
     assert.ok(
@@ -354,11 +379,16 @@ export async function checkKnowledgeBases(page, tests) {
     assert.ok(eventRequest.cookie?.includes('KNOW_POOL_SESSION='));
     assert.equal(new URL(stream.url()).search, '');
     assert.equal(eventRequest['x-csrf-token'], undefined);
-    const streamCapture = page.evaluate(async (url) => {
-      const response = await fetch(url, { credentials: 'same-origin' });
-      if (!response.ok) throw new Error('事件独立读取失败');
-      return response.text();
-    }, `/api/v1/tasks/${indexedTaskId}/events`);
+    const streamCapture = page
+      .evaluate(async (url) => {
+        const response = await fetch(url, { credentials: 'same-origin' });
+        if (!response.ok) throw new Error('事件独立读取失败');
+        return response.text();
+      }, `/api/v1/tasks/${indexedTaskId}/events`)
+      .then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
     releaseEmbedding();
     embeddingGate = undefined;
     let indexed;
@@ -383,28 +413,36 @@ export async function checkKnowledgeBases(page, tests) {
       indexed.effectiveContentVersionId,
       indexed.latestContentVersionId,
     );
-    const eventFrames = (await streamCapture)
+    const captured = await streamCapture;
+    if (captured.error) throw captured.error;
+    const eventFrames = captured.value
       .replace(/\r\n/g, '\n')
       .split('\n\n')
       .filter((frame) => frame.includes('data:'));
     assert.ok(eventFrames.length > 0);
     let finalEvent;
     for (const frame of eventFrames) {
-      const data = JSON.parse(
+      const fields = Object.fromEntries(
         frame
           .split('\n')
-          .find((line) => line.startsWith('data:'))
-          .slice(5)
-          .trim(),
+          .filter((line) => line && !line.startsWith(':'))
+          .map((line) => {
+            const colon = line.indexOf(':');
+            return [
+              line.slice(0, colon),
+              line.slice(colon + 1).replace(/^ /, ''),
+            ];
+          }),
       );
+      const data = JSON.parse(fields.data);
       assert.equal(data.taskId, indexedTaskId);
       assert.ok(Number.isSafeInteger(data.sequence) && data.sequence > 0);
-      assert.ok(frame.includes(`id: ${indexedTaskId}:${data.sequence}`));
-      if (frame.includes('event: terminal')) {
+      assert.equal(fields.id, `${indexedTaskId}:${data.sequence}`);
+      if (fields.event === 'terminal') {
         assert.equal(data.state, 'succeeded');
         assert.equal(data.phase, 'completed');
         finalEvent = data;
-      } else assert.ok(frame.includes('event: phase'));
+      } else assert.equal(fields.event, 'phase');
     }
     assert.ok(finalEvent);
     const replay = await http.get(
@@ -415,10 +453,13 @@ export async function checkKnowledgeBases(page, tests) {
     );
     assert.equal(replay.status(), 200);
     const replayText = await replay.text();
-    assert.ok(
-      replayText.includes(`id: ${indexedTaskId}:${finalEvent.sequence}`),
+    assert.match(
+      replayText,
+      new RegExp(
+        `(?:^|\\n)id: ?${indexedTaskId}:${finalEvent.sequence}(?:\\r?\\n|$)`,
+      ),
     );
-    assert.ok(replayText.includes('event: terminal'));
+    assert.match(replayText, /(?:^|\n)event: ?terminal(?:\r?\n|$)/);
     const hostileStream = await http.get(
       `${base}/api/v1/tasks/${indexedTaskId}/events`,
       { headers: { Origin: 'https://untrusted.invalid' } },
@@ -521,6 +562,7 @@ export async function checkKnowledgeBases(page, tests) {
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
       await management.scrollIntoViewIfNeeded();
+      await evidence.scrollIntoViewIfNeeded();
       assert.equal(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
