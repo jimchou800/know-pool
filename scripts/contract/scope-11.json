@@ -381,9 +381,6 @@
       "#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type": "07此操作返回的任务已持久绑定对应知识库及配置，索引意图另绑定文件和内容版本；这些标识非空，通用任务查询仍验证其他类型的空值。",
       "#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type": "07此操作返回的任务已持久绑定对应知识库及配置，索引意图另绑定文件和内容版本；这些标识非空，通用任务查询仍验证其他类型的空值。",
       "#/components/schemas/Task/properties/targetContentVersionId/anyOf/1/type": "07此操作返回的任务已持久绑定对应知识库及配置，索引意图另绑定文件和内容版本；这些标识非空，通用任务查询仍验证其他类型的空值。",
-      "#/components/schemas/KnowledgeBaseFile/properties/targetConfigVersionId/anyOf/1/type": "07纳入有效来源时同事务建立唯一持久排队意图，任务及目标内容和配置版本均非空；撤销、排除和后续处理状态由后续切片验证。",
-      "#/components/schemas/KnowledgeBaseFile/properties/targetContentVersionId/anyOf/1/type": "07纳入有效来源时同事务建立唯一持久排队意图，任务及目标内容和配置版本均非空；撤销、排除和后续处理状态由后续切片验证。",
-      "#/components/schemas/KnowledgeBaseFile/properties/task/anyOf/1/type": "07纳入有效来源时同事务建立唯一持久排队意图，任务及目标内容和配置版本均非空；撤销、排除和后续处理状态由后续切片验证。",
       "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/format": "08后台阶段有限重试仍属于原任务，不创建显式重试来源任务；retryOfTaskId非空留给后续单项及全部失败重试入口，必填、联合类型及空分支仍适用。",
       "#/components/schemas/Task/properties/retryOfTaskId/anyOf/0/type": "08后台阶段有限重试仍属于原任务，不创建显式重试来源任务；retryOfTaskId非空留给后续单项及全部失败重试入口，必填、联合类型及空分支仍适用。",
       "#/components/schemas/Task/allOf/2/then": "索引列表和文件任务只含索引类型，管理检索只含search，不返回knowledge_base_create；创建成功与失败结果条件由createKnowledgeBase及getTask真实验证。",
@@ -510,11 +507,32 @@
       "#/paths/~1tasks~1{taskId}~1chunk-preflight/get/responses/503": "预检读取本地结果，维护暂停能力留后续数据迁移票；嵌入失败不删除已生成预检，原任务失败及缺失404仍适用。"
     },
     "updateProcessingConfig": {},
-    "removeKnowledgeBaseSource": {},
-    "listKnowledgeBaseExclusions": {},
-    "excludeKnowledgeBaseFile": {},
-    "includeKnowledgeBaseFile": {},
-    "listFileKnowledgeBases": {}
+    "removeKnowledgeBaseSource": {
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1sources~1{sourceId}/delete/responses/429": "本操作为本地事务读取或修改，不独立入队执行外部调用；后台清理通过持久意图处理，无该操作专属队列容量拒绝。消费方共享错误处理仍适用。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1sources~1{sourceId}/delete/responses/503": "本操作同步部分不依赖外部模型或向量服务；后台清理失败记录在任务，不冒充受理或读取503。全局维护暂停留数据迁移票。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1sources~1{sourceId}/delete/responses/409": "排除PUT幂等返回原记录；撤销及取消排除不存在返回404，没有合法业务负载冲突或幂等键冲突分支。消费方共享冲突错误仍须验证。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1sources~1{sourceId}/delete/responses/422": "本操作无额外业务前置拒绝；资源及归属不存在404，非法协议和标识400，事务故障500，不伪造422。消费方共享错误仍须验证。"
+    },
+    "listKnowledgeBaseExclusions": {
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions/get/responses/429": "本操作为本地事务读取或修改，不独立入队执行外部调用；后台清理通过持久意图处理，无该操作专属队列容量拒绝。消费方共享错误处理仍适用。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions/get/responses/503": "本操作同步部分不依赖外部模型或向量服务；后台清理失败记录在任务，不冒充受理或读取503。全局维护暂停留数据迁移票。"
+    },
+    "excludeKnowledgeBaseFile": {
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions~1{fileId}/put/responses/429": "本操作为本地事务读取或修改，不独立入队执行外部调用；后台清理通过持久意图处理，无该操作专属队列容量拒绝。消费方共享错误处理仍适用。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions~1{fileId}/put/responses/503": "本操作同步部分不依赖外部模型或向量服务；后台清理失败记录在任务，不冒充受理或读取503。全局维护暂停留数据迁移票。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions~1{fileId}/put/responses/409": "排除PUT幂等返回原记录；撤销及取消排除不存在返回404，没有合法业务负载冲突或幂等键冲突分支。消费方共享冲突错误仍须验证。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions~1{fileId}/put/responses/422": "本操作无额外业务前置拒绝；资源及归属不存在404，非法协议和标识400，事务故障500，不伪造422。消费方共享错误仍须验证。"
+    },
+    "includeKnowledgeBaseFile": {
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions~1{fileId}/delete/responses/429": "本操作为本地事务读取或修改，不独立入队执行外部调用；后台清理通过持久意图处理，无该操作专属队列容量拒绝。消费方共享错误处理仍适用。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions~1{fileId}/delete/responses/503": "本操作同步部分不依赖外部模型或向量服务；后台清理失败记录在任务，不冒充受理或读取503。全局维护暂停留数据迁移票。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions~1{fileId}/delete/responses/409": "排除PUT幂等返回原记录；撤销及取消排除不存在返回404，没有合法业务负载冲突或幂等键冲突分支。消费方共享冲突错误仍须验证。",
+      "#/paths/~1knowledge-bases~1{knowledgeBaseId}~1exclusions~1{fileId}/delete/responses/422": "本操作无额外业务前置拒绝；资源及归属不存在404，非法协议和标识400，事务故障500，不伪造422。消费方共享错误仍须验证。"
+    },
+    "listFileKnowledgeBases": {
+      "#/paths/~1files~1{fileId}~1knowledge-bases/get/responses/429": "本操作为本地事务读取或修改，不独立入队执行外部调用；后台清理通过持久意图处理，无该操作专属队列容量拒绝。消费方共享错误处理仍适用。",
+      "#/paths/~1files~1{fileId}~1knowledge-bases/get/responses/503": "本操作同步部分不依赖外部模型或向量服务；后台清理失败记录在任务，不冒充受理或读取503。全局维护暂停留数据迁移票。"
+    }
   },
   "当前安全行为": [
     "仅回环监听及 Host 白名单",
@@ -527,8 +545,8 @@
     "SSE 使用 Cookie 会话，拒绝非法来源与失效会话，令牌不进入 URL，断线查询原任务不重新提交"
   ],
   "后续保留": [
-    "真实TLS部署不属于10已验证范围，Secure属性仍由安全请求边界验证；SSE Cookie会话与八项当前安全行为已经可达，不再保留或豁免。",
-    "普通多库检索、知识库删除、发布下线与显式失败重试由后续切片实现。10继承管理单库路径，不生成回答，不调用查询预处理；Markdown与文字PDF解析及定位已属本票适用范围，不能继续保留。枚举整体、必填及当前值条件仍须验证。",
+    "真实TLS部署不属于11已验证范围，Secure属性仍由安全请求边界验证；SSE Cookie会话与八项当前安全行为已经可达，不再保留或豁免。",
+    "普通多库检索、知识库删除、发布下线与显式失败重试由后续切片实现。11继承管理单库路径，不生成回答，不调用查询预处理；Markdown与文字PDF解析及定位已属本票适用范围，不能继续保留。枚举整体、必填及当前值条件仍须验证。",
     "Task新增索引及search成功resultResourceId、实际生效版本、索引终态、失败、开始结束和已知总量均已可达；不得沿用07排队意图豁免。恢复索引不自动收费重嵌入、取消及版本资格保护必须有真实行为证据。",
     "ScopeOmission的unavailable和no_effective_index在单库失败范围检查后可达，仍必须验证。not_published不作为管理检索失败理由；deleted与多库部分范围保留后续公开入口，不能直接修改数据库冒充行为证据。",
     "普通检索实例的非空instanceId、预处理completed或fallback及additionalQueries非空仍留后续普通检索。PDF与Markdown定位、标题、真实结构身份、表格代码及任务降级警告已在09适用，不因缺测保留。"
