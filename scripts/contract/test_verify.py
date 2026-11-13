@@ -92,18 +92,18 @@ class ContractGateTests(unittest.TestCase):
     def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
         """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
         operations = verify.inventory(self.document)
-        self.assertEqual(verify.TICKET, '16')
-        self.assertEqual(len(verify.SCOPE), 67)
-        self.assertEqual(len(set(verify.SCOPE)), 67)
+        self.assertEqual(verify.TICKET, '17')
+        self.assertEqual(len(verify.SCOPE), 74)
+        self.assertEqual(len(set(verify.SCOPE)), 74)
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix
             self.assertIn(pointer, operations['watchTask']['constraints'])
             self.assertEqual(verify.coverage({'tests': []}, 'watchTask', pointer), [])
         rules = {
-            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence'},
-            'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion'},
-            'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask'},
+            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
+            'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion'},
+            'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask', 'submitQuestion', 'deleteConversation'},
             'sse': {'watchTask', 'getTask', 'watchQuestionTask', 'getQuestionTask'},
         }
         for rule, expected in rules.items():
@@ -242,6 +242,18 @@ class ContractGateTests(unittest.TestCase):
             self.assertIn(prefix + suffix, operations['watchQuestionTask']['constraints'])
         for name in ('submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask', 'watchQuestionTask', 'getConversationEvidence'):
             self.assertIn(name, verify.SCOPE)
+
+    def test_conversation_followup_requires_active_conflict_and_history(self):
+        """追问活动冲突、真实容量及完整历史上下文不得通过条件保留豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-17.json').read_bytes())
+        prefix = '#/paths/~1conversations~1{conversationId}~1questions/post/responses/'
+        for code in ('404', '409', '429'):
+            self.assertNotIn(prefix + code, mapping['操作']['submitQuestion'])
+        for name in ('submitQuestion', 'listConversationTurns'):
+            self.assertFalse(any('/Answer/properties/historyContext/' in key or
+                                 '/Answer/properties/omittedHistoryTurnCount/' in key
+                                 for key in mapping['操作'][name]))
+        self.assertIn('deleteConversation', verify.SCOPE)
 
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
