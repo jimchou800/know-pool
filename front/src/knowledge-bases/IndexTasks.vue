@@ -185,6 +185,35 @@ onBeforeUnmount(() => {
         <p v-if="item.kind === 'cleanup'">
           下线后的资源清理任务；清理失败不会恢复资料纳入，清理重试入口尚未提供。
         </p>
+        <template v-if="item.kind === 'rebuild_knowledge_base'"
+          ><p>
+            整库父任务：全部资料构建并验证成功后统一切换；子任务成功仅为暂存，不能视作单文件已切换。失败继续旧生效索引，切换不改变当前发布决定。
+          </p>
+          <details>
+            <summary>本目标配置的资料子任务</summary>
+            <p>
+              仅显示当前已加载任务，完整进度以父任务为准；可加载更多任务核对。
+            </p>
+            <ul>
+              <li
+                v-for="child in rows.filter(
+                  (row) =>
+                    row.kind === 'index_file' &&
+                    row.targetConfigVersionId === item.targetConfigVersionId,
+                )"
+                :key="child.id"
+              >
+                文件：{{ child.fileId }}；任务：{{ child.id }}；{{
+                  states[child.state]
+                }}
+                · {{ phases[child.phase]
+                }}<span v-if="child.failure"
+                  >；{{ child.failure.message }}</span
+                >
+              </li>
+            </ul>
+          </details></template
+        >
         <p>任务：{{ item.id }}；文件：{{ item.fileId || '未绑定文件' }}</p>
         <p>
           目标内容版本：{{

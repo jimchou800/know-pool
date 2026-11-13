@@ -9,6 +9,7 @@ import { checkPublication } from './check-publication.mjs';
 import { checkMultiSearch } from './check-multi-search.mjs';
 import { checkSearchInstances } from './check-search-instances.mjs';
 import { checkGroundedAnswer } from './check-grounded-answer.mjs';
+import { checkConfigurationRebuild } from './check-configuration-rebuild.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -697,6 +698,24 @@ export async function checkKnowledgeBases(page, tests) {
       knowledgeBaseId: resource,
     });
     await checkChunkPreflight(page, tests);
+    await checkConfigurationRebuild(page, tests, {
+      http,
+      base,
+      headers,
+      knowledgeBaseId: resource,
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+      rejectEmbedding: (value) => {
+        rejectEmbedding = value;
+      },
+    });
     await checkSourceAssociations(page, tests, {
       http,
       base,

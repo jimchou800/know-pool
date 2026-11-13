@@ -313,6 +313,24 @@ const validExclusion = (v) =>
   identifier(v.knowledgeBaseId) &&
   identifier(v.fileId) &&
   date(v.createdAt);
+const validConfig = (value, id) =>
+  exact(value, [
+    'id',
+    'knowledgeBaseId',
+    'createdAt',
+    'parserRuleVersion',
+    'chunkRuleVersion',
+    'lengthMeterVersion',
+    'input',
+  ]) &&
+  identifier(value.id) &&
+  identifier(value.knowledgeBaseId) &&
+  value.knowledgeBaseId.toLowerCase() === id.toLowerCase() &&
+  date(value.createdAt) &&
+  ['parserRuleVersion', 'chunkRuleVersion', 'lengthMeterVersion'].every((key) =>
+    text(value[key]),
+  ) &&
+  validProcessing(value.input);
 export function createKnowledgeBaseClient(session) {
   async function page(id, suffix, valid, cursor) {
     const value = await session.request({
@@ -589,25 +607,18 @@ export function createKnowledgeBaseClient(session) {
         method: 'get',
         url: path(id) + '/processing-config',
       });
+      return verify(value, validConfig(value, id));
+    },
+    async configVersion(id, versionId) {
+      if (!identifier(versionId)) throw new Error('处理配置版本标识无效。');
+      const value = await session.request({
+        method: 'get',
+        url: path(id) + `/processing-config/versions/${versionId}`,
+      });
       return verify(
         value,
-        exact(value, [
-          'id',
-          'knowledgeBaseId',
-          'createdAt',
-          'parserRuleVersion',
-          'chunkRuleVersion',
-          'lengthMeterVersion',
-          'input',
-        ]) &&
-          identifier(value.id) &&
-          identifier(value.knowledgeBaseId) &&
-          value.knowledgeBaseId.toLowerCase() === id.toLowerCase() &&
-          date(value.createdAt) &&
-          ['parserRuleVersion', 'chunkRuleVersion', 'lengthMeterVersion'].every(
-            (k) => text(value[k]),
-          ) &&
-          validProcessing(value.input),
+        validConfig(value, id) &&
+          value.id.toLowerCase() === versionId.toLowerCase(),
       );
     },
     async addSource(id, data) {
