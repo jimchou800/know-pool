@@ -164,7 +164,7 @@ public final class ModelSettingsController {
         String value = text(input, "endpoint", 1, Integer.MAX_VALUE, "");
         try {
             URI uri = URI.create(value);
-            String path = uri.getPath().replaceAll("/+$", "");
+            String path = uri.getPath() == null ? "" : uri.getPath().replaceAll("/+$", "");
             if (!Set.of("http", "https").contains(uri.getScheme())
                     || uri.getHost() == null
                     || uri.getHost().isEmpty()
@@ -214,6 +214,11 @@ public final class ModelSettingsController {
     }
 
     private static void noQuery(HttpServletRequest request) {
-        if (request.getQueryString() != null) throw ApiFailure.invalid(null, "该操作不接受查询参数。");
+        if (request.getQueryString() != null)
+            throw ApiFailure.invalid(
+                    request.getParameterNames().hasMoreElements()
+                            ? request.getParameterNames().nextElement()
+                            : "query",
+                    "该操作不接受查询参数。");
     }
 }

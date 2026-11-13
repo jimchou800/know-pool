@@ -5,4 +5,8 @@
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.datasets.data.DatasetRepository"/><Field name="data"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.datasets.FileService"/><Field name="data"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.api.LocalSessionFilter"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.ModelSettingsService"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.ConnectionTests"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.ConnectionTests"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.ConnectionProbe"/><Field name="json"/></Match>
 </FindBugsFilter>

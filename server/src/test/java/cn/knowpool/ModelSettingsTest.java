@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
@@ -22,6 +23,622 @@ import tools.jackson.databind.json.JsonMapper;
 class ModelSettingsTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final HttpClient http = HttpClient.newHttpClient();
+    private static final java.util.List<java.util.Map<String, Object>> OBSERVATIONS = new java.util.ArrayList<>();
+    private static final java.util.List<java.util.Map<String, String>> ROUTES = new java.util.ArrayList<>();
+    private static final java.util.Set<String> PASSED_BEHAVIORS = new java.util.HashSet<>();
+
+    @org.junit.jupiter.api.extension.RegisterExtension
+    final org.junit.jupiter.api.extension.TestWatcher completed = new org.junit.jupiter.api.extension.TestWatcher() {
+        @Override
+        public void testSuccessful(org.junit.jupiter.api.extension.ExtensionContext context) {
+            PASSED_BEHAVIORS.add(context.getRequiredTestMethod().getName());
+        }
+    };
+
+    @Test
+    @DisplayName("十四操作真实安全错误和本机存储故障使用统一包装")
+    void everyOperationEnforcesSecurityAndStorageFailure() throws Exception {
+        Path directory = Files.createTempDirectory(Path.of("target"), "settings-security-")
+                .toAbsolutePath();
+        try (ConfigurableApplicationContext application = start(directory)) {
+            String base = base(application);
+            Login login = login(base);
+            String model = config(
+                    "http://localhost:9911/v1",
+                    "模型",
+                    "embedding",
+                    "{\"action\":\"replace\",\"value\":\"security-key\"}");
+            JsonNode embedding =
+                    JSON.readTree(send(base, "/settings/models/embedding", "PUT", model, login.cookie(), login.token())
+                            .body());
+            String version = embedding.get("versionId").asText();
+            String initial = read(base, "/settings/models/embedding/versions?limit=100", login.cookie())
+                    .get("items")
+                    .get(0)
+                    .get("versionId")
+                    .asText();
+            for (JsonNode item : read(base, "/settings/models/embedding/versions?limit=100", login.cookie())
+                    .get("items")) {
+                if (item.get("endpoint").isNull())
+                    initial = item.get("versionId").asText();
+            }
+            read(base, "/settings/models/embedding/versions/" + initial, login.cookie());
+            String clearedEmbedding = config("http://localhost:9911/v1", "模型", "embedding", "{\"action\":\"clear\"}");
+            assertThat(send(base, "/settings/models/embedding", "PUT", clearedEmbedding, login.cookie(), login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            String vectorState =
+                    "{\"endpoint\":\"http://localhost:9911\",\"credential\":{\"action\":\"replace\",\"value\":\"vector-test-key\"}}";
+            assertThat(send(base, "/settings/vector-store", "PUT", vectorState, login.cookie(), login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            String vectorKeep = "{\"endpoint\":\"http://localhost:9911\",\"credential\":{\"action\":\"keep\"}}";
+            JsonNode vectorBefore = read(base, "/settings/vector-store", login.cookie());
+            assertThat(send(base, "/settings/vector-store", "PUT", vectorKeep, login.cookie(), login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            assertError(
+                    send(
+                            base,
+                            "/settings/vector-store",
+                            "PUT",
+                            vectorKeep.replace(":9911", ":9912"),
+                            login.cookie(),
+                            login.token()),
+                    400,
+                    "INVALID_REQUEST");
+            assertThat(read(base, "/settings/vector-store", login.cookie())).isEqualTo(vectorBefore);
+            String taskId = UUID.randomUUID().toString();
+            java.util.List<String[]> operations = java.util.List.of(
+                    new String[] {"GET", "/settings/models/generation", null},
+                    new String[] {
+                        "PUT",
+                        "/settings/models/generation",
+                        config("http://localhost:9911/v1", "模型", "generation", "{\"action\":\"clear\"}")
+                    },
+                    new String[] {"POST", "/settings/models/generation/test", "{\"allowChargedCall\":true}"},
+                    new String[] {"GET", "/settings/models/embedding", null},
+                    new String[] {"PUT", "/settings/models/embedding", model},
+                    new String[] {"POST", "/settings/models/embedding/test", "{\"allowChargedCall\":true}"},
+                    new String[] {"GET", "/settings/models/embedding/versions", null},
+                    new String[] {"GET", "/settings/models/embedding/versions/" + version, null},
+                    new String[] {
+                        "PUT", "/settings/models/embedding/versions/" + version + "/credential", "{\"action\":\"keep\"}"
+                    },
+                    new String[] {"GET", "/tasks/" + taskId + "/connection-test", null},
+                    new String[] {"GET", "/settings/vector-store", null},
+                    new String[] {
+                        "PUT",
+                        "/settings/vector-store",
+                        "{\"endpoint\":\"http://localhost:9911\",\"credential\":{\"action\":\"clear\"}}"
+                    },
+                    new String[] {"POST", "/settings/vector-store/test", null},
+                    new String[] {"GET", "/tasks/" + taskId, null});
+            for (String[] operation : operations) {
+                assertError(
+                        send(base, operation[1], operation[0], operation[2], null, login.token()),
+                        401,
+                        "SESSION_EXPIRED");
+                HttpRequest.Builder hostile = HttpRequest.newBuilder(URI.create(base + operation[1]))
+                        .header("Cookie", login.cookie())
+                        .header("X-CSRF-Token", login.token())
+                        .header("Origin", "https://untrusted.example");
+                if (operation[2] != null) hostile.header("Content-Type", "application/json");
+                assertError(
+                        observed(
+                                http.send(
+                                        hostile.method(
+                                                        operation[0],
+                                                        operation[2] == null
+                                                                ? HttpRequest.BodyPublishers.noBody()
+                                                                : HttpRequest.BodyPublishers.ofString(operation[2]))
+                                                .build(),
+                                        HttpResponse.BodyHandlers.ofString()),
+                                operation[2]),
+                        403,
+                        "ORIGIN_REJECTED");
+                if (operation[0].equals("GET"))
+                    assertError(
+                            send(base, operation[1] + "?unknown=1", operation[0], null, login.cookie(), null),
+                            400,
+                            "INVALID_REQUEST");
+                else
+                    assertError(
+                            send(base, operation[1], operation[0], operation[2], login.cookie(), null),
+                            403,
+                            "CSRF_REJECTED");
+            }
+            for (String value : java.util.List.of("【密钥已设置】", "")) {
+                HttpResponse<String> rejected = send(
+                        base,
+                        "/settings/models/embedding/versions/" + version + "/credential",
+                        "PUT",
+                        "{\"action\":\"replace\",\"value\":\"" + value + "\"}",
+                        login.cookie(),
+                        login.token());
+                assertError(rejected, 400, "INVALID_REQUEST");
+                assertThat(JSON.readTree(rejected.body())
+                                .at("/fieldErrors/0/field")
+                                .asText())
+                        .isEqualTo("/value");
+            }
+            assertThat(send(
+                                    base,
+                                    "/settings/models/embedding/versions/" + version + "/credential",
+                                    "PUT",
+                                    "{\"action\":\"replace\",\"value\":\"***\"}",
+                                    login.cookie(),
+                                    login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            assertThat(send(
+                                    base,
+                                    "/settings/models/embedding/versions/" + initial + "/credential",
+                                    "PUT",
+                                    "{\"action\":\"keep\"}",
+                                    login.cookie(),
+                                    login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            read(base, "/settings/models/embedding", login.cookie());
+            read(base, "/settings/models/embedding/versions?limit=100", login.cookie());
+            read(base, "/settings/models/embedding/versions/" + version, login.cookie());
+            String generation = config(
+                    "http://localhost:9911/v1",
+                    "模型",
+                    "generation",
+                    "{\"action\":\"replace\",\"value\":\"security-key\"}");
+            assertThat(send(base, "/settings/models/generation", "PUT", generation, login.cookie(), login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            read(base, "/settings/models/generation", login.cookie());
+            assertThat(send(
+                                    base,
+                                    "/settings/vector-store",
+                                    "PUT",
+                                    "{\"endpoint\":\"http://localhost:9911\",\"credential\":{\"action\":\"replace\",\"value\":\"security-key\"}}",
+                                    login.cookie(),
+                                    login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            read(base, "/settings/vector-store", login.cookie());
+            try (var connection = java.sql.DriverManager.getConnection(
+                            "jdbc:sqlite:" + directory.resolve("application.sqlite"));
+                    var statement = connection.createStatement()) {
+                statement.execute("ALTER TABLE model_configs RENAME TO blocked_model_configs");
+                statement.execute("ALTER TABLE vector_config RENAME TO blocked_vector_config");
+                statement.execute("ALTER TABLE tasks RENAME TO blocked_tasks");
+                for (String[] operation : operations) {
+                    HttpResponse<String> response = operation[0].equals("POST")
+                            ? probe(
+                                    base,
+                                    operation[1],
+                                    login.cookie(),
+                                    login.token(),
+                                    UUID.randomUUID().toString(),
+                                    operation[2])
+                            : send(base, operation[1], operation[0], operation[2], login.cookie(), login.token());
+                    assertError(response, 500, "INTERNAL_ERROR");
+                }
+                statement.execute("ALTER TABLE blocked_model_configs RENAME TO model_configs");
+                statement.execute("ALTER TABLE blocked_vector_config RENAME TO vector_config");
+                statement.execute("ALTER TABLE blocked_tasks RENAME TO tasks");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("模型任务固定完整旧快照且不接受不可信TLS证书")
+    void preservesSnapshotAndValidatesTls() throws Exception {
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.util.List<String> seen = new java.util.concurrent.CopyOnWriteArrayList<>();
+        HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        stub.setExecutor(java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor());
+        stub.createContext("/", exchange -> {
+            JsonNode request = JSON.readTree(exchange.getRequestBody().readAllBytes());
+            seen.add(exchange.getRequestURI().getPath() + "|"
+                    + exchange.getRequestHeaders().getFirst("Authorization") + "|"
+                    + request.get("model").asText() + "|"
+                    + request.get("max_tokens").asInt());
+            if (seen.size() == 1) {
+                entered.countDown();
+                try {
+                    release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            byte[] body =
+                    "{\"id\":\"snapshot\",\"object\":\"chat.completion\",\"created\":1,\"model\":\"snapshot\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"正常\"},\"finish_reason\":\"stop\"}]}"
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        stub.start();
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "probe-snapshot-").toAbsolutePath();
+        Path tls = Files.createTempDirectory(Path.of("target"), "tls-controlled-");
+        char[] password = "controlled-fixture".toCharArray();
+        Path keyStore = tls.resolve("untrusted.p12");
+        Process keytool = new ProcessBuilder(
+                        Path.of(System.getProperty("java.home"), "bin", "keytool.exe")
+                                .toString(),
+                        "-genkeypair",
+                        "-alias",
+                        "controlled",
+                        "-keyalg",
+                        "RSA",
+                        "-validity",
+                        "2",
+                        "-dname",
+                        "CN=localhost",
+                        "-ext",
+                        "SAN=dns:localhost,ip:127.0.0.1",
+                        "-storetype",
+                        "PKCS12",
+                        "-keystore",
+                        keyStore.toString(),
+                        "-storepass",
+                        "controlled-fixture",
+                        "-noprompt")
+                .redirectErrorStream(true)
+                .start();
+        keytool.getInputStream().readAllBytes();
+        assertThat(keytool.waitFor()).isZero();
+        java.security.KeyStore keys = java.security.KeyStore.getInstance("PKCS12");
+        try (var stream = Files.newInputStream(keyStore)) {
+            keys.load(stream, password);
+        }
+        javax.net.ssl.KeyManagerFactory manager =
+                javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm());
+        manager.init(keys, password);
+        javax.net.ssl.SSLContext ssl = javax.net.ssl.SSLContext.getInstance("TLS");
+        ssl.init(manager.getKeyManagers(), null, null);
+        com.sun.net.httpserver.HttpsServer secure =
+                com.sun.net.httpserver.HttpsServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        secure.setHttpsConfigurator(new com.sun.net.httpserver.HttpsConfigurator(ssl));
+        AtomicInteger secureRequests = new AtomicInteger();
+        secure.createContext("/", exchange -> {
+            secureRequests.incrementAndGet();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        secure.start();
+        try (ConfigurableApplicationContext application = start(directory)) {
+            String base = base(application);
+            Login login = login(base);
+            String endpoint = "http://127.0.0.1:" + stub.getAddress().getPort();
+            String original = config(
+                            endpoint + "/old",
+                            "模型甲",
+                            "generation",
+                            "{\"action\":\"replace\",\"value\":\"snapshot-key-one\"}")
+                    .replace("1024", "1");
+            JsonNode old = JSON.readTree(
+                    send(base, "/settings/models/generation", "PUT", original, login.cookie(), login.token())
+                            .body());
+            String first = JSON.readTree(probe(
+                                    base,
+                                    "/settings/models/generation/test",
+                                    login.cookie(),
+                                    login.token(),
+                                    UUID.randomUUID().toString(),
+                                    "{\"allowChargedCall\":true}")
+                            .body())
+                    .at("/task/id")
+                    .asText();
+            assertThat(entered.await(8, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            String queued = JSON.readTree(probe(
+                                    base,
+                                    "/settings/models/generation/test",
+                                    login.cookie(),
+                                    login.token(),
+                                    UUID.randomUUID().toString(),
+                                    "{\"allowChargedCall\":true}")
+                            .body())
+                    .at("/task/id")
+                    .asText();
+            JsonNode changed = JSON.readTree(send(
+                            base,
+                            "/settings/models/generation",
+                            "PUT",
+                            original.replace("/old", "/new")
+                                    .replace("模型甲", "模型乙")
+                                    .replace("snapshot-key-one", "snapshot-key-two")
+                                    .replace("\"maxOutputTokens\":1", "\"maxOutputTokens\":2"),
+                            login.cookie(),
+                            login.token())
+                    .body());
+            release.countDown();
+            assertThat(awaitTask(base, first, login.cookie()).get("targetConfigVersionId"))
+                    .isEqualTo(old.get("versionId"));
+            assertThat(awaitTask(base, queued, login.cookie()).get("targetConfigVersionId"))
+                    .isEqualTo(old.get("versionId"));
+            String current = JSON.readTree(probe(
+                                    base,
+                                    "/settings/models/generation/test",
+                                    login.cookie(),
+                                    login.token(),
+                                    UUID.randomUUID().toString(),
+                                    "{\"allowChargedCall\":true}")
+                            .body())
+                    .at("/task/id")
+                    .asText();
+            assertThat(awaitTask(base, current, login.cookie()).get("targetConfigVersionId"))
+                    .isEqualTo(changed.get("versionId"));
+            assertThat(seen)
+                    .containsExactly(
+                            "/old/chat/completions|Bearer snapshot-key-one|模型甲|1",
+                            "/old/chat/completions|Bearer snapshot-key-one|模型甲|1",
+                            "/new/chat/completions|Bearer snapshot-key-two|模型乙|2");
+            String vector = "{\"endpoint\":\"https://127.0.0.1:"
+                    + secure.getAddress().getPort() + "\",\"credential\":{\"action\":\"clear\"}}";
+            assertThat(send(base, "/settings/vector-store", "PUT", vector, login.cookie(), login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            String failed = JSON.readTree(probe(
+                                    base,
+                                    "/settings/vector-store/test",
+                                    login.cookie(),
+                                    login.token(),
+                                    UUID.randomUUID().toString(),
+                                    null)
+                            .body())
+                    .at("/task/id")
+                    .asText();
+            assertThat(awaitTask(base, failed, login.cookie()).get("state").asText())
+                    .isEqualTo("succeeded");
+            assertThat(read(base, "/tasks/" + failed + "/connection-test", login.cookie())
+                            .get("available")
+                            .asBoolean())
+                    .isFalse();
+            assertThat(secureRequests.get()).isZero();
+        } finally {
+            release.countDown();
+            stub.stop(0);
+            secure.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("结果完整性故障与本机失败不同于远端不可用")
+    void localFailureAndResultIntegrityAreExplicit() throws Exception {
+        HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        stub.createContext("/", exchange -> {
+            byte[] body = "{\"result\":{\"collections\":[]},\"status\":\"ok\"}"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        stub.start();
+        Path directory =
+                Files.createTempDirectory(Path.of("target"), "probe-integrity-").toAbsolutePath();
+        try (ConfigurableApplicationContext application = start(directory)) {
+            String base = base(application);
+            Login login = login(base);
+            String config = "{\"endpoint\":\"http://127.0.0.1:"
+                    + stub.getAddress().getPort() + "\",\"credential\":{\"action\":\"clear\"}}";
+            assertError(
+                    probe(
+                            base,
+                            "/settings/vector-store/test",
+                            login.cookie(),
+                            login.token(),
+                            UUID.randomUUID().toString(),
+                            null),
+                    422,
+                    "INVALID_STATE");
+            assertThat(send(base, "/settings/vector-store", "PUT", config, login.cookie(), login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            assertError(
+                    probe(
+                            base,
+                            "/settings/vector-store/test",
+                            login.cookie(),
+                            login.token(),
+                            UUID.randomUUID().toString(),
+                            "{}"),
+                    400,
+                    "INVALID_REQUEST");
+            assertError(
+                    probe(base, "/settings/vector-store/test", login.cookie(), login.token(), "bad-key", null),
+                    400,
+                    "INVALID_REQUEST");
+            String id = JSON.readTree(probe(
+                                    base,
+                                    "/settings/vector-store/test",
+                                    login.cookie(),
+                                    login.token(),
+                                    UUID.randomUUID().toString(),
+                                    null)
+                            .body())
+                    .at("/task/id")
+                    .asText();
+            assertThat(awaitTask(base, id, login.cookie()).get("state").asText())
+                    .isEqualTo("succeeded");
+            assertThat(read(base, "/tasks/" + id + "/connection-test", login.cookie())
+                            .get("mayHaveIncurredCost")
+                            .asBoolean())
+                    .isFalse();
+            try (var connection = java.sql.DriverManager.getConnection(
+                            "jdbc:sqlite:" + directory.resolve("application.sqlite"));
+                    var statement = connection.createStatement()) {
+                statement.execute("UPDATE tasks SET result=NULL WHERE id='" + id + "'");
+                assertError(
+                        send(base, "/tasks/" + id + "/connection-test", "GET", null, login.cookie(), null),
+                        500,
+                        "INTERNAL_ERROR");
+                statement.execute(
+                        "UPDATE tasks SET payload=json_set(payload,'$.kind','cleanup') WHERE id='" + id + "'");
+                assertError(
+                        send(base, "/tasks/" + id + "/connection-test", "GET", null, login.cookie(), null),
+                        404,
+                        "NOT_FOUND");
+                statement.execute(
+                        "CREATE TRIGGER fail_connection_completion BEFORE UPDATE ON tasks WHEN NEW.state='succeeded' BEGIN SELECT RAISE(ABORT,'受控本机故障'); END");
+                for (String kind : java.util.List.of("generation", "embedding")) {
+                    assertThat(send(
+                                            base,
+                                            "/settings/models/" + kind,
+                                            "PUT",
+                                            config(
+                                                    "http://127.0.0.1:"
+                                                            + stub.getAddress().getPort(),
+                                                    "模型",
+                                                    kind,
+                                                    "{\"action\":\"replace\",\"value\":\"failure-key\"}"),
+                                            login.cookie(),
+                                            login.token())
+                                    .statusCode())
+                            .isEqualTo(200);
+                }
+                for (String kind : java.util.List.of("generation", "embedding", "vector")) {
+                    String operation = kind.equals("vector")
+                            ? "/settings/vector-store/test"
+                            : "/settings/models/" + kind + "/test";
+                    String consent = kind.equals("vector") ? null : "{\"allowChargedCall\":true}";
+                    String failureKey = UUID.randomUUID().toString();
+                    String failedTask = JSON.readTree(
+                                    probe(base, operation, login.cookie(), login.token(), failureKey, consent)
+                                            .body())
+                            .at("/task/id")
+                            .asText();
+                    assertThat(awaitTask(base, failedTask, login.cookie())
+                                    .get("state")
+                                    .asText())
+                            .isEqualTo("failed");
+                    JsonNode repeated = JSON.readTree(
+                                    probe(base, operation, login.cookie(), login.token(), failureKey, consent)
+                                            .body())
+                            .get("task");
+                    assertThat(repeated.get("state").asText()).isEqualTo("failed");
+                    assertThat(repeated.get("id").asText()).isEqualTo(failedTask);
+                }
+                String failed = JSON.readTree(probe(
+                                        base,
+                                        "/settings/vector-store/test",
+                                        login.cookie(),
+                                        login.token(),
+                                        UUID.randomUUID().toString(),
+                                        null)
+                                .body())
+                        .at("/task/id")
+                        .asText();
+                JsonNode task = awaitTask(base, failed, login.cookie());
+                assertThat(task.get("state").asText()).isEqualTo("failed");
+                assertThat(task.at("/failure/code").asText()).isEqualTo("INTERNAL_ERROR");
+                assertThat(task.at("/failure/retryable").asBoolean()).isFalse();
+                assertError(
+                        send(base, "/tasks/" + failed + "/connection-test", "GET", null, login.cookie(), null),
+                        409,
+                        "INVALID_STATE");
+                statement.execute("DROP TRIGGER fail_connection_completion");
+            }
+            for (String path : java.util.List.of(
+                    "/tasks/" + UUID.randomUUID(),
+                    "/tasks/" + UUID.randomUUID() + "/connection-test",
+                    "/settings/models/embedding/versions/" + UUID.randomUUID()))
+                assertError(send(base, path, "GET", null, login.cookie(), null), 404, "NOT_FOUND");
+            for (String path : java.util.List.of(
+                    "/tasks/bad", "/tasks/bad/connection-test", "/settings/models/embedding/versions/bad"))
+                assertError(send(base, path, "GET", null, login.cookie(), null), 400, "INVALID_REQUEST");
+            assertError(
+                    send(
+                            base,
+                            "/settings/models/embedding/versions/" + UUID.randomUUID() + "/credential",
+                            "PUT",
+                            "{\"action\":\"keep\"}",
+                            login.cookie(),
+                            login.token()),
+                    404,
+                    "NOT_FOUND");
+            String page = "/settings/models/embedding/versions";
+            for (String query : java.util.List.of(
+                    "limit=0",
+                    "limit=101",
+                    "limit=1.5",
+                    "limit=x",
+                    "limit=999999999999",
+                    "limit=1&limit=2",
+                    "x=1",
+                    "cursor=",
+                    "cursor=bad",
+                    "cursor=" + "x".repeat(2049)))
+                assertError(send(base, page + "?" + query, "GET", null, login.cookie(), null), 400, "INVALID_REQUEST");
+        } finally {
+            stub.stop(0);
+        }
+    }
+
+    @AfterAll
+    static void evidence() throws Exception {
+        if (OBSERVATIONS.isEmpty()) return;
+        OBSERVATIONS.getFirst().put("routes", ROUTES);
+        for (java.util.Map<String, Object> item : OBSERVATIONS) {
+            String behavior = (String) item.get("behavior");
+            if (!PASSED_BEHAVIORS.contains(behavior)) item.put("behavior", "");
+        }
+        Path root = Path.of(System.getProperty("maven.multiModuleProjectDirectory", ".."))
+                .toAbsolutePath()
+                .normalize();
+        Process process = new ProcessBuilder(
+                        "python", "server/src/test/resources/contract/settings-evidence.py", root.toString())
+                .directory(root.toFile())
+                .redirectError(ProcessBuilder.Redirect.INHERIT)
+                .start();
+        try (var input = process.getOutputStream()) {
+            input.write(JSON.writeValueAsBytes(OBSERVATIONS));
+        }
+        String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(process.waitFor()).as(output).isZero();
+    }
+
+    private static synchronized HttpResponse<String> observed(HttpResponse<String> response, String body) {
+        assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(response.headers().firstValue("X-Request-Id")).isPresent();
+        java.util.Map<String, Object> observation = new java.util.LinkedHashMap<>();
+        observation.put(
+                "path",
+                response.request().uri().getRawPath()
+                        + (response.request().uri().getRawQuery() == null
+                                ? ""
+                                : "?" + response.request().uri().getRawQuery()));
+        observation.put("method", response.request().method());
+        observation.put("status", response.statusCode());
+        observation.put(
+                "contentType", response.headers().firstValue("Content-Type").orElse(""));
+        observation.put("response", JSON.readTree(response.body()));
+        observation.put("body", body);
+        observation.put(
+                "behavior",
+                java.util.Arrays.stream(Thread.currentThread().getStackTrace())
+                        .filter(frame -> frame.getClassName().equals(ModelSettingsTest.class.getName()))
+                        .map(StackTraceElement::getMethodName)
+                        .filter(name -> java.util.Set.of(
+                                        "preservesSnapshotAndValidatesTls",
+                                        "probesRespectTransportBoundaries",
+                                        "queuedSnapshotsAndRestartRemainSafe",
+                                        "credentialAndVersionsAreIndependent",
+                                        "initialConfigurationSurvivesRestart",
+                                        "localFailureAndResultIntegrityAreExplicit",
+                                        "rejectsInvalidConfigurationWithoutChanges",
+                                        "embeddingProbeUsesSavedSnapshotAndIdempotency",
+                                        "everyOperationEnforcesSecurityAndStorageFailure")
+                                .contains(name))
+                        .findFirst()
+                        .orElse(""));
+        java.util.Map<String, String> parameters = new java.util.LinkedHashMap<>();
+        response.request().headers().map().forEach((name, values) -> parameters.put(name, values.getFirst()));
+        observation.put("parameters", parameters);
+        OBSERVATIONS.add(observation);
+        return response;
+    }
 
     @Test
     @DisplayName("排队快照独立与重启中断不自动外发")
@@ -97,6 +714,48 @@ class ModelSettingsTest {
                                         "{\"allowChargedCall\":true}")
                                 .statusCode())
                         .isEqualTo(202);
+            assertThat(send(
+                                    base,
+                                    "/settings/models/generation",
+                                    "PUT",
+                                    config(
+                                            "http://localhost:9911",
+                                            "模型",
+                                            "generation",
+                                            "{\"action\":\"replace\",\"value\":\"queue-key\"}"),
+                                    login.cookie(),
+                                    login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            assertThat(send(
+                                    base,
+                                    "/settings/vector-store",
+                                    "PUT",
+                                    "{\"endpoint\":\"http://localhost:9911\",\"credential\":{\"action\":\"clear\"}}",
+                                    login.cookie(),
+                                    login.token())
+                            .statusCode())
+                    .isEqualTo(200);
+            assertError(
+                    probe(
+                            base,
+                            "/settings/models/generation/test",
+                            login.cookie(),
+                            login.token(),
+                            UUID.randomUUID().toString(),
+                            "{\"allowChargedCall\":true}"),
+                    429,
+                    "QUEUE_FULL");
+            assertError(
+                    probe(
+                            base,
+                            "/settings/vector-store/test",
+                            login.cookie(),
+                            login.token(),
+                            UUID.randomUUID().toString(),
+                            null),
+                    429,
+                    "QUEUE_FULL");
             assertError(
                     probe(
                             base,
@@ -344,6 +1003,7 @@ class ModelSettingsTest {
                 for (String endpoint : java.util.List.of(
                         "",
                         "ftp://localhost/v1",
+                        "mailto:test",
                         "http://user:pass@localhost/v1",
                         "http://localhost/v1?q=1",
                         "http://localhost/v1#f",
@@ -390,12 +1050,18 @@ class ModelSettingsTest {
                 }
                 for (String number : java.util.List.of(
                         "null", "0", "-1", "1.5", "9007199254740992", "\"1\"", "true", "9223372036854775808")) {
-                    String changed = valid.replace("\"contextWindowTokens\":8192", "\"contextWindowTokens\":" + number);
-                    if (kind.equals("generation"))
-                        assertError(
-                                send(base, path, "PUT", changed, login.cookie(), login.token()),
-                                400,
-                                "INVALID_REQUEST");
+                    if (kind.equals("generation")) {
+                        for (String field : java.util.List.of("contextWindowTokens", "maxOutputTokens")) {
+                            String changed = valid.replace(
+                                    "\"" + field + "\":" + (field.equals("contextWindowTokens") ? "8192" : "1024"),
+                                    "\"" + field + "\":" + number);
+                            assertError(
+                                    send(base, path, "PUT", changed, login.cookie(), login.token()),
+                                    400,
+                                    "INVALID_REQUEST");
+                            assertThat(read(base, path, login.cookie())).isEqualTo(before);
+                        }
+                    }
                 }
                 if (kind.equals("embedding"))
                     assertError(
@@ -578,13 +1244,15 @@ class ModelSettingsTest {
                 .header("X-CSRF-Token", token)
                 .header("Idempotency-Key", key);
         if (body != null) request.header("Content-Type", "application/json");
-        return http.send(
-                request.POST(
-                                body == null
-                                        ? HttpRequest.BodyPublishers.noBody()
-                                        : HttpRequest.BodyPublishers.ofString(body))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
+        return observed(
+                http.send(
+                        request.POST(
+                                        body == null
+                                                ? HttpRequest.BodyPublishers.noBody()
+                                                : HttpRequest.BodyPublishers.ofString(body))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()),
+                body);
     }
 
     @Test
@@ -639,14 +1307,16 @@ class ModelSettingsTest {
         if (cookie != null) request.header("Cookie", cookie);
         if (token != null) request.header("X-CSRF-Token", token);
         if (body != null) request.header("Content-Type", "application/json");
-        return http.send(
-                request.method(
-                                method,
-                                body == null
-                                        ? HttpRequest.BodyPublishers.noBody()
-                                        : HttpRequest.BodyPublishers.ofString(body))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
+        return observed(
+                http.send(
+                        request.method(
+                                        method,
+                                        body == null
+                                                ? HttpRequest.BodyPublishers.noBody()
+                                                : HttpRequest.BodyPublishers.ofString(body))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()),
+                body);
     }
 
     @Test
@@ -684,11 +1354,25 @@ class ModelSettingsTest {
     }
 
     private static ConfigurableApplicationContext start(Path directory) {
-        return SpringApplication.run(
+        ConfigurableApplicationContext application = SpringApplication.run(
                 KnowledgePoolApplication.class,
                 "--server.port=0",
                 "--know-pool.data-directory=" + directory,
                 "--logging.file.name=target/test-model-settings.log");
+        if (ROUTES.isEmpty())
+            application
+                    .getBean(org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class)
+                    .getHandlerMethods()
+                    .keySet()
+                    .forEach(mapping -> {
+                        for (String path : mapping.getPatternValues())
+                            if (path.startsWith("/api/v1/"))
+                                mapping.getMethodsCondition()
+                                        .getMethods()
+                                        .forEach(method ->
+                                                ROUTES.add(java.util.Map.of("method", method.name(), "path", path)));
+                    });
+        return application;
     }
 
     private static String base(ConfigurableApplicationContext application) {
@@ -708,12 +1392,14 @@ class ModelSettingsTest {
     }
 
     private JsonNode read(String base, String path, String cookie) throws Exception {
-        HttpResponse<String> response = http.send(
-                HttpRequest.newBuilder(URI.create(base + path))
-                        .header("Cookie", cookie)
-                        .GET()
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = observed(
+                http.send(
+                        HttpRequest.newBuilder(URI.create(base + path))
+                                .header("Cookie", cookie)
+                                .GET()
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString()),
+                null);
         assertThat(response.statusCode()).isEqualTo(200);
         return JSON.readTree(response.body());
     }
