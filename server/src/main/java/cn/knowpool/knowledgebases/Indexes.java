@@ -34,6 +34,7 @@ public final class Indexes {
     private final ChunkPlans chunkPlans;
     private final java.util.Map<String,Integer> readers = new java.util.HashMap<>();
     private volatile boolean stopping;
+    private long nextOriginalCleanup;
     private final java.util.concurrent.ScheduledExecutorService worker =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread thread = new Thread(r, "file-index");
@@ -90,6 +91,16 @@ public final class Indexes {
     private void next() {
         if (stopping) return;
         try {
+            if (System.nanoTime() >= nextOriginalCleanup) {
+                nextOriginalCleanup = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                synchronized (data) {
+                    var protectedVersions = data.read(jdbc -> new java.util.HashSet<>(jdbc.sql("SELECT content_version_id FROM effective_files UNION SELECT json_extract(payload,'$.targetContentVersionId') FROM tasks WHERE kind='index_file' AND state IN ('queued','running') AND json_extract(payload,'$.targetContentVersionId') IS NOT NULL UNION SELECT s.content_version_id FROM staged_indexes s JOIN processing_rebuilds r ON r.knowledge_base_id=s.knowledge_base_id AND r.config_version_id=s.config_version_id JOIN tasks t ON t.id=r.task_id WHERE t.state IN ('queued','running')")
+                            .query(String.class).list()));
+                    if (!readers.isEmpty()) protectedVersions.addAll(data.read(jdbc -> jdbc.sql("SELECT json_extract(t.payload,'$.targetContentVersionId') FROM index_runs r JOIN tasks t ON t.id=r.task_id WHERE r.id IN (:ids)")
+                            .param("ids",readers.keySet()).query(String.class).list()));
+                    files.cleanObsoleteVersions(protectedVersions);
+                }
+            }
             cleanups();
             rebuilds();
             List<String> ids = data.read(jdbc -> jdbc.sql(
@@ -111,6 +122,23 @@ public final class Indexes {
                 .param(id)
                 .query(String.class)
                 .single());
+    }
+
+    public JsonNode cancel(String taskId) {
+        String id = ModelSettingsService.identifier(taskId,"taskId");
+        return data.write(jdbc -> {
+            ObjectNode value = task(jdbc,id);
+            if (!List.of("index_file","rebuild_knowledge_base").contains(value.path("kind").asText()))
+                throw new ApiFailure(409,"CONFLICT","此任务类型不允许取消。",null);
+            if (!List.of("queued","running").contains(value.path("state").asText())) return value;
+            finish(jdbc,value,"cancelled",null,null,null);
+            if (value.path("kind").asText().equals("rebuild_knowledge_base")) {
+                for (String payload : jdbc.sql("SELECT payload FROM tasks WHERE kind='index_file' AND state IN ('queued','running') AND json_extract(payload,'$.knowledgeBaseId')=? AND json_extract(payload,'$.targetConfigVersionId')=?")
+                        .params(value.path("knowledgeBaseId").asText(),value.path("targetConfigVersionId").asText()).query(String.class).list())
+                    finish(jdbc,(ObjectNode)json.readTree(payload),"cancelled",null,null,null);
+            }
+            return value;
+        });
     }
 
     private void cleanups() {

@@ -141,7 +141,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         && request.getMethod().equals("PATCH")
                 || path.matches("/api/v1/files/[^/]+/versions")
                         && request.getMethod().equals("GET")
-                || path.matches("/api/v1/files/[^/]+/versions/[^/]+/preview")
+                || path.matches("/api/v1/files/[^/]+/versions/[^/]+/(?:preview|download)")
                         && request.getMethod().equals("GET");
         boolean settings = path.matches("/api/v1/settings/models/(?:generation|embedding)")
                         && Set.of("GET", "PUT").contains(request.getMethod())
@@ -163,7 +163,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 path.equals("/api/v1/knowledge-bases") && Set.of("GET", "POST").contains(request.getMethod())
                         || path.matches("/api/v1/knowledge-bases/[^/]+")
                                 && Set.of("GET", "PATCH").contains(request.getMethod())
-                        || path.matches("/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files|tasks|exclusions)")
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files|tasks|exclusions|index-switches)")
                                 && request.getMethod().equals("GET")
                         || path.matches("/api/v1/knowledge-bases/[^/]+/sources")
                                 && request.getMethod().equals("POST")
@@ -174,7 +174,8 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         && request.getMethod().equals("POST")
                 || path.matches("/api/v1/search-requests/[^/]+(?:/evidence/[^/]+)?")
                         && request.getMethod().equals("GET");
-        if (collection || resource || fileOperation || settings || knowledgeBases || search || chunkPreflight || processingUpdate) {
+        boolean cancellation = path.matches("/api/v1/tasks/[^/]+/cancel") && request.getMethod().equals("POST");
+        if (collection || resource || fileOperation || settings || knowledgeBases || search || chunkPreflight || processingUpdate || cancellation) {
             request.setAttribute("localSession", session);
             chain.doFilter(request, response);
             return;

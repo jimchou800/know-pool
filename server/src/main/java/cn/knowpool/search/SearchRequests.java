@@ -134,6 +134,7 @@ public final class SearchRequests {
     private void run(String id, String kb, String query) {
         synchronized (this) {
             ObjectNode task = (ObjectNode) requests.get(id).path("task");
+            if (!List.of("queued","running").contains(task.path("state").asText())) return;
             task.put("state", "running")
                     .put("phase", "retrieving")
                     .put("startedAt", Instant.now().toString())
@@ -143,7 +144,7 @@ public final class SearchRequests {
         try {
             JsonNode evidence = indexes.retrieve(kb, query);
             synchronized (this) {
-                if (stopping) return;
+                if (stopping || requests.get(id).at("/task/state").asText().equals("cancelled")) return;
                 ObjectNode request = requests.get(id), task = (ObjectNode) request.path("task");
                 ObjectNode scope = scope(kb, null);
                 request.set("scope", scope);
@@ -174,7 +175,7 @@ public final class SearchRequests {
             }
         } catch (RuntimeException failure) {
             synchronized (this) {
-                if (stopping) return;
+                if (stopping || requests.get(id).at("/task/state").asText().equals("cancelled")) return;
                 ObjectNode request = requests.get(id), task = (ObjectNode) request.path("task");
                 String code = failure instanceof ApiFailure api ? api.code() : "INTERNAL_ERROR";
                 request.set(
@@ -234,6 +235,19 @@ public final class SearchRequests {
                 known ? "RESULT_EXPIRED" : "NOT_FOUND",
                 known ? "检索结果已失效，请手动重新检索。" : "检索请求不存在。",
                 null);
+    }
+
+    public synchronized JsonNode cancel(String taskId) {
+        String id = ModelSettingsService.identifier(taskId,"taskId");
+        ObjectNode task = data.read(jdbc -> jdbc.sql("SELECT payload FROM tasks WHERE id=? AND kind='search'").param(id).query(String.class).optional()
+                .map(value -> (ObjectNode)json.readTree(value)).orElseThrow(() -> new ApiFailure(404,"NOT_FOUND","检索任务不存在。",null)));
+        if (!List.of("queued","running").contains(task.path("state").asText())) return task;
+        task.put("state","cancelled").put("phase","completed").put("finishedAt",Instant.now().toString()).putNull("failure").putNull("resultResourceId");
+        for (ObjectNode request : requests.values()) if (request.at("/task/id").asText().equals(id)) {
+            request.set("task",task); request.putNull("result");
+        }
+        save(task);
+        return task;
     }
 
     public synchronized JsonNode evidence(String id, String evidenceId) {

@@ -528,22 +528,33 @@ public final class FileService {
     }
 
     public Stored content(String id) throws IOException {
-        FileView file = get(id);
-        if (!file.latestVersion().originalAvailable())
-            throw new ApiFailure(410, "CONTENT_UNAVAILABLE", "原始副本已不可用。", null);
-        String relative = data.read(jdbc -> jdbc.sql("SELECT relative_path FROM file_versions WHERE id=?")
-                .param(file.latestVersion().id())
-                .query(String.class)
-                .single());
-        Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
-        Path target = data.directory().resolve(relative).toAbsolutePath().normalize();
-        Path parent = target.getParent(), filename = target.getFileName();
-        if (parent == null
-                || filename == null
-                || !parent.equals(root)
-                || !filename.toString().equals(file.latestVersion().id())) throw new IOException("副本路径不合法。");
-        validateStoragePath(target);
-        return new Stored(file, Files.readAllBytes(target));
+        synchronized (data) {
+            FileView file = get(id);
+            VersionContent content = readVersion(file.id(),file.latestVersion().id());
+            return new Stored(file,content.bytes());
+        }
+    }
+
+    public void cleanObsoleteVersions(java.util.Set<String> protectedVersions) {
+        data.write(jdbc -> {
+            var candidates = jdbc.sql("SELECT v.id,v.relative_path FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.available=1 AND v.id<>f.latest_version")
+                    .query((row,n) -> new String[]{row.getString(1),row.getString(2)}).list();
+            for (String[] candidate : candidates) {
+                if (protectedVersions.contains(candidate[0])) continue;
+                Path target = data.directory().resolve(candidate[1]).toAbsolutePath().normalize();
+                Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
+                if (!root.equals(target.getParent()) || target.getFileName() == null || !target.getFileName().toString().equals(candidate[0]))
+                    throw new IllegalStateException("旧副本清理路径不合法。");
+                try {
+                    validateStoragePath(target);
+                    Files.deleteIfExists(target);
+                    jdbc.sql("UPDATE file_versions SET available=0 WHERE id=?").param(candidate[0]).update();
+                } catch (IOException failure) {
+                    LOG.warn("旧副本暂未清理，将在安全检查点重试。");
+                }
+            }
+            return null;
+        });
     }
 
     public VersionContent versionContent(String id, String version) throws IOException {

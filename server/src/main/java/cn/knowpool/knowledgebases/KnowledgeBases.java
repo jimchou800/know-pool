@@ -793,6 +793,21 @@ public final class KnowledgeBases {
         });
     }
 
+    public Page switches(String kb, int limit, String cursor) {
+        return data.read(jdbc -> {
+            get(jdbc,kb);
+            List<JsonNode> rows = jdbc.sql("SELECT s.*,json_extract(t.payload,'$.targetConfigVersionId') AS previous_config FROM index_switches s LEFT JOIN index_runs r ON r.id=s.previous_index_id LEFT JOIN tasks t ON t.id=r.task_id WHERE s.knowledge_base_id=? AND s.id>? ORDER BY s.id LIMIT ?")
+                    .params(kb,after(cursor),limit+1).query((row,n) -> {
+                        ObjectNode value = json.createObjectNode().put("id",row.getString("id")).put("knowledgeBaseId",kb).put("fileId",row.getString("file_id"))
+                                .put("toContentVersionId",row.getString("content_id")).put("toIndexVersionId",row.getString("index_id"))
+                                .put("toConfigVersionId",row.getString("config_id")).put("taskId",row.getString("task_id")).put("switchedAt",row.getString("switched_at"));
+                        value.put("fromContentVersionId",row.getString("previous_content_id")).put("fromIndexVersionId",row.getString("previous_index_id")).put("fromConfigVersionId",row.getString("previous_config"));
+                        return (JsonNode)value;
+                    }).list();
+            return page(rows,limit,"id");
+        });
+    }
+
     public Page files(String id, int limit, String cursor) {
         return data.read(jdbc -> {
             get(jdbc,id);
