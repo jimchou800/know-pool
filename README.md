@@ -6,7 +6,7 @@
 
 需求与技术访谈已确认。`front/` 已提供三套浅色界面原型，覆盖首页与问答页，可点击切换方案、新建与切换问答、查看模拟处理进度和原文依据抽屉。用户已采纳方案 1“紧凑高效”为后续界面设计基线；其余两套保留为探索记录。
 
-当前原型使用固定样例，不调用真实模型或后端；数据集、知识库、独立检索和设置入口仅提示后续设计范围。正式接口、后端、根 Maven 构建和持续集成尚未实现；根 `mvn verify` 仍是后续正式工程的统一目标。
+演示原型使用固定样例，不调用真实模型或后端。技术任务 01 正在实现正式工作台、本机会话、系统状态、后端安全和根 Maven 工程，尚未完成端到端验收；后续业务入口仍未接通。根 `mvn verify` 的通过状态以当前实施记录为准，不将配置已落盘等同于验证成功。
 
 ## 运行界面原型
 
@@ -19,7 +19,7 @@ pnpm.cmd --dir front install --frozen-lockfile
 pnpm.cmd --dir front dev --port 4173 --strictPort
 ```
 
-第一条命令按锁文件安装依赖，镜像固定为 `https://registry.npmmirror.com/`；第二条启动仅监听本机的开发服务。打开 <http://127.0.0.1:4173/>，通过顶部按钮比较“紧凑高效、宽松简洁、阅读友好”三套方案。
+第一条命令按锁文件安装依赖，镜像固定为 `https://registry.npmmirror.com/`；第二条启动仅监听本机的开发服务。打开 <http://127.0.0.1:4173/prototype.html>，通过顶部按钮比较“紧凑高效、宽松简洁、阅读友好”三套方案。根地址进入正式工作台，需连接真实后端才能显示已连接状态。
 
 原型将已提交的演示会话保存在浏览器本地存储；未提问窗口不保存。刷新时不会自动重发模拟任务，未完成记录显示中断。这里只保存演示输入，不应输入真实敏感资料。固定样例回答不代表模型对任意输入的实际回答。
 
@@ -43,7 +43,8 @@ pnpm.cmd --dir front exec playwright test
 - [完整技术规格](.scratch/technical-design/spec.md)与[现行架构索引](.scratch/technical-design/architecture.md)。
 - [领域术语](GLOSSARY.md)与[代理入口](AGENTS.md)。
 - [前后端派活](docs/agents/collaboration.md)、[工程门禁](docs/agents/engineering.md)、[接口协作规范](docs/agents/api/README.md)。
-- [已批准实现任务](.scratch/technical-design/tickets.md)：24 个任务已逐项发布，全部尚未开始；[拆分基线](.scratch/technical-design/tickets-draft.md)保留批准依据。
+- [已批准实现任务](.scratch/technical-design/tickets.md)：24 个任务已逐项发布，01 正在实施且尚未验收；[拆分基线](.scratch/technical-design/tickets-draft.md)保留批准依据。
+- [实施待办与次日入口](.scratch/technical-design/implementation-todos.md)、[契约实现校验工具](scripts/contract/README.md)。
 
 接口唯一契约为 `docs/agents/api/openapi.yaml`，完整设计、静态检查与双方独立签认见[接口开发共识](docs/agents/api/reviews/baseline.md)。设计批准不代表业务接口已实现；运行期契约自动报告仍属于后续工程。前端角色文件按要求命名为 `.codex/agents/fornt-agent.md`，后端为 `.codex/agents/backend.md`；派发时显式加载角色，不自动注册为工具代理。技术细节由两代理自行协商，业务不确定项才向用户核实。
 
