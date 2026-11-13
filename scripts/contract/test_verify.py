@@ -281,6 +281,19 @@ class ContractGateTests(unittest.TestCase):
                          mapping['操作']['retryCleanupTask'])
         self.assertIn('listTasks', verify.SCOPE)
 
+    def test_maintenance_safety_cannot_be_removed_from_migration_scope(self):
+        """迁移安全义务与失败阶段必须保留，不能以未测试缩减分母。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-21.json').read_bytes())
+        operations = verify.inventory(self.document)
+        for name in ('migrationPreflight', 'submitMigration', 'getMaintenanceTask', 'retryMaintenanceTask'):
+            self.assertIn(name, verify.SCOPE)
+            self.assertIn('#/x-business-constraints/maintenance', operations[name]['constraints'])
+            self.assertNotIn('#/x-business-constraints/maintenance', mapping['操作'][name])
+        for pointer in ('#/components/schemas/MaintenanceResult/properties/configurationSwitched/type',
+                        '#/components/schemas/MaintenanceResult/properties/oldDirectoryResidue/type',
+                        '#/components/schemas/MaintenanceResult/properties/failureStage/anyOf/0/enum'):
+            self.assertNotIn(pointer, mapping['操作']['getMaintenanceTask'])
+
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])
