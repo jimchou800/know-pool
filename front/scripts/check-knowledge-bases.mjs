@@ -12,6 +12,7 @@ import { checkGroundedAnswer } from './check-grounded-answer.mjs';
 import { checkConfigurationRebuild } from './check-configuration-rebuild.mjs';
 import { checkDeletionCleanup } from './check-deletion-cleanup.mjs';
 import { checkDataMigration } from './check-data-migration.mjs';
+import { checkBackupRestore } from './check-backup-restore.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -829,6 +830,7 @@ export async function checkKnowledgeBases(page, tests) {
       knowledgeBaseId: resource,
     });
     await checkDataMigration(page, tests, { http, base });
+    await checkBackupRestore(page, tests, { http, base });
   } finally {
     releaseEmbedding?.();
     page.off('request', observe);

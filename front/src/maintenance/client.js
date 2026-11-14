@@ -12,11 +12,11 @@ const stages = [
   'index_check',
 ];
 function verify(value, valid) {
-  if (!valid) throw new Error('迁移响应不符合约定，请读取原任务，勿重新提交。');
+  if (!valid) throw new Error('维护响应不符合约定，请读取原任务，勿重新提交。');
   return value;
 }
-const migrationTask = (value) =>
-  validTask(value, 'migration') &&
+const maintenanceTask = (value, kind) =>
+  validTask(value, kind) &&
   [
     'knowledgeBaseId',
     'fileId',
@@ -24,14 +24,19 @@ const migrationTask = (value) =>
     'targetConfigVersionId',
     'resultResourceId',
   ].every((field) => value[field] === null);
-function accepted(value) {
-  return verify(value, exact(value, ['task']) && migrationTask(value.task));
+function accepted(value, kind) {
+  return verify(
+    value,
+    exact(value, ['task']) && maintenanceTask(value.task, kind),
+  );
 }
-export function createMigrationClient(client) {
+export function createMaintenanceClient(client, kind = 'migration') {
+  if (!['migration', 'backup', 'restore'].includes(kind))
+    throw new Error('维护类型无效。');
   return {
     async preflight(sourcePath, targetPath) {
       if (
-        ![sourcePath, targetPath].every(
+        !(kind === 'migration' ? [sourcePath, targetPath] : [targetPath]).every(
           (value) =>
             typeof value === 'string' &&
             Array.from(value).length >= 3 &&
@@ -41,8 +46,13 @@ export function createMigrationClient(client) {
         throw new Error('请输入长度为 3 至 32767 字符的本地绝对目录。');
       const value = await client.request({
         method: 'post',
-        url: '/maintenance/migration/preflight',
-        data: { sourcePath, targetPath },
+        url: `/maintenance/${kind}/preflight`,
+        data:
+          kind === 'migration'
+            ? { sourcePath, targetPath }
+            : kind === 'backup'
+              ? { targetPath }
+              : { backupPath: targetPath },
       });
       return verify(
         value,
@@ -67,16 +77,31 @@ export function createMigrationClient(client) {
           value.estimatedBytes >= 0,
       );
     },
-    async submit(preflightToken, key) {
+    async submit(preflightToken, key, acknowledgements) {
       if (!identifier(preflightToken) || !identifier(key))
         throw new Error('迁移操作标识无效。');
+      if (
+        kind === 'restore' &&
+        (!exact(acknowledgements, [
+          'acknowledgePlaintextCredentials',
+          'acknowledgeIndexRebuildCost',
+        ]) ||
+          acknowledgements.acknowledgePlaintextCredentials !== true ||
+          acknowledgements.acknowledgeIndexRebuildCost !== true)
+      )
+        throw new Error('请明确确认明文凭据与索引重建费用提示。');
       const value = accepted(
         await client.request({
           method: 'post',
-          url: '/maintenance/migration',
+          url: `/maintenance/${kind}`,
           headers: { 'Idempotency-Key': key },
-          data: { preflightToken, confirmed: true },
+          data: {
+            preflightToken,
+            confirmed: true,
+            ...(kind === 'restore' ? acknowledgements : {}),
+          },
         }),
+        kind,
       );
       return verify(value, value.task.retryOfTaskId === null);
     },
@@ -102,9 +127,9 @@ export function createMigrationClient(client) {
           'failureStage',
           'warnings',
         ]) &&
-          migrationTask(value.task) &&
+          maintenanceTask(value.task, kind) &&
           value.task.id === taskId &&
-          value.operation === 'migration' &&
+          value.operation === kind &&
           typeof value.activeDataDirectory === 'string' &&
           typeof value.targetPath === 'string' &&
           [
@@ -127,7 +152,7 @@ export function createMigrationClient(client) {
         method: 'get',
         url: '/tasks',
         params: {
-          kind: 'migration',
+          kind,
           limit: 20,
           ...(cursor === undefined ? {} : { cursor }),
         },
@@ -136,7 +161,7 @@ export function createMigrationClient(client) {
         value,
         exact(value, ['items', 'nextCursor']) &&
           Array.isArray(value.items) &&
-          value.items.every(migrationTask) &&
+          value.items.every((task) => maintenanceTask(task, kind)) &&
           (value.nextCursor === null || typeof value.nextCursor === 'string'),
       );
     },
@@ -154,8 +179,11 @@ export function createMigrationClient(client) {
           headers: { 'Idempotency-Key': key },
           data: { action },
         }),
+        kind,
       );
       return verify(value, value.task.retryOfTaskId === taskId);
     },
   };
 }
+export const createMigrationClient = (client) =>
+  createMaintenanceClient(client);
