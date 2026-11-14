@@ -10,15 +10,35 @@ import { checkBatchFiles } from './check-batch-files.mjs';
 import { checkSettings } from './check-settings.mjs';
 import { checkKnowledgeBases } from './check-knowledge-bases.mjs';
 import { checkRuntimeSettings } from './check-runtime-settings.mjs';
+import { checkReleasePage } from './check-release-page.mjs';
+import { releaseOptions } from './release-options.js';
 
-const baseURL = process.argv[2] || 'http://127.0.0.1:4173';
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const { baseURL, channel, origin } = releaseOptions(process.argv.slice(2));
+await mkdir(`artifacts/${channel}`, { recursive: true });
+const browser = await chromium.launch({ channel, headless: true });
 const context = await browser.newContext();
 const page = await context.newPage();
+const screenshot = page.screenshot.bind(page);
+page.screenshot = (options = {}) =>
+  screenshot({
+    ...options,
+    ...(options.path
+      ? { path: options.path.replace(/^artifacts\//, `artifacts/${channel}/`) }
+      : {}),
+  });
 const requests = [];
 const requestURLs = [];
 const tests = [];
 const successfulResponses = [];
+const resources = [];
+page.on('request', (outgoing) => {
+  if (
+    ['script', 'stylesheet', 'font', 'image', 'worker'].includes(
+      outgoing.resourceType(),
+    )
+  )
+    resources.push(outgoing.url());
+});
 page.on('response', (response) => {
   if (
     response.status() >= 200 &&
@@ -194,6 +214,7 @@ try {
     );
     await page.screenshot({ path: `artifacts/live-home-${width}.png` });
   }
+  await checkReleasePage(page, tests, baseURL, channel);
   await checkDatasets(page, baseURL, tests);
   await checkFiles(page, baseURL, tests);
   await checkDocumentPreviews(page, tests);
@@ -201,26 +222,36 @@ try {
   await checkSettings(page, tests);
   await checkRuntimeSettings(page, tests, baseURL);
   await checkKnowledgeBases(page, tests);
-  await checkRouteSecurity();
-  await writeFile(
-    'artifacts/contract-browser.json',
-    JSON.stringify(
-      {
-        timestamp: new Date().toISOString(),
-        contractSha256: createHash('sha256')
-          .update(await readFile('../docs/agents/api/openapi.yaml'))
-          .digest('hex'),
-        implementationSha256: execFileSync(
-          'python',
-          ['../scripts/contract/verify.py', '--snapshot'],
-          { encoding: 'utf8' },
-        ).trim(),
-        tests,
-      },
-      null,
-      2,
+  assert.ok(
+    resources.every(
+      (url) =>
+        url.startsWith('data:') ||
+        url.startsWith(`blob:${origin}/`) ||
+        new URL(url).origin === origin,
     ),
+    '发行资源与预览引擎必须来自实际同源服务',
   );
+  await checkRouteSecurity();
+  const report = JSON.stringify(
+    {
+      browser: channel,
+      origin,
+      timestamp: new Date().toISOString(),
+      contractSha256: createHash('sha256')
+        .update(await readFile('../docs/agents/api/openapi.yaml'))
+        .digest('hex'),
+      implementationSha256: execFileSync(
+        'python',
+        ['../scripts/contract/verify.py', '--snapshot'],
+        { encoding: 'utf8' },
+      ).trim(),
+      tests,
+    },
+    null,
+    2,
+  );
+  await writeFile(`artifacts/contract-browser-${channel}.json`, report);
+  await writeFile('artifacts/contract-browser.json', report);
   console.log('真实浏览器联调通过；截图与脱敏证据已写入 artifacts。');
 } finally {
   await context.close();
