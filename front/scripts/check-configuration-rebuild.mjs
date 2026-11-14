@@ -146,13 +146,20 @@ export async function checkConfigurationRebuild(
     name: '目标与生效配置对照',
     exact: true,
   });
-  await compare.getByText(/旧生效配置/).waitFor();
+  await expect(
+    compare.locator('dt').filter({
+      hasText: retained.effectiveConfigVersionId,
+    }),
+  ).toHaveText(`旧生效配置（当前生效）：${retained.effectiveConfigVersionId}`);
   assert.ok(
     (await compare.innerText()).includes(retained.effectiveConfigVersionId),
   );
   const tasks = page.getByRole('region', { name: '处理任务', exact: true });
   await tasks
-    .getByText(/子任务成功仅为暂存/)
+    .getByText(
+      '整库父任务：全部资料构建并验证成功后统一切换；子任务成功仅为暂存，不能视作单文件已切换。失败继续旧生效索引，切换不改变当前发布决定。',
+      { exact: true },
+    )
     .first()
     .waitFor();
   for (const width of [1280, 1440, 1920]) {
