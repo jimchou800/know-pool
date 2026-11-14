@@ -95,6 +95,7 @@ class ContractGateTests(unittest.TestCase):
         self.assertEqual(verify.TICKET, '23')
         self.assertEqual(len(verify.SCOPE), 95)
         self.assertEqual(len(set(verify.SCOPE)), 95)
+        self.assertEqual(set(verify.SCOPE), set(operations))
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix

@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
 TICKET = '23'
-SCOPE = ('getRuntimeSettings', 'updateRuntimeSettings', 'initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
+SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
          'testGenerationModel', 'getEmbeddingModel', 'updateEmbeddingModel', 'testEmbeddingModel',
@@ -41,7 +41,8 @@ SCOPE = ('getRuntimeSettings', 'updateRuntimeSettings', 'initializeSession', 'ge
          'getDatasetDeleteImpact', 'deleteDataset', 'getFileDeleteImpact', 'deleteFile',
          'getKnowledgeBaseDeleteImpact', 'deleteKnowledgeBase', 'listTasks', 'retryCleanupTask',
          'migrationPreflight', 'submitMigration', 'getMaintenanceTask', 'retryMaintenanceTask',
-         'backupPreflight', 'submitBackup', 'restorePreflight', 'submitRestore')
+         'backupPreflight', 'submitBackup', 'restorePreflight', 'submitRestore',
+         'getRuntimeSettings', 'updateRuntimeSettings')
 BUSINESS_OPERATIONS = {
     'maintenance': {'migrationPreflight', 'submitMigration', 'getMaintenanceTask', 'retryMaintenanceTask', 'backupPreflight', 'submitBackup', 'restorePreflight', 'submitRestore'},
     'indexSwitch': {'updateRuntimeSettings', 'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
