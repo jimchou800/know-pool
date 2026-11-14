@@ -42,4 +42,4 @@ PDFBox、CommonMark 解析，PDF.js、markdown-it、DOMPurify 预览。仅文字
 
 ## 实施入口
 
-领域派活见 `../../docs/agents/collaboration.md`，工程门禁见 `../../docs/agents/engineering.md`，唯一接口契约和双向确认见 `../../docs/agents/api/README.md`，开发共识与静态验证证据见 `../../docs/agents/api/reviews/baseline.md`。已批准并发布的 24 票见 `tickets.md`，`tickets-draft.md` 保留拆分依据。本索引不替代完整规格或证明门禁已经实现。
+领域派活见 `../../docs/agents/collaboration.md`，工程门禁见 `../../docs/agents/engineering.md`，唯一接口契约和双向确认见 `../../docs/agents/api/README.md`，开发共识与静态验证证据见 `../../docs/agents/api/reviews/baseline.md`。已批准并发布的 24 票见 `tickets.md`，批准与拆分依据归入 `tickets.md` 的批准记录。本索引不替代完整规格或证明门禁已经实现。

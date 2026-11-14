@@ -270,7 +270,7 @@ Status: ready-for-agent
 - [代理约定](../../AGENTS.md)、[术语](../../GLOSSARY.md)、[领域约定](../../docs/agents/domain.md)。
 - [技术规格](../technical-design/spec.md)、[现行架构](../technical-design/architecture.md)、[已批准技术任务](../technical-design/tickets.md)。
 - [原型验证记录](verification.md)、[视觉参数记录](../../front/DESIGN.md)。
-- 视觉参考：[首页截图](previews/compact-home.png)、[问答与原文依据截图](previews/compact-chat.png)、[视觉参数记录](../../front/DESIGN.md)。这些截图是设计参照，固定样例内容不属于真实业务结果。
+- 视觉参考：[首页截图](previews/compact-home.png)、[问答与原文依据截图](previews/compact-chat.png)。这些截图是设计参照，固定样例内容不属于真实业务结果。
 - [前端角色](../../.codex/agents/fornt-agent.md)、[协作流程](../../docs/agents/collaboration.md)、[工程规范](../../docs/agents/engineering.md)。
 - [唯一接口契约](../../docs/agents/api/openapi.yaml)、[契约定义与验收规则](../../docs/agents/api/README.md)。
 

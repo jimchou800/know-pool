@@ -1,33 +1,23 @@
 # 接口实现证据门禁
 
-本工具对当前已领取的技术任务累积生成实现报告。09 继承已验收的 01 至 08，并提前指定版本预览，累计四十一操作。完整契约的 95 个操作保持原分母，范围外操作逐项列为未实现；不将切片结果宣传为全项目完成。09 契约设计签认入口为 `docs/agents/api/reviews/contract-09-frontend.md` 与 `contract-09-backend.md`，正式契约及 `scope-09.json` 须冻结后由两个实际实施代理分别签认同一字节摘要；缺文件或双签时门禁拒绝，工具小包通过不代表本票适用范围已通过。正式契约及适用映射通过 `.gitattributes` 固定换行以保持字节摘要。
+本工具从唯一 `docs/agents/api/openapi.yaml` 及真实提供方、消费方和浏览器证据生成不可变报告。当前累计范围覆盖全部95操作，任务号、映射及默认证据输入以 `verify.py` 为准，不另维护一份提供方文件清单。设计与范围独立签认见 `docs/agents/api/reviews/`，报告规则见[接口规范](../../docs/agents/api/README.md)。
 
-先安装固定工具依赖：
+## 统一运行
 
-```powershell
-python -m pip install -r scripts/contract/requirements.txt
-python -m unittest discover -s scripts/contract -p 'test_*.py'
-python scripts/contract/verify.py --inventory
-python scripts/contract/verify.py --snapshot
-python scripts/contract/verify.py
-```
+先安装固定 `requirements.txt` 依赖，再在根工作区 `integration` 运行根 `mvn verify`；其已包含工具自检、真实应用联调、安全路由核验和报告生成。不要逐票重复运行同一套检查。失败定位才定向使用 `verify.py --inventory`、`--snapshot` 或相关单元测试，修复收敛后回到完整门禁。
 
-已安装在 `.runtime/contract-tools` 的同版依赖也可使用。后端测试分别自动生成 `server/target/contract/provider-evidence.json`、`provider-settings-evidence.json`、`provider-knowledge-bases-evidence.json` 和 `provider-indexing-evidence.json`，前端测试生成 `front/artifacts/contract-consumer.json`，这些文件包括同一契约与实现摘要、测试名称、操作标识、实际验证过的约束指针及结果。缺少任一默认提供方文件或跨文件重名、过期均拒绝。不得把读取约束清单后无条件填入测试映射作为实际验证。结构校验仅映射实际值触发的分支；描述行为须追溯到对应真实行为断言，不能由结构遍历代替。提供方须运行真实接口；消费方须观察实际请求与渲染，固定替身不替代最终真实浏览器联调。原始测试结果、请求结构与断言在各自证据中追溯，报告不保存真实会话值或模型凭据。
+提供方由真实HTTP、序列化及行为断言生成，消费方由实际请求和渲染观察生成；观察须绑定同一契约和实现摘要、测试身份及确实触发的约束。证据缺失、过期、跨文件重名或未声明路由都会拒绝，不得从约束清单无条件填通过。结构遍历不替代行为断言，模拟响应不替代真实后端联调。
 
-`run_live.py` 在后端打包后，以独立的 `.runtime/live-checks/` 测试数据目录和临时回环端口启动发行包，调用前端真实浏览器断言与截图脚本，再关闭其启动的应用进程。它不会使用用户真实数据目录或调用模型。浏览器证据输出到 `front/artifacts/contract-browser.json`，作为消费方补充；缺少或过期也会阻断报告。生成器同时核对 Vitest 标准结果 `front/artifacts/vitest.json` 与后端原始测试报告，失败、空测试或跳过测试不能靠自报映射通过。
+`scope-<任务号>.json` 只解释真实不可达的分支，按字节由双方独立签认；不能因测试没写或失败而豁免，也不能缩减全项目分母。正式契约及映射由 `.gitattributes` 保持统一换行。
 
-生成器会校验完整标准契约、设计双签摘要、证据快照与测试结果，并按契约递归计算约束分母。任何缺项或失效均生成失败报告并返回非零状态；不会按手写样例或测试数量缩小分母。对象属性、必填、格式、范围、枚举、未知字段、安全和响应状态独立列项，描述中的行为约束也不得遗漏。不可变机器与中文报告保存在已忽略的 `.scratch/technical-design/contract-reports/<运行标识>/`。
+## 联调与发行
 
-`scope-<任务编号>.json` 单独记录当前累积范围适用性，须有前后端同一摘要独立签认。报告同时保留原始全部约束、当前适用项、条件未触发项与后续全局规则；后两者不计为通过，不从原始分母消失。切片适用项通过不代表全原始约束或全项目完成；只有全部原始约束通过才将该操作计入全项目完整路径覆盖，存在保留项的操作仍列全项目未完成。当前安全规则拆成八个可追溯行为，新增 SSE 的 Cookie 会话、来源及失效会话拒绝、令牌不进 URL 和断线查询原任务，仍要求双方证据；不再接受全局安全的后续 SSE 豁免。真实 TLS 部署不借本次 HTTP 浏览器测试声称完成。
+`run_live.py` 使用独立 `.runtime/live-checks/` 数据目录和临时回环端口，运行已有真实业务链并清理自建进程。默认从源码构建启动；正式包用 `--release-directory` 及 `--browser msedge|chrome`，先核文件清单，再使用包内Java。发行能力只补源码门禁不能覆盖的环境差异，命令及证据路径见[发行说明](../../docs/release.md)。
 
-事件订阅另外要求 `x-sse` 下的 `events/phase`、`events/terminal`、`id`、`lastEventIdHeader`、`terminalStates`、`reconnect` 六项语义证据。全局业务规则按直接所属操作计入：`indexSwitch` 对应任务查询、库文件列表和管理检索及结果证据读取；`publication` 对应管理检索及知识库详情；`cost` 对应任务查询及管理检索；`sse` 对应事件订阅及任务查询。每项都须由实际行为断言映射，不因结构解析或共享声明自动通过。
+普通测试只用固定资料和本机替身，不使用个人模型配置。诊断日志、截图及原始证据保持脱敏，不提交真实资料或凭据。
 
-提供方观察脚本的 `indexing` 与 `indexing-events` 参数分别生成 `provider-indexing-evidence.json` 和 `provider-indexing-events-evidence.json`，后者同样为必需证据，避免两组真实测试互相覆盖。两者复用结构校验，事件观察保留原始帧在内存中校验，报告不保存帧正文。行为检查须由已通过测试显式声明；订阅容量说明不自动产生状态码证据，只有实际观察的 `429` 响应才能映射该状态。
+## 报告与验收
 
-报告通过后，前后端实际代理分别创建 `docs/agents/api/reviews/<运行标识>-frontend.json` 和 `<运行标识>-backend.json`。记录字段为 `role`（分别为 `frontend`、`backend`）、`actor`（各自真实代理标识）、`conclusion`（通过或拒绝）、`contractSha256`、`implementationSha256`、`reportSha256`、`evidence`（中文审阅依据）。这些是机器字段名，审阅内容使用简体中文。生成器与总协调均不得自动补签。
+根门禁生成报告后，前后端分别对同一报告与实现快照验收；总协调使用 `verify.py --acceptance <既有report.json>` 核对签认，不为检查签认而重生成报告。报告失败保留原件，修复后生成新运行记录；源码、契约或相关构建输入变化会使旧证据失效。
 
-```powershell
-python scripts/contract/verify.py --acceptance .scratch/technical-design/contract-reports/<运行标识>/report.json
-```
-
-验收命令只核对既有报告与两份签认，不生成新报告，避免签认循环。缺任一方、同一代理代签、失败报告或工作区改变都会拒绝；通过后仍须总协调核对根构建、覆盖率和真实端到端证据。此次工具本身不证明 Windows 发行、真实模型质量或后续票据已完成。
+接口、行覆盖率和分支覆盖率是不同门槛，自动报告存在也不代表已经双签通过。历史运行结果在对应技术实施记录追溯，本说明不维护第二份当前进度。
