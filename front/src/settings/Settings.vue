@@ -84,7 +84,10 @@ onBeforeUnmount(() => {
       />
     </div>
     <Migration
+      v-for="operation in ['migration', 'backup', 'restore']"
+      :key="operation"
       :client="client"
+      :operation="operation"
       :writable="writable"
       :data-directory="dataDirectory"
       @status-change="emit('status-change')"

@@ -56,6 +56,7 @@ it('持续读取真实维护状态暂停跨页写入口，状态读取失败保�
   await flushPromises();
   const write = () =>
     wrapper.findAll('button').find((item) => item.text() === '固定写入入口');
+  const originalWrite = write().element;
   expect(write().attributes('disabled')).toBeUndefined();
   current = { ...status, writeState: 'paused' };
   await vi.advanceTimersByTimeAsync(2000);
@@ -73,6 +74,7 @@ it('持续读取真实维护状态暂停跨页写入口，状态读取失败保�
   await flushPromises();
   expect(write().attributes('disabled')).toBeUndefined();
   expect(wrapper.text()).not.toContain('当前无法确认写入状态');
+  expect(write().element).not.toBe(originalWrite);
 });
 
 async function setup(adapter) {
