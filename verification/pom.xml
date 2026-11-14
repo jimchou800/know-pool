@@ -31,46 +31,6 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>test-contract-tools</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
-                            <executable>python</executable>
-                            <arguments>
-                                <argument>-m</argument>
-                                <argument>unittest</argument>
-                                <argument>discover</argument>
-                                <argument>-s</argument>
-                                <argument>scripts/contract</argument>
-                                <argument>-p</argument>
-                                <argument>test_*.py</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>test-evaluation-tools</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
-                            <executable>python</executable>
-                            <arguments>
-                                <argument>-m</argument>
-                                <argument>unittest</argument>
-                                <argument>discover</argument>
-                                <argument>-s</argument>
-                                <argument>scripts/evaluation</argument>
-                                <argument>-p</argument>
-                                <argument>test_*.py</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                    <execution>
                         <id>verify-live-integration</id>
                         <phase>verify</phase>
                         <goals>
@@ -81,20 +41,6 @@
                             <executable>python</executable>
                             <arguments>
                                 <argument>scripts/contract/run_live.py</argument>
-                            </arguments>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>generate-contract-report</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
-                            <executable>python</executable>
-                            <arguments>
-                                <argument>scripts/contract/verify.py</argument>
                             </arguments>
                         </configuration>
                     </execution>

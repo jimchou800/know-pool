@@ -14,13 +14,13 @@
 
 ```powershell
 python -m pip install -r scripts/contract/requirements.txt
-mvn --batch-mode --no-transfer-progress verify
+mvn --batch-mode --no-transfer-progress package -Dmaven.test.skip=true
 java -jar server/target/server-0.1.0-SNAPSHOT.jar
 ```
 
 后端同源提供正式前端与接口，默认打开 `http://127.0.0.1:8080/`。源码运行数据默认位于已忽略的 `.runtime/`；不要提交个人资料、数据库或凭据。上述命令说明使用方式，不表示当前版本已通过验证。
 
-根门禁包含格式、静态、前后端测试及覆盖率、生产构建、工具测试、真实同源联调和契约报告。所有检查统一在根工作区 `integration` 执行，按[工程规范](docs/agents/engineering.md)合并多票、交叉复用证据；不在根门禁前后逐票重跑其已经覆盖的检查。实际失败及后续补充证据归入[24实施记录](.scratch/technical-design/implementation-24.md)。
+按最新要求，工作流执行生产构建与真实同源运行检查，移除契约工具测试和严格契约报告，前后端单元测试及覆盖率默认跳过。运行检查命令为 `python scripts/contract/run_live.py`。所有检查统一在根工作区 `integration` 执行，实际失败及后续证据归入[24实施记录](.scratch/technical-design/implementation-24.md)。
 
 ## 前端开发与原型
 

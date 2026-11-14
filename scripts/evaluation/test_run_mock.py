@@ -17,6 +17,7 @@ class MockExportTests(unittest.TestCase):
     def test_missing_java_preserves_failure_evidence_and_exits(self):
         root = Path(__file__).resolve().parents[2]
         node = root / 'front/target/toolchain/node/node.exe'
+        (root / '.runtime').mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=root / '.runtime') as directory:
             output = Path(directory) / 'run'
             result = subprocess.run([str(node), 'scripts/evaluation/run_mock.mjs',
