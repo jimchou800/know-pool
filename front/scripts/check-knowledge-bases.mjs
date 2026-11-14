@@ -1,6 +1,17 @@
 import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import { checkDocumentIndex } from './check-document-index.mjs';
+import { checkChunkPreflight } from './check-chunk-preflight.mjs';
+import { checkSourceAssociations } from './check-source-associations.mjs';
+import { checkContentSwitch } from './check-content-switch.mjs';
+import { checkPublication } from './check-publication.mjs';
+import { checkMultiSearch } from './check-multi-search.mjs';
+import { checkSearchInstances } from './check-search-instances.mjs';
+import { checkGroundedAnswer } from './check-grounded-answer.mjs';
+import { checkConfigurationRebuild } from './check-configuration-rebuild.mjs';
+import { checkDeletionCleanup } from './check-deletion-cleanup.mjs';
+import { checkDataMigration } from './check-data-migration.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -221,6 +232,77 @@ export async function checkKnowledgeBases(page, tests) {
       return (await accepted.json()).task;
     };
     await start('空库联调');
+    await checkPublication(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+      rejectEmbedding: (value) => {
+        rejectEmbedding = value;
+      },
+    });
+    await checkMultiSearch(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+      noMatches: (value) => {
+        noMatches = value;
+      },
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+    });
+    await checkSearchInstances(page, tests, {
+      http,
+      base,
+      headers,
+      knowledgeBaseId: resource,
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+    });
+    await checkGroundedAnswer(page, tests, {
+      http,
+      base,
+      headers,
+      knowledgeBaseId: resource,
+      noMatches: (value) => {
+        noMatches = value;
+      },
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+    });
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
       assert.equal(
@@ -610,6 +692,55 @@ export async function checkKnowledgeBases(page, tests) {
       0,
     );
     rejectEmbedding = false;
+    await checkDocumentIndex(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+    });
+    await checkChunkPreflight(page, tests);
+    await checkConfigurationRebuild(page, tests, {
+      http,
+      base,
+      headers,
+      knowledgeBaseId: resource,
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+      rejectEmbedding: (value) => {
+        rejectEmbedding = value;
+      },
+    });
+    await checkSourceAssociations(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+    });
+    await checkContentSwitch(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+    });
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
       await page.locator('.formal-main').evaluate((node) => {
@@ -691,6 +822,13 @@ export async function checkKnowledgeBases(page, tests) {
       ],
       tasks: { initialAccepted: !!accepted.id },
     });
+    await checkDeletionCleanup(page, tests, {
+      http,
+      base,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+    });
+    await checkDataMigration(page, tests, { http, base });
   } finally {
     releaseEmbedding?.();
     page.off('request', observe);

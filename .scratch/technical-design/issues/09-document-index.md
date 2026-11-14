@@ -8,7 +8,7 @@ Status: ready-for-agent
 
 Blocked by: 04: 预览与下载 Markdown 和文字 PDF; 08: 处理一份纯文本并执行管理检索测试
 
-执行状态：进行中（技术设计与契约双审）
+执行状态：已实现，待统一验证
 
 前端负责人：`/root/frontend09`
 
@@ -40,4 +40,7 @@ Blocked by: 04: 预览与下载 Markdown 和文字 PDF; 08: 处理一份纯文�
 
 - 用户回复“确认”，批准 24 个切片的粒度与阻塞关系，据此发布本地任务；尚未开始实现。
 
+## 本次技术双审
+
+正式采用1.0.5，SHA-256 `2eba1980d9e62318edfece692e46c977d9e55191f06c59e4629285f29f66f5fd`，本人双签见 `docs/agents/api/reviews/contract-09-{frontend,backend}.md`。09仅提前已有 `previewVersionFile`，累计41操作，完整95操作保留；12指定版本下载及完整切换历史继续保留，预览在12复用回归，不提前关闭12。定位说明仅澄清范围、真实身份和08纯文本片序号兼容；运行适用范围已获双方同摘要双审，记录见 scope-09-{frontend,backend}.json。
 - 2026-11-13：04、08已验收，前置解除。双方领取技术设计及契约核实，业务编码须待技术双审，执行与单写边界见技术实施记录 implementation-09.md。

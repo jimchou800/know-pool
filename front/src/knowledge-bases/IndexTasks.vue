@@ -2,13 +2,22 @@
 import { ref, watch, onBeforeUnmount } from 'vue';
 import { createKnowledgeBaseClient } from './client';
 import { watchTask } from './task-events';
+import ChunkPreflight from './ChunkPreflight.vue';
+import CancelTask from './CancelTask.vue';
+import RetryFiles from './RetryFiles.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },
   knowledgeBaseId: { type: String, required: true },
+  writable: { type: Boolean, default: true },
 });
 const api = createKnowledgeBaseClient(props.client);
 const emit = defineEmits(['completed']);
+function cancelled(value) {
+  rows.value = rows.value.map((item) => (item.id === value.id ? value : item));
+  if (following.value === value.id) stop();
+  emit('completed');
+}
 const rows = ref([]),
   cursor = ref(null),
   loading = ref(false),
@@ -29,7 +38,14 @@ const phases = {
   vector_writing: '写入向量',
   validating: '验证',
   switching: '切换生效版本',
+  cleaning: '清理已下线索引',
   completed: '已结束',
+};
+const kinds = {
+  index_file: '资料索引',
+  rebuild_knowledge_base: '整库重建',
+  cleanup: '资源清理',
+  model_test: '可用性复查',
 };
 const states = {
   queued: '等待处理',
@@ -73,7 +89,8 @@ function stop() {
   lastEventId = undefined;
 }
 async function refreshTask(id, current) {
-  const task = await api.task(id, 'index_file');
+  const kind = rows.value.find((row) => row.id === id)?.kind;
+  const task = await api.task(id, kind);
   if (current !== followSequence || following.value !== id) return null;
   rows.value = rows.value.map((row) => (row.id === id ? task : row));
   if (!['queued', 'running'].includes(task.state)) {
@@ -149,6 +166,12 @@ onBeforeUnmount(() => {
     <p>
       上传成功仅表示文件已保存；处理成功后仍以当前生效版本为准，不自动发布知识库。
     </p>
+    <RetryFiles
+      :client="client"
+      :knowledge-base-id="knowledgeBaseId"
+      :writable="writable"
+      @completed="load()"
+    />
     <p v-if="loading" role="status">正在读取处理任务…</p>
     <p v-if="error" role="alert">
       {{ error
@@ -161,7 +184,43 @@ onBeforeUnmount(() => {
     <p v-if="!rows.length && !loading && !error">暂无处理任务。</p>
     <ul class="knowledge-files">
       <li v-for="item in rows" :key="item.id">
+        <p>类型：{{ kinds[item.kind] }}</p>
         <strong>{{ states[item.state] }} · {{ phases[item.phase] }}</strong>
+        <p v-if="item.kind === 'model_test'">
+          此任务检查知识库依赖，不处理资料。任务成功仅表示探测完成，运行可用性以知识库当前状态和复查结果为准；不会自动重新发布知识库。
+        </p>
+        <p v-if="item.kind === 'cleanup'">
+          下线后的资源清理任务；清理失败不会恢复资料纳入，清理重试入口尚未提供。
+        </p>
+        <template v-if="item.kind === 'rebuild_knowledge_base'"
+          ><p>
+            整库父任务：全部资料构建并验证成功后统一切换；子任务成功仅为暂存，不能视作单文件已切换。失败继续旧生效索引，切换不改变当前发布决定。
+          </p>
+          <details>
+            <summary>本目标配置的资料子任务</summary>
+            <p>
+              仅显示当前已加载任务，完整进度以父任务为准；可加载更多任务核对。
+            </p>
+            <ul>
+              <li
+                v-for="child in rows.filter(
+                  (row) =>
+                    row.kind === 'index_file' &&
+                    row.targetConfigVersionId === item.targetConfigVersionId,
+                )"
+                :key="child.id"
+              >
+                文件：{{ child.fileId }}；任务：{{ child.id }}；{{
+                  states[child.state]
+                }}
+                · {{ phases[child.phase]
+                }}<span v-if="child.failure"
+                  >；{{ child.failure.message }}</span
+                >
+              </li>
+            </ul>
+          </details></template
+        >
         <p>任务：{{ item.id }}；文件：{{ item.fileId || '未绑定文件' }}</p>
         <p>
           目标内容版本：{{
@@ -175,7 +234,40 @@ onBeforeUnmount(() => {
           }}；尝试 {{ item.attempt }} 次
         </p>
         <p v-if="item.failure" role="status">{{ item.failure.message }}</p>
+        <p v-if="item.retryOfTaskId">
+          本次为显式重试新任务；原失败任务：{{
+            item.retryOfTaskId
+          }}。原失败原因与历史继续保留。
+        </p>
+        <p v-if="item.state === 'interrupted'">
+          任务曾中断；索引按服务端安全检查点恢复或保留失败原因，不自动复活取消或过时任务。
+        </p>
+        <RetryFiles
+          v-if="
+            item.kind === 'index_file' &&
+            item.fileId &&
+            ['failed', 'interrupted'].includes(item.state)
+          "
+          :key="`retry-${item.id}`"
+          :client="client"
+          :knowledge-base-id="knowledgeBaseId"
+          :file-id="item.fileId"
+          :writable="writable"
+          @completed="load()"
+        />
         <p v-for="warning in item.warnings" :key="warning">{{ warning }}</p>
+        <ChunkPreflight
+          v-if="item.kind === 'index_file'"
+          :client="client"
+          :task="item"
+        />
+        <CancelTask
+          v-if="['index_file', 'rebuild_knowledge_base'].includes(item.kind)"
+          :client="client"
+          :task="item"
+          :writable="writable"
+          @updated="cancelled"
+        />
         <button
           v-if="['queued', 'running'].includes(item.state)"
           :disabled="following === item.id"

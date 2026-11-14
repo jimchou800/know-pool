@@ -132,13 +132,21 @@ export async function setup(reply) {
     const result = await respond(config);
     const status =
       result?.errorStatus ||
+      result?.httpStatus ||
+      (config.method === 'put' && config.url.endsWith('/processing-config')
+        ? 202
+        : undefined) ||
       (config.method === 'post'
         ? config.url === '/knowledge-bases' ||
-          config.url.endsWith('/search-test')
+          config.url.endsWith('/search-test') ||
+          config.url.endsWith('/check')
           ? 202
-          : 201
+          : /\/(publish|offline|cancel)$/.test(config.url)
+            ? 200
+            : 201
         : 200);
-    const data = result?.errorStatus ? result.body : result;
+    const data =
+      result?.errorStatus || result?.httpStatus ? result.body : result;
     const captured = { config, status, data };
     config.observed = captured;
     if (status >= 400) throw { response: captured };

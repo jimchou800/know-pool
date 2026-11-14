@@ -21,7 +21,13 @@ const phases = [
 ];
 export async function watchTask(
   taskId,
-  { onEvent, signal, lastEventId, fetcher = globalThis.fetch } = {},
+  {
+    onEvent,
+    signal,
+    lastEventId,
+    fetcher = globalThis.fetch,
+    question = false,
+  } = {},
 ) {
   if (!uuid.test(taskId) || typeof taskId !== 'string')
     throw new Error('任务标识无效。');
@@ -38,7 +44,7 @@ export async function watchTask(
     previous = Number(parts[1]);
   }
   const response = await fetcher(
-    `/api/v1/tasks/${taskId.toLowerCase()}/events`,
+    `/api/v1/${question ? 'question-tasks' : 'tasks'}/${taskId.toLowerCase()}/events`,
     {
       credentials: 'same-origin',
       headers:

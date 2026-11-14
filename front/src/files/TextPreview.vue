@@ -1,9 +1,11 @@
 <script setup>
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { renderMarkdown, sourceLines } from './text-preview';
 const props = defineProps({
   text: { type: String, required: true },
   markdown: { type: Boolean, default: false },
+  initialLine: { type: Number, default: null },
+  endLine: { type: Number, default: null },
 });
 const lines = computed(() => sourceLines(props.text));
 const html = computed(() =>
@@ -14,6 +16,21 @@ const line = ref(1);
 const activeLine = ref(0);
 const error = ref('');
 const source = ref(null);
+onMounted(() => {
+  if (props.initialLine !== null) {
+    line.value = props.initialLine;
+    if (
+      props.endLine !== null &&
+      (!Number.isInteger(props.endLine) ||
+        props.endLine < props.initialLine ||
+        props.endLine > lines.value.length)
+    ) {
+      error.value = `证据源行范围越界，请核对1至${lines.value.length}行的实际原文。`;
+      return;
+    }
+    void locate();
+  }
+});
 async function locate() {
   const value = Number(line.value);
   if (!Number.isInteger(value) || value < 1 || value > lines.value.length) {

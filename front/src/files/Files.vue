@@ -8,6 +8,10 @@ import {
   watch,
 } from 'vue';
 import { createFileClient } from './client';
+import { decodePreviewText } from './preview-text';
+import FileKnowledgeBases from './FileKnowledgeBases.vue';
+import VersionDownload from './VersionDownload.vue';
+import DeleteResource from '../cleanup/DeleteResource.vue';
 import './files.css';
 
 const props = defineProps({
@@ -72,6 +76,18 @@ let detailSequence = 0;
 let uploadSequence = 0;
 let contentSequence = 0;
 let versionSequence = 0;
+async function deleted(value) {
+  ++detailSequence;
+  ++contentSequence;
+  ++versionSequence;
+  ++sequence;
+  resetDetailActions();
+  selected.value = null;
+  detailId.value = null;
+  rows.value = rows.value.filter((item) => item.id !== value.id);
+  notice.value = '资料已逻辑删除，后台清理可在清理任务页查看。';
+  emit('changed');
+}
 function resetDetailActions() {
   renameOpen.value = false;
   renameError.value = '';
@@ -214,22 +230,7 @@ async function preview() {
       previewContent.value = result;
       return;
     }
-    if (result.bytes.byteLength > 800_000)
-      throw new Error('文本超过预览资源限制，请下载原文件查看。');
-    previewText.value = new TextDecoder('utf-8', {
-      fatal: true,
-      ignoreBOM: true,
-    }).decode(result.bytes);
-    if (previewText.value.includes('\u0000'))
-      throw new Error('资料不是有效的纯文本，请下载原文件查看。');
-    if (
-      previewText.value.length > 200_000 ||
-      previewText.value.split(/\r\n|\r|\n/).length > 10_000
-    )
-      throw new Error(
-        '文本超过预览资源限制（20万字符或1万行），请下载原文件查看。',
-      );
-    const text = previewText.value;
+    const text = decodePreviewText(result.bytes);
     let renderer;
     try {
       renderer = (await import('./TextPreview.vue')).default;
@@ -526,6 +527,14 @@ onBeforeUnmount(() => {
     </p>
     <section v-if="selected" aria-label="资料详情" class="file-detail">
       <h4>{{ selected.name }}</h4>
+      <DeleteResource
+        :key="`delete-${selected.id}`"
+        :client="client"
+        kind="files"
+        :resource-id="selected.id"
+        :writable="writable"
+        @deleted="deleted"
+      />
       <button
         ref="renameButton"
         data-action="rename"
@@ -602,6 +611,11 @@ onBeforeUnmount(() => {
           </dd>
         </div>
       </dl>
+      <FileKnowledgeBases
+        :key="selected.id"
+        :client="client"
+        :file-id="selected.id"
+      />
       <button :disabled="versionLoading" @click="loadVersions()">
         查看内容版本
       </button>
@@ -619,6 +633,12 @@ onBeforeUnmount(() => {
         <ul>
           <li v-for="version in versions" :key="version.id">
             <strong>{{ version.uploadedName }}</strong>
+            <VersionDownload
+              :client="client"
+              :file-id="selected.id"
+              :version-id="version.id"
+              :available="version.originalAvailable"
+            />
             <dl>
               <div>
                 <dt>内容版本</dt>

@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '08'
+TICKET = '21'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
@@ -24,12 +24,29 @@ SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset'
          'getConnectionTestResult', 'getVectorConfig', 'updateVectorConfig', 'testVectorConfig', 'getTask',
          'listKnowledgeBases', 'createKnowledgeBase', 'getKnowledgeBase', 'updateKnowledgeBase',
          'getProcessingConfig', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources', 'listKnowledgeBaseFiles',
-         'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence')
+         'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence',
+         'previewVersionFile', 'getChunkPreflight', 'updateProcessingConfig',
+         'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile',
+         'includeKnowledgeBaseFile', 'listFileKnowledgeBases',
+         'listIndexSwitches', 'downloadVersionFile', 'cancelTask',
+         'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase',
+         'createSearchInstance', 'submitSearch',
+         'listSearchInstances', 'getSearchInstance', 'renameSearchInstance',
+         'updateSearchInstanceScope', 'deleteSearchInstance', 'cancelSearchRequest',
+         'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask',
+         'watchQuestionTask', 'getConversationEvidence',
+         'listConversations', 'getConversation', 'renameConversation', 'updateConversationScope',
+         'listConversationTurns', 'submitQuestion', 'deleteConversation',
+         'getProcessingConfigVersion', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles',
+         'getDatasetDeleteImpact', 'deleteDataset', 'getFileDeleteImpact', 'deleteFile',
+         'getKnowledgeBaseDeleteImpact', 'deleteKnowledgeBase', 'listTasks', 'retryCleanupTask',
+         'migrationPreflight', 'submitMigration', 'getMaintenanceTask', 'retryMaintenanceTask')
 BUSINESS_OPERATIONS = {
-    'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'},
-    'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase'},
-    'cost': {'getTask', 'testKnowledgeBaseSearch'},
-    'sse': {'watchTask', 'getTask'},
+    'maintenance': {'migrationPreflight', 'submitMigration', 'getMaintenanceTask', 'retryMaintenanceTask'},
+    'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
+    'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion', 'deleteDataset', 'deleteFile', 'deleteKnowledgeBase'},
+    'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask', 'submitQuestion', 'deleteConversation', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles'},
+    'sse': {'watchTask', 'getTask', 'watchQuestionTask', 'getQuestionTask'},
 }
 SECURITY_BEHAVIORS = (
     '仅回环监听及 Host 白名单',
@@ -128,7 +145,7 @@ def inventory(document):
                     reference = '#/x-business-constraints/' + rule
                     resolve(document, reference)
                     constraints.add(reference)
-            if identifier == 'watchTask':
+            if identifier in {'watchTask', 'watchQuestionTask'}:
                 for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
                     reference = prefix + '/x-sse/' + suffix
                     resolve(document, reference)
@@ -309,6 +326,7 @@ def main():
                                   ROOT / 'server/target/contract/provider-indexing-evidence.json',
                                   ROOT / 'server/target/contract/provider-indexing-events-evidence.json',
                                   ROOT / 'server/target/contract/provider-indexing-gaps-evidence.json',
+                                  ROOT / 'server/target/contract/provider-maintenance-evidence.json',
                                   ROOT / 'server/target/contract/provider-security-evidence.json']
     if args.acceptance:
         try:

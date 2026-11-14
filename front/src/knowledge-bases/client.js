@@ -164,6 +164,19 @@ export function validTask(v, kind = 'knowledge_base_create') {
     return false;
   const terminal = !['queued', 'running'].includes(v.state);
   return (
+    (kind === 'model_test'
+      ? ['queued', 'initializing', 'validating', 'completed'].includes(
+          v.phase,
+        ) &&
+        identifier(v.knowledgeBaseId) &&
+        identifier(v.targetConfigVersionId) &&
+        [
+          'fileId',
+          'targetContentVersionId',
+          'retryOfTaskId',
+          'resultResourceId',
+        ].every((field) => v[field] === null)
+      : true) &&
     (terminal ? v.phase === 'completed' && date(v.finishedAt) : true) &&
     (v.state === 'queued' ? v.startedAt === null : true) &&
     (['failed', 'interrupted'].includes(v.state)
@@ -295,6 +308,29 @@ const validFile = (v) =>
       t.fileId === v.fileId,
   ) &&
   nullable(v.failure, validFailure);
+const validExclusion = (v) =>
+  exact(v, ['knowledgeBaseId', 'fileId', 'createdAt']) &&
+  identifier(v.knowledgeBaseId) &&
+  identifier(v.fileId) &&
+  date(v.createdAt);
+const validConfig = (value, id) =>
+  exact(value, [
+    'id',
+    'knowledgeBaseId',
+    'createdAt',
+    'parserRuleVersion',
+    'chunkRuleVersion',
+    'lengthMeterVersion',
+    'input',
+  ]) &&
+  identifier(value.id) &&
+  identifier(value.knowledgeBaseId) &&
+  value.knowledgeBaseId.toLowerCase() === id.toLowerCase() &&
+  date(value.createdAt) &&
+  ['parserRuleVersion', 'chunkRuleVersion', 'lengthMeterVersion'].every((key) =>
+    text(value[key]),
+  ) &&
+  validProcessing(value.input);
 export function createKnowledgeBaseClient(session) {
   async function page(id, suffix, valid, cursor) {
     const value = await session.request({
@@ -311,6 +347,190 @@ export function createKnowledgeBaseClient(session) {
     );
   }
   return {
+    async retry(id, fileId, key) {
+      if (!identifier(key) || (fileId !== null && !identifier(fileId)))
+        throw new Error('重试操作或文件标识无效。');
+      const value = await session.request({
+        method: 'post',
+        url:
+          path(id) +
+          (fileId === null ? '/retry-failed' : `/files/${fileId}/retry`),
+        headers: { 'Idempotency-Key': key },
+      });
+      return verify(
+        value,
+        exact(value, ['items']) &&
+          Array.isArray(value.items) &&
+          value.items.every(
+            (item) =>
+              exact(item, ['fileId', 'outcome', 'taskId', 'reason']) &&
+              identifier(item.fileId) &&
+              (fileId === null || item.fileId === fileId) &&
+              ['enqueued', 'already_active', 'ineligible'].includes(
+                item.outcome,
+              ) &&
+              nullable(item.taskId, identifier) &&
+              nullable(item.reason, text),
+          ) &&
+          new Set(value.items.map((item) => item.fileId)).size ===
+            value.items.length,
+      );
+    },
+    async publish(id) {
+      const value = await session.request({
+        method: 'post',
+        url: path(id) + '/publish',
+      });
+      return verify(
+        value,
+        validBase(value) && value.id.toLowerCase() === id.toLowerCase(),
+      );
+    },
+    async offline(id) {
+      const value = await session.request({
+        method: 'post',
+        url: path(id) + '/offline',
+      });
+      return verify(
+        value,
+        validBase(value) && value.id.toLowerCase() === id.toLowerCase(),
+      );
+    },
+    async check(id, key, consent) {
+      if (!identifier(key) || consent !== true)
+        throw new Error('请确认复查可能产生模型费用。');
+      const value = await session.request({
+        method: 'post',
+        url: path(id) + '/check',
+        data: { allowChargedCall: true },
+        headers: { 'Idempotency-Key': key },
+      });
+      return verify(
+        value,
+        exact(value, ['task']) &&
+          validTask(value.task, 'model_test') &&
+          value.task.knowledgeBaseId?.toLowerCase() === id.toLowerCase(),
+      );
+    },
+    async switches(id, cursor) {
+      return page(
+        id,
+        '/switches',
+        (v) =>
+          exact(v, [
+            'id',
+            'knowledgeBaseId',
+            'fileId',
+            'fromContentVersionId',
+            'toContentVersionId',
+            'fromIndexVersionId',
+            'toIndexVersionId',
+            'fromConfigVersionId',
+            'toConfigVersionId',
+            'taskId',
+            'switchedAt',
+          ]) &&
+          [
+            'id',
+            'knowledgeBaseId',
+            'fileId',
+            'toContentVersionId',
+            'toIndexVersionId',
+            'toConfigVersionId',
+            'taskId',
+          ].every((key) => identifier(v[key])) &&
+          [
+            'fromContentVersionId',
+            'fromIndexVersionId',
+            'fromConfigVersionId',
+          ].every((key) => nullable(v[key], identifier)) &&
+          date(v.switchedAt),
+        cursor,
+      );
+    },
+    async cancel(task) {
+      if (
+        !task ||
+        !identifier(task.id) ||
+        ![
+          'index_file',
+          'rebuild_knowledge_base',
+          'search',
+          'question',
+        ].includes(task.kind)
+      )
+        throw new Error('该任务不支持取消。');
+      const value = await session.request({
+        method: 'post',
+        url: `/tasks/${task.id.toLowerCase()}/cancel`,
+      });
+      return verify(
+        value,
+        validTask(value, task.kind) &&
+          value.id.toLowerCase() === task.id.toLowerCase() &&
+          value.knowledgeBaseId === task.knowledgeBaseId,
+      );
+    },
+    async removeSource(id, sourceId) {
+      if (!identifier(sourceId)) throw new Error('来源标识无效。');
+      const response = await session.request({
+        method: 'delete',
+        url: path(id) + `/sources/${sourceId.toLowerCase()}`,
+        rawResponse: true,
+      });
+      verify(
+        response,
+        response.status === 204 &&
+          (response.data === '' ||
+            response.data === null ||
+            response.data === undefined),
+      );
+    },
+    exclusions: (id, cursor) => page(id, '/exclusions', validExclusion, cursor),
+    async exclude(id, fileId) {
+      if (!identifier(fileId)) throw new Error('资料标识无效。');
+      const value = await session.request({
+        method: 'put',
+        url: path(id) + `/exclusions/${fileId.toLowerCase()}`,
+      });
+      return verify(
+        value,
+        validExclusion(value) &&
+          value.knowledgeBaseId.toLowerCase() === id.toLowerCase() &&
+          value.fileId.toLowerCase() === fileId.toLowerCase(),
+      );
+    },
+    async include(id, fileId) {
+      if (!identifier(fileId)) throw new Error('资料标识无效。');
+      const response = await session.request({
+        method: 'delete',
+        url: path(id) + `/exclusions/${fileId.toLowerCase()}`,
+        rawResponse: true,
+      });
+      verify(
+        response,
+        response.status === 204 &&
+          (response.data === '' ||
+            response.data === null ||
+            response.data === undefined),
+      );
+    },
+    async fileKnowledgeBases(fileId, cursor) {
+      if (!identifier(fileId)) throw new Error('资料标识无效。');
+      const value = await session.request({
+        method: 'get',
+        url: `/files/${fileId.toLowerCase()}/knowledge-bases`,
+        params: params(cursor),
+      });
+      return verify(
+        value,
+        validPage(
+          value,
+          (v) =>
+            validFile(v) && v.fileId.toLowerCase() === fileId.toLowerCase(),
+        ),
+      );
+    },
     async list(cursor) {
       const value = await session.request({
         method: 'get',
@@ -356,7 +576,14 @@ export function createKnowledgeBaseClient(session) {
     async task(id, kind = 'knowledge_base_create') {
       if (
         !identifier(id) ||
-        !['knowledge_base_create', 'index_file', 'search'].includes(kind)
+        ![
+          'knowledge_base_create',
+          'index_file',
+          'search',
+          'rebuild_knowledge_base',
+          'cleanup',
+          'model_test',
+        ].includes(kind)
       )
         throw new Error('任务标识或类型无效。');
       const value = await session.request({
@@ -388,30 +615,39 @@ export function createKnowledgeBaseClient(session) {
         validBase(value) && value.id.toLowerCase() === id.toLowerCase(),
       );
     },
+    async updateProcessing(id, data, key) {
+      if (!identifier(key) || !validProcessing(data))
+        throw new Error('请填写有效的切片配置与操作标识。');
+      const value = await session.request({
+        method: 'put',
+        url: path(id) + '/processing-config',
+        data,
+        headers: { 'Idempotency-Key': key },
+      });
+      return verify(
+        value,
+        exact(value, ['task']) &&
+          validTask(value.task, 'rebuild_knowledge_base') &&
+          value.task.knowledgeBaseId.toLowerCase() === id.toLowerCase(),
+      );
+    },
     async config(id) {
       const value = await session.request({
         method: 'get',
         url: path(id) + '/processing-config',
       });
+      return verify(value, validConfig(value, id));
+    },
+    async configVersion(id, versionId) {
+      if (!identifier(versionId)) throw new Error('处理配置版本标识无效。');
+      const value = await session.request({
+        method: 'get',
+        url: path(id) + `/processing-config/versions/${versionId}`,
+      });
       return verify(
         value,
-        exact(value, [
-          'id',
-          'knowledgeBaseId',
-          'createdAt',
-          'parserRuleVersion',
-          'chunkRuleVersion',
-          'lengthMeterVersion',
-          'input',
-        ]) &&
-          identifier(value.id) &&
-          identifier(value.knowledgeBaseId) &&
-          value.knowledgeBaseId.toLowerCase() === id.toLowerCase() &&
-          date(value.createdAt) &&
-          ['parserRuleVersion', 'chunkRuleVersion', 'lengthMeterVersion'].every(
-            (k) => text(value[k]),
-          ) &&
-          validProcessing(value.input),
+        validConfig(value, id) &&
+          value.id.toLowerCase() === versionId.toLowerCase(),
       );
     },
     async addSource(id, data) {
@@ -437,6 +673,17 @@ export function createKnowledgeBaseClient(session) {
     sources: (id, cursor) => page(id, '/sources', validSource, cursor),
     files: (id, cursor) => page(id, '/files', validFile, cursor),
     tasks: (id, cursor) =>
-      page(id, '/tasks', (value) => validTask(value, 'index_file'), cursor),
+      page(
+        id,
+        '/tasks',
+        (value) =>
+          [
+            'index_file',
+            'rebuild_knowledge_base',
+            'cleanup',
+            'model_test',
+          ].includes(value?.kind) && validTask(value, value.kind),
+        cursor,
+      ),
   };
 }

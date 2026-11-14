@@ -30,12 +30,12 @@ public final class FileService {
         String valid = cn.knowpool.system.ModelSettingsService.identifier(id, "/resourceId");
         if (type.equals("dataset")) {
             datasets.get(valid);
-            return jdbc.sql("SELECT id, dataset_id, latest_version FROM files WHERE dataset_id=? ORDER BY id")
+            return jdbc.sql("SELECT id, dataset_id, latest_version FROM files WHERE dataset_id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=files.id) ORDER BY id")
                     .param(valid)
                     .query((row, index) -> new SourceFile(row.getString(1), row.getString(2), row.getString(3)))
                     .list();
         }
-        return List.of(jdbc.sql("SELECT id,dataset_id,latest_version FROM files WHERE id=?")
+        return List.of(jdbc.sql("SELECT id,dataset_id,latest_version FROM files WHERE id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=files.id)")
                 .param(valid)
                 .query((row, index) -> new SourceFile(row.getString(1), row.getString(2), row.getString(3)))
                 .optional()
@@ -47,7 +47,7 @@ public final class FileService {
         if (ids.isEmpty()) return java.util.Map.of();
         var result = new java.util.HashMap<String, CurrentFile>();
         jdbc.sql(
-                        "SELECT f.id,f.dataset_id,f.latest_version,f.name,v.available FROM files f JOIN file_versions v ON v.id=f.latest_version WHERE f.id IN (:ids)")
+                        "SELECT f.id,f.dataset_id,f.latest_version,f.name,v.available FROM files f JOIN file_versions v ON v.id=f.latest_version WHERE f.id IN (:ids) AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=f.id)")
                 .param("ids", ids)
                 .query((row, n) -> {
                     result.put(
@@ -62,6 +62,41 @@ public final class FileService {
     public record CurrentFile(String datasetId, String contentVersionId, String filename, boolean available) {}
 
     public record SourceFile(String id, String datasetId, String contentVersionId) {}
+
+    public record ReferenceState(String filename,boolean originalAvailable) {}
+
+    public ReferenceState referenceState(String file,String version) {
+        return data.read(jdbc -> jdbc.sql("SELECT CASE WHEN EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=files.id) THEN NULL ELSE name END,EXISTS(SELECT 1 FROM file_versions v WHERE v.file_id=files.id AND v.id=? AND v.available=1) AS original_available FROM files WHERE id=?")
+                .params(version,file).query((row,n) -> new ReferenceState(row.getString(1),row.getInt(2)==1)).optional().orElse(new ReferenceState(null,false)));
+    }
+
+    public List<String> deletionFiles(String kind,String id) {
+        if (kind.equals("dataset")) { datasets.get(id);return data.read(jdbc -> sourceFiles(jdbc,"dataset",id).stream().map(SourceFile::id).toList()); }
+        get(id);return List.of(id);
+    }
+
+    public void markDeleted(org.springframework.jdbc.core.simple.JdbcClient jdbc,String kind,String id,List<String> ids) {
+        for (String file:ids) {
+            jdbc.sql("INSERT OR IGNORE INTO deleted_resources VALUES('file',?)").param(file).update();
+            jdbc.sql("UPDATE files SET name_key=? WHERE id=?").params("deleted:"+file,file).update();
+        }
+        if (kind.equals("dataset")) {
+            jdbc.sql("INSERT OR IGNORE INTO deleted_resources VALUES('dataset',?)").param(id).update();
+            jdbc.sql("UPDATE datasets SET name_key=? WHERE id=?").params("deleted:"+id,id).update();
+        }
+    }
+
+    public tools.jackson.databind.JsonNode deletionCopies(List<String> ids) {
+        var result=tools.jackson.databind.json.JsonMapper.builder().build().createArrayNode();
+        if (!ids.isEmpty()) data.read(jdbc -> jdbc.sql("SELECT id,file_id,relative_path FROM file_versions WHERE file_id IN (:ids) AND available=1")
+                .param("ids",ids).query((row,n) -> { result.addObject().put("type","copy").put("versionId",row.getString(1)).put("fileId",row.getString(2)).put("path",row.getString(3));return true; }).list());
+        return result;
+    }
+
+    public void deleteCopy(String version,String relative) throws IOException {
+        Path target=cleanupPath(version,relative);validateStoragePath(target);Files.deleteIfExists(target);
+        data.write(jdbc -> { jdbc.sql("UPDATE file_versions SET available=0 WHERE id=? AND relative_path=?").params(version,relative).update();return null; });
+    }
 
     public FileService(
             ApplicationData data,
@@ -108,6 +143,7 @@ public final class FileService {
                 output.write(bytes);
             }
             Saved saved = data.write(jdbc -> {
+                datasets.get(datasetId);
                 var existing = jdbc.sql("SELECT id FROM files WHERE dataset_id=? AND name_key=?")
                         .param(datasetId)
                         .param(nameKey(name))
@@ -351,7 +387,7 @@ public final class FileService {
     public FileView get(String id) {
         String fileId = identifier(id);
         return data.read(jdbc -> jdbc.sql(
-                        "SELECT f.*,v.id AS version_id,v.uploaded_name,v.file_type,v.media_type,v.size_bytes,v.content_hash,v.uploaded_by,v.available FROM files f JOIN file_versions v ON f.latest_version=v.id WHERE f.id=?")
+                        "SELECT f.*,v.id AS version_id,v.uploaded_name,v.file_type,v.media_type,v.size_bytes,v.content_hash,v.uploaded_by,v.available FROM files f JOIN file_versions v ON f.latest_version=v.id WHERE f.id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=f.id)")
                 .param(fileId)
                 .query((row, index) -> new FileView(
                         row.getString("id"),
@@ -420,7 +456,7 @@ public final class FileService {
         }
         String timestamp = time, lastId = before;
         var rows = data.read(jdbc -> jdbc.sql(
-                        "SELECT id FROM files WHERE dataset_id=? AND (created_at<? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT ?")
+                        "SELECT id FROM files WHERE dataset_id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='file' AND x.id=files.id) AND (created_at<? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT ?")
                 .param(canonicalId)
                 .param(timestamp)
                 .param(timestamp)
@@ -528,39 +564,88 @@ public final class FileService {
     }
 
     public Stored content(String id) throws IOException {
-        FileView file = get(id);
-        if (!file.latestVersion().originalAvailable())
-            throw new ApiFailure(410, "CONTENT_UNAVAILABLE", "原始副本已不可用。", null);
-        String relative = data.read(jdbc -> jdbc.sql("SELECT relative_path FROM file_versions WHERE id=?")
-                .param(file.latestVersion().id())
-                .query(String.class)
-                .single());
-        Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
-        Path target = data.directory().resolve(relative).toAbsolutePath().normalize();
-        Path parent = target.getParent(), filename = target.getFileName();
-        if (parent == null
-                || filename == null
-                || !parent.equals(root)
-                || !filename.toString().equals(file.latestVersion().id())) throw new IOException("副本路径不合法。");
-        validateStoragePath(target);
-        return new Stored(file, Files.readAllBytes(target));
+        synchronized (data) {
+            FileView file = get(id);
+            VersionContent content = readVersion(file.id(),file.latestVersion().id());
+            return new Stored(file,content.bytes());
+        }
     }
 
-    public Stored versionContent(String id, String version) throws IOException {
+    public void cleanObsoleteVersions(java.util.Set<String> protectedVersions) {
+        data.write(jdbc -> {
+            var candidates = jdbc.sql("SELECT v.id,v.relative_path FROM file_versions v JOIN files f ON f.id=v.file_id WHERE v.available=1 AND v.id<>f.latest_version")
+                    .query((row,n) -> new String[]{row.getString(1),row.getString(2)}).list();
+            for (String[] candidate : candidates) {
+                if (protectedVersions.contains(candidate[0])) continue;
+                cleanupPath(candidate[0],candidate[1]);
+                jdbc.sql("INSERT OR IGNORE INTO file_version_cleanup(version_id,relative_path) VALUES(?,?)").params(candidate[0],candidate[1]).update();
+                jdbc.sql("UPDATE file_versions SET available=0 WHERE id=?").param(candidate[0]).update();
+            }
+            return null;
+        });
+        var pending = data.read(jdbc -> jdbc.sql("SELECT version_id,relative_path FROM file_version_cleanup WHERE attempts<3 ORDER BY version_id")
+                .query((row,n) -> new String[]{row.getString(1),row.getString(2)}).list());
+        for (String[] candidate : pending) {
+            Path target = cleanupPath(candidate[0],candidate[1]);
+            boolean claimed = data.write(jdbc -> jdbc.sql("UPDATE file_version_cleanup SET attempts=attempts+1 WHERE version_id=? AND attempts<3")
+                    .param(candidate[0]).update() == 1);
+            if (!claimed) continue;
+            try {
+                validateStoragePath(target);
+                Files.deleteIfExists(target);
+                data.write(jdbc -> { jdbc.sql("DELETE FROM file_version_cleanup WHERE version_id=?").param(candidate[0]).update(); return null; });
+            } catch (IOException failure) {
+                LOG.warn("????????????????????????");
+            }
+        }
+    }
+
+    private Path cleanupPath(String version, String relative) {
+        Path target = data.directory().resolve(relative).toAbsolutePath().normalize();
+        Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
+        if (!root.equals(target.getParent()) || target.getFileName() == null || !target.getFileName().toString().equals(version))
+            throw new IllegalStateException("???????????");
+        return target;
+    }
+
+    public VersionContent versionContent(String id, String version) throws IOException {
+        version = identifier(version);
+        synchronized (data) {
+            return readVersion(id, version);
+        }
+    }
+
+    private VersionContent readVersion(String id, String version) throws IOException {
         FileView file = get(id);
-        String relative = data.read(
-                jdbc -> jdbc.sql("SELECT relative_path FROM file_versions WHERE id=? AND file_id=? AND available=1")
-                        .params(version, id)
-                        .query(String.class)
-                        .optional()
-                        .orElseThrow(() -> new ApiFailure(410, "CONTENT_UNAVAILABLE", "指定版本副本不可用。", null)));
+        Version targetVersion = data.read(jdbc -> jdbc.sql("SELECT id,file_id,uploaded_name,file_type,media_type,size_bytes,content_hash,uploaded_by,uploaded_at,relative_path,available FROM file_versions WHERE id=? AND file_id=?")
+                .params(version, id)
+                .query((row, index) -> new Version(row.getString("id"), row.getString("file_id"), row.getString("uploaded_name"), row.getString("file_type"), row.getString("media_type"), row.getLong("size_bytes"), "SHA-256", row.getString("content_hash"), row.getString("uploaded_by"), row.getString("uploaded_at"), row.getInt("available") == 1))
+                .optional()
+                .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "指定内容版本不存在。", null)));
+        if (!targetVersion.originalAvailable())
+            throw new ApiFailure(410, "CONTENT_UNAVAILABLE", "指定版本副本不可用。", null);
+        String relative = data.read(jdbc -> jdbc.sql("SELECT relative_path FROM file_versions WHERE id=? AND file_id=? AND available=1")
+                .params(version, id)
+                .query(String.class)
+                .single());
         Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
         Path target = data.directory().resolve(relative).toAbsolutePath().normalize();
         Path filename = target.getFileName();
         if (!root.equals(target.getParent()) || filename == null || !version.equals(filename.toString()))
             throw new IOException("副本路径不合法。");
         validateStoragePath(target);
-        return new Stored(file, Files.readAllBytes(target));
+        if (Files.size(target) != targetVersion.sizeBytes()) throw new IOException("副本字节大小与目标版本不一致。");
+        byte[] bytes = Files.readAllBytes(target);
+        try {
+            String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+            if (!hash.equals(targetVersion.contentHash())) throw new IOException("副本哈希与目标版本不一致。");
+        } catch (java.security.NoSuchAlgorithmException failure) { throw new IOException("无法校验目标版本。", failure); }
+        return new VersionContent(file, targetVersion, bytes);
+    }
+
+    public record VersionContent(FileView file, Version version, byte[] bytes) {
+        public VersionContent { bytes = bytes.clone(); }
+        @Override public byte[] bytes() { return bytes.clone(); }
     }
 
     public record Stored(FileView file, byte[] bytes) {

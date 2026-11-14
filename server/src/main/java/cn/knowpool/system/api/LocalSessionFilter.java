@@ -36,6 +36,8 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
     private final Set<String> allowedOrigins;
     private final JsonMapper json;
     private final Clock clock;
+    @Autowired(required=false)
+    private cn.knowpool.infrastructure.ApplicationData data;
     private final SecureRandom random = new SecureRandom();
 
     @Autowired
@@ -140,6 +142,8 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                 || path.matches("/api/v1/files/[^/]+/name")
                         && request.getMethod().equals("PATCH")
                 || path.matches("/api/v1/files/[^/]+/versions")
+                        && request.getMethod().equals("GET")
+                || path.matches("/api/v1/files/[^/]+/versions/[^/]+/(?:preview|download)")
                         && request.getMethod().equals("GET");
         boolean settings = path.matches("/api/v1/settings/models/(?:generation|embedding)")
                         && Set.of("GET", "PUT").contains(request.getMethod())
@@ -155,21 +159,56 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         && request.getMethod().equals("POST")
                 || path.matches("/api/v1/tasks/[^/]+(?:/connection-test|/events)?")
                         && request.getMethod().equals("GET");
+        boolean chunkPreflight = path.matches("/api/v1/tasks/[^/]+/chunk-preflight") && request.getMethod().equals("GET");
+        boolean processingUpdate = path.matches("/api/v1/knowledge-bases/[^/]+/processing-config") && request.getMethod().equals("PUT");
         boolean knowledgeBases =
                 path.equals("/api/v1/knowledge-bases") && Set.of("GET", "POST").contains(request.getMethod())
                         || path.matches("/api/v1/knowledge-bases/[^/]+")
                                 && Set.of("GET", "PATCH").contains(request.getMethod())
-                        || path.matches("/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files|tasks)")
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files|tasks|exclusions|index-switches)")
                                 && request.getMethod().equals("GET")
                         || path.matches("/api/v1/knowledge-bases/[^/]+/sources")
-                                && request.getMethod().equals("POST");
+                                && request.getMethod().equals("POST")
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/sources/[^/]+") && request.getMethod().equals("DELETE")
+                        || path.matches("/api/v1/knowledge-bases/[^/]+/exclusions/[^/]+") && Set.of("PUT","DELETE").contains(request.getMethod())
+                        || path.matches("/api/v1/files/[^/]+/knowledge-bases") && request.getMethod().equals("GET");
+        knowledgeBases = knowledgeBases || path.matches("/api/v1/knowledge-bases/[^/]+/(?:files/[^/]+/retry|retry-failed)") && request.getMethod().equals("POST");
+        knowledgeBases = knowledgeBases || path.matches("/api/v1/knowledge-bases/[^/]+/processing-config/versions/[^/]+") && request.getMethod().equals("GET");
+        knowledgeBases = knowledgeBases || path.matches("/api/v1/knowledge-bases/[^/]+/(?:publish|offline|check)") && request.getMethod().equals("POST");
         boolean search = path.matches("/api/v1/knowledge-bases/[^/]+/search-test")
                         && request.getMethod().equals("POST")
                 || path.matches("/api/v1/search-requests/[^/]+(?:/evidence/[^/]+)?")
                         && request.getMethod().equals("GET");
-        if (collection || resource || fileOperation || settings || knowledgeBases || search) {
+        boolean cancellation = path.matches("/api/v1/tasks/[^/]+/cancel") && request.getMethod().equals("POST");
+        cancellation = cancellation || path.equals("/api/v1/conversations/first-question") && request.getMethod().equals("POST")
+                || path.matches("/api/v1/question-tasks/[^/]+(?:/events)?") && request.getMethod().equals("GET")
+                || path.matches("/api/v1/question-tasks/[^/]+/cancel") && request.getMethod().equals("POST")
+                || path.matches("/api/v1/conversations/[^/]+/evidence/[^/]+") && request.getMethod().equals("GET");
+        cancellation = cancellation || path.equals("/api/v1/conversations") && request.getMethod().equals("GET")
+                || path.matches("/api/v1/conversations/[^/]+") && Set.of("GET","DELETE").contains(request.getMethod())
+                || path.matches("/api/v1/conversations/[^/]+/name") && request.getMethod().equals("PATCH")
+                || path.matches("/api/v1/conversations/[^/]+/scope") && request.getMethod().equals("PUT")
+                || path.matches("/api/v1/conversations/[^/]+/turns") && request.getMethod().equals("GET")
+                || path.matches("/api/v1/conversations/[^/]+/questions") && request.getMethod().equals("POST");
+        search = search || request.getMethod().equals("POST") && (path.equals("/api/v1/search-instances") || path.matches("/api/v1/search-instances/[^/]+/requests"));
+        search = search || path.equals("/api/v1/search-instances") && request.getMethod().equals("GET")
+                || path.matches("/api/v1/search-instances/[^/]+") && Set.of("GET","DELETE").contains(request.getMethod())
+                || path.matches("/api/v1/search-instances/[^/]+/name") && request.getMethod().equals("PATCH")
+                || path.matches("/api/v1/search-instances/[^/]+/scope") && request.getMethod().equals("PUT")
+                || path.matches("/api/v1/search-requests/[^/]+/cancel") && request.getMethod().equals("POST");
+        cancellation = cancellation || path.matches("/api/v1/(?:datasets|files|knowledge-bases)/[^/]+/delete-impact") && request.getMethod().equals("GET")
+                || path.matches("/api/v1/(?:datasets|files|knowledge-bases)/[^/]+") && request.getMethod().equals("DELETE")
+                || path.equals("/api/v1/tasks") && request.getMethod().equals("GET")
+                || path.matches("/api/v1/tasks/[^/]+/retry-cleanup") && request.getMethod().equals("POST");
+        boolean maintenance=path.matches("/api/v1/maintenance/(?:migration(?:/preflight)?|tasks/[^/]+(?:/retry)?)") && Set.of("GET","POST").contains(request.getMethod());
+        if (maintenance || collection || resource || fileOperation || settings || knowledgeBases || search || chunkPreflight || processingUpdate || cancellation) {
             request.setAttribute("localSession", session);
-            chain.doFilter(request, response);
+            boolean readable=maintenance || path.equals("/api/v1/tasks") && request.getMethod().equals("GET");
+            if (data==null || readable) { chain.doFilter(request,response);return; }
+            try (var lease=data.gate().enter()) {
+                if (lease==null) { error(response,503,"WRITES_PAUSED","数据维护进行中，请稍后重试。",requestId);return; }
+                chain.doFilter(request,response);
+            }
             return;
         }
         error(response, 404, "NOT_FOUND", "请求的操作不存在或尚未实现。", requestId);

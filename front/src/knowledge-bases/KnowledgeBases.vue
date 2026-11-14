@@ -7,6 +7,13 @@ import { createDatasetClient, trimName } from '../datasets/client';
 import { createFileClient } from '../files/client';
 import IndexTasks from './IndexTasks.vue';
 import ManagementSearch from './ManagementSearch.vue';
+import ProcessingEditor from './ProcessingEditor.vue';
+import ProcessingVersions from './ProcessingVersions.vue';
+import DeleteResource from '../cleanup/DeleteResource.vue';
+import SourceAction from './SourceAction.vue';
+import Exclusions from './Exclusions.vue';
+import IndexSwitches from './IndexSwitches.vue';
+import PublicationControl from './PublicationControl.vue';
 import '../datasets/datasets.css';
 import './knowledge-bases.css';
 
@@ -84,6 +91,11 @@ const associating = ref(false),
 let sourceSequence = 0;
 let fileChoiceSequence = 0;
 const sourceFileLoading = ref(false);
+function updatePublication(base) {
+  if (selected.value?.id !== base.id) return;
+  selected.value = base;
+  rows.value = rows.value.map((item) => (item.id === base.id ? base : item));
+}
 async function loadNames() {
   const sequence = detailSequence;
   metadataError.value = '';
@@ -508,6 +520,15 @@ async function loadDetail() {
     if (sequence === detailSequence) detailLoading.value = false;
   }
 }
+async function deleted(value) {
+  ++detailSequence;
+  ++listSequence;
+  selected.value = null;
+  snapshot.value = null;
+  rows.value = rows.value.filter((item) => item.id !== value.id);
+  await router.push('/knowledge-bases');
+  await loadPage(0);
+}
 async function loadMore(kind) {
   if (!selected.value || moreLoading.value[kind]) return;
   const sequence = detailSequence;
@@ -911,6 +932,14 @@ loadPage(0);
             <p class="dataset-description">
               {{ selected.description || '暂无说明' }}
             </p>
+            <DeleteResource
+              :key="`delete-${selected.id}`"
+              :client="client"
+              kind="knowledge-bases"
+              :resource-id="selected.id"
+              :writable="writable"
+              @deleted="deleted"
+            />
             <div class="knowledge-states" aria-label="知识库独立状态">
               <span>发布：{{ publication[selected.publicationState] }}</span
               ><span
@@ -928,13 +957,22 @@ loadPage(0);
               纳入 {{ selected.includedFileCount }} 份，当前可检索
               {{ selected.searchableFileCount }} 份。关联成功不代表可检索。
             </p>
+            <PublicationControl
+              :key="selected.id"
+              :client="client"
+              :base="selected"
+              :writable="writable"
+              @updated="updatePublication"
+            />
             <section
               v-if="snapshot"
               class="knowledge-section"
               aria-label="目标处理配置"
             >
               <h3>目标处理配置</h3>
-              <p>此快照独立保存，当前只读。</p>
+              <p>
+                此目标快照独立保存；当前服务可能仍使用下方旧生效配置，不能把目标配置当作已切换。
+              </p>
               <dl>
                 <div>
                   <dt>嵌入模型</dt>
@@ -1028,6 +1066,12 @@ loadPage(0);
                   关联资料
                 </button>
               </div>
+              <p>
+                数据集中的新增及内容更新会自动排队同步；多个来源独立保留，重复关联不重复创建索引。排除优先全部来源。
+              </p>
+              <button :disabled="detailLoading" @click="loadDetail">
+                刷新同步状态
+              </button>
               <form
                 v-if="associating"
                 class="dataset-form knowledge-form"
@@ -1130,6 +1174,14 @@ loadPage(0);
                   {{ source.type === 'dataset' ? '数据集' : '单份资料' }}：{{
                     sourceNames[source.resourceId] || source.resourceId
                   }}
+                  <SourceAction
+                    :client="client"
+                    :knowledge-base-id="selected.id"
+                    :resource-id="source.id"
+                    action="remove"
+                    :writable="writable"
+                    @changed="loadDetail"
+                  />
                 </li>
               </ul>
               <button
@@ -1167,6 +1219,33 @@ loadPage(0);
                     >
                   </p>
                   <p v-if="file.failure">{{ file.failure.message }}</p>
+                  <p>
+                    最新内容版本：{{
+                      file.latestContentVersionId
+                    }}；目标内容版本：{{
+                      file.targetContentVersionId || '未排队'
+                    }}
+                  </p>
+                  <p v-if="!file.sources.length">
+                    无有效来源，取消排除也不会自动纳入。
+                  </p>
+                  <ul>
+                    <li v-for="source in file.sources" :key="source.id">
+                      {{
+                        source.type === 'dataset' ? '数据集来源' : '单文件来源'
+                      }}：{{
+                        sourceNames[source.resourceId] || source.resourceId
+                      }}
+                    </li>
+                  </ul>
+                  <SourceAction
+                    :client="client"
+                    :knowledge-base-id="selected.id"
+                    :resource-id="file.fileId"
+                    :action="file.excluded ? 'include' : 'exclude'"
+                    :writable="writable"
+                    @changed="loadDetail"
+                  />
                 </li>
               </ul>
               <button
@@ -1177,11 +1256,37 @@ loadPage(0);
                 更多文件
               </button>
             </section>
+            <Exclusions
+              :key="`exclusions-${selected.id}`"
+              :client="client"
+              :knowledge-base-id="selected.id"
+              :writable="writable"
+              @changed="loadDetail"
+            />
+            <ProcessingEditor
+              v-if="snapshot"
+              :key="`processing-${selected.id}`"
+              :client="client"
+              :config="snapshot"
+              :writable="writable"
+              @completed="loadDetail"
+            />
+            <ProcessingVersions
+              :key="`versions-${selected.id}`"
+              :client="client"
+              :base="selected"
+            />
             <IndexTasks
               :key="selected.id"
               :client="client"
               :knowledge-base-id="selected.id"
+              :writable="writable"
               @completed="loadDetail"
+            />
+            <IndexSwitches
+              :key="`switches-${selected.id}`"
+              :client="client"
+              :knowledge-base-id="selected.id"
             />
             <ManagementSearch
               :key="`search-${selected.id}`"

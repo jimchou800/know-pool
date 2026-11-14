@@ -2,11 +2,14 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { createSettingsClient } from './client';
 import ConnectionSettings from './ConnectionSettings.vue';
+import Migration from '../maintenance/Migration.vue';
 import './settings.css';
 const props = defineProps({
   client: { type: Object, required: true },
   writable: { type: Boolean, default: true },
+  dataDirectory: { type: String, default: '' },
 });
+const emit = defineEmits(['status-change']);
 const api = createSettingsClient(props.client);
 const savedConfig = ref(null);
 const versions = ref([]),
@@ -80,6 +83,12 @@ onBeforeUnmount(() => {
         @saved="saved"
       />
     </div>
+    <Migration
+      :client="client"
+      :writable="writable"
+      :data-directory="dataDirectory"
+      @status-change="emit('status-change')"
+    />
     <section class="embedding-history" aria-label="已保存嵌入版本">
       <header>
         <h2>已保存嵌入版本</h2>

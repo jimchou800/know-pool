@@ -28,7 +28,7 @@ public final class VectorCollections {
 
     JsonNode request(String endpoint, String secret, String collection, String method, String body) throws IOException {
         Request.Builder builder =
-                new Request.Builder().url(endpoint.replaceAll("/+$", "") + "/collections/" + collection);
+                new Request.Builder().url(endpoint.replaceAll("/+$", "") + (collection==null?"/collections":"/collections/"+collection));
         if (secret != null) builder.header("api-key", secret);
         builder.method(method, body == null ? null : RequestBody.create(body, MediaType.get("application/json")));
         try (Response response = http.newCall(builder.build()).execute()) {

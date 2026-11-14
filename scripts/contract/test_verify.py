@@ -92,19 +92,20 @@ class ContractGateTests(unittest.TestCase):
     def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
         """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
         operations = verify.inventory(self.document)
-        self.assertEqual(verify.TICKET, '08')
-        self.assertEqual(len(verify.SCOPE), 40)
-        self.assertEqual(len(set(verify.SCOPE)), 40)
+        self.assertEqual(verify.TICKET, '21')
+        self.assertEqual(len(verify.SCOPE), 89)
+        self.assertEqual(len(set(verify.SCOPE)), 89)
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix
             self.assertIn(pointer, operations['watchTask']['constraints'])
             self.assertEqual(verify.coverage({'tests': []}, 'watchTask', pointer), [])
         rules = {
-            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'},
-            'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase'},
-            'cost': {'getTask', 'testKnowledgeBaseSearch'},
-            'sse': {'watchTask', 'getTask'},
+            'maintenance': {'migrationPreflight', 'submitMigration', 'getMaintenanceTask', 'retryMaintenanceTask'},
+            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
+            'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion', 'deleteDataset', 'deleteFile', 'deleteKnowledgeBase'},
+            'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask', 'submitQuestion', 'deleteConversation', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles'},
+            'sse': {'watchTask', 'getTask', 'watchQuestionTask', 'getQuestionTask'},
         }
         for rule, expected in rules.items():
             pointer = '#/x-business-constraints/' + rule
@@ -129,7 +130,7 @@ class ContractGateTests(unittest.TestCase):
 
     def test_indexing_scope_keeps_reachable_publication_and_result_branches(self):
         """索引执行后已可达的版本、进度、失败及结果分支不得沿用旧豁免。"""
-        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-08.json').read_bytes())
+        mapping = json.loads((verify.ROOT / f'scripts/contract/scope-{verify.TICKET}.json').read_bytes())
         operations = verify.inventory(self.document)
         verify.check_scope(mapping, operations)
         for identifier, conditions in mapping['操作'].items():
@@ -151,6 +152,148 @@ class ContractGateTests(unittest.TestCase):
         self.assertFalse(any('/x-sse/' in pointer for pointer in mapping['操作']['watchTask']))
         self.assertNotIn('#/paths/~1tasks~1{taskId}~1events/get/responses/429',
                          mapping['操作']['watchTask'])
+        for conditions in mapping['操作'].values():
+            self.assertFalse(any(pointer.startswith('#/components/schemas/Location/') for pointer in conditions))
+        for identifier in ('listKnowledgeBaseFiles', 'listKnowledgeBaseTasks'):
+            self.assertNotIn('#/components/schemas/Task/properties/warnings/items/type', mapping['操作'][identifier])
+        self.assertEqual(set(mapping['操作']['previewVersionFile']), {
+            '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/429',
+            '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/503',
+        })
+
+    def test_preflight_scope_keeps_statistics_and_rebuild_identities_required(self):
+        """预检统计与整库任务的空文件身份不能因缺测被保留。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-10.json').read_bytes())
+        self.assertEqual(mapping['操作']['updateProcessingConfig'], {})
+        self.assertEqual(set(mapping['操作']['getChunkPreflight']), {
+            '#/paths/~1tasks~1{taskId}~1chunk-preflight/get/responses/429',
+            '#/paths/~1tasks~1{taskId}~1chunk-preflight/get/responses/503',
+        })
+        for field in ('fileId', 'targetContentVersionId'):
+            self.assertNotIn('#/components/schemas/Task/properties/' + field + '/anyOf/1/type',
+                             mapping['操作']['listKnowledgeBaseTasks'])
+
+    def test_excluded_files_require_nullable_target_and_task_evidence(self):
+        """排除可保留无来源条目，三个空目标分支须有实际证据。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-11.json').read_bytes())
+        for field in ('targetConfigVersionId', 'targetContentVersionId', 'task'):
+            self.assertNotIn('#/components/schemas/KnowledgeBaseFile/properties/' + field + '/anyOf/1/type',
+                             mapping['操作']['listKnowledgeBaseFiles'])
+        self.assertNotIn('#/components/schemas/Task/properties/targetConfigVersionId/anyOf/1/type',
+                         mapping['操作']['listKnowledgeBaseTasks'])
+        for operation in ('removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions',
+                          'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases'):
+            for pointer in mapping['操作'][operation]:
+                self.assertIn(pointer.rsplit('/', 1)[-1], {'409', '422', '429', '503'})
+
+    def test_task_cancellation_requires_real_conflict_and_success_evidence(self):
+        """取消冲突与终态结果不能用共享错误声明豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-12.json').read_bytes())
+        prefix = '#/paths/~1tasks~1{taskId}~1cancel/post/responses/'
+        self.assertEqual(set(mapping['操作']['cancelTask']), {prefix + code for code in ('422', '429', '503')})
+        self.assertNotIn(prefix + '409', mapping['操作']['cancelTask'])
+        self.assertNotIn(prefix + '200', mapping['操作']['cancelTask'])
+        for operation in ('listIndexSwitches', 'downloadVersionFile'):
+            self.assertTrue(all(pointer.rsplit('/', 1)[-1] in {'429', '503'}
+                                for pointer in mapping['操作'][operation]))
+
+    def test_publication_scope_requires_real_publication_history(self):
+        """发布与下线历史不能继续按空库条件保留。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-13.json').read_bytes())
+        for operation in ('listKnowledgeBases', 'getKnowledgeBase'):
+            for pointer in mapping['操作'][operation]:
+                self.assertFalse(any('/KnowledgeBase/properties/' + field + '/' in pointer
+                                     for field in ('publishedAt', 'offlineAt', 'offlineReason')))
+        self.assertNotIn('#/paths/~1knowledge-bases~1{knowledgeBaseId}~1publish/post/responses/422',
+                         mapping['操作']['publishKnowledgeBase'])
+        self.assertNotIn('#/paths/~1knowledge-bases~1{knowledgeBaseId}~1offline/post/responses/409',
+                         mapping['操作']['offlineKnowledgeBase'])
+        self.assertNotIn('#/paths/~1knowledge-bases~1{knowledgeBaseId}~1check/post/responses/429',
+                         mapping['操作']['checkKnowledgeBase'])
+
+    def test_multisearch_requires_instance_partial_scope_and_latest_request(self):
+        """普通检索不得沿用管理入口的空实例及无部分范围豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-14.json').read_bytes())
+        for operation in ('submitSearch', 'getSearchRequest'):
+            conditions = mapping['操作'][operation]
+            self.assertFalse(any('/instanceId/anyOf/0/' in key for key in conditions))
+            self.assertFalse(any('/warnings/items/' in key for key in conditions))
+        prefix = '#/paths/~1search-instances~1{instanceId}~1requests/post/responses/'
+        for code in ('404', '409', '429'):
+            self.assertNotIn(prefix + code, mapping['操作']['submitSearch'])
+        self.assertNotIn('#/components/schemas/Task/properties/knowledgeBaseId/anyOf/1/type',
+                         mapping['操作']['getSearchRequest'])
+        self.assertIn('createSearchInstance', verify.SCOPE)
+        self.assertIn('submitSearch', verify.SCOPE)
+
+    def test_instance_reads_require_submitted_metadata_branches(self):
+        """实例读取不能继承创建响应的空查询与空范围条件保留。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-15.json').read_bytes())
+        for name in ('listSearchInstances', 'getSearchInstance', 'renameSearchInstance', 'updateSearchInstanceScope'):
+            self.assertFalse(any('/SearchInstance/' in key for key in mapping['操作'][name]))
+        self.assertNotIn('#/paths/~1search-requests~1{requestId}~1cancel/post/responses/410',
+                         mapping['操作']['cancelSearchRequest'])
+        self.assertIn('deleteSearchInstance', verify.SCOPE)
+
+    def test_question_stream_requires_exact_notification_obligations(self):
+        """问答事件必须核对完整协议，不能仅复用普通任务路径证据。"""
+        operations = verify.inventory(self.document)
+        prefix = '#/paths/~1question-tasks~1{taskId}~1events/get/x-sse/'
+        for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
+            self.assertIn(prefix + suffix, operations['watchQuestionTask']['constraints'])
+        for name in ('submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask', 'watchQuestionTask', 'getConversationEvidence'):
+            self.assertIn(name, verify.SCOPE)
+
+    def test_conversation_followup_requires_active_conflict_and_history(self):
+        """追问活动冲突、真实容量及完整历史上下文不得通过条件保留豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-17.json').read_bytes())
+        prefix = '#/paths/~1conversations~1{conversationId}~1questions/post/responses/'
+        for code in ('404', '409', '429'):
+            self.assertNotIn(prefix + code, mapping['操作']['submitQuestion'])
+        for name in ('submitQuestion', 'listConversationTurns'):
+            self.assertFalse(any('/Answer/properties/historyContext/' in key or
+                                 '/Answer/properties/omittedHistoryTurnCount/' in key
+                                 for key in mapping['操作'][name]))
+        self.assertIn('deleteConversation', verify.SCOPE)
+
+    def test_historical_processing_config_requires_real_version_identity(self):
+        """历史处理配置只有本地容量及维护状态保留，版本归属与全部字段仍须真实验证。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-18.json').read_bytes())
+        prefix = '#/paths/~1knowledge-bases~1{knowledgeBaseId}~1processing-config~1versions~1{configVersionId}/get/responses/'
+        self.assertEqual(set(mapping['操作']['getProcessingConfigVersion']), {prefix + '429', prefix + '503'})
+        self.assertIn('getProcessingConfigVersion', verify.SCOPE)
+
+    def test_explicit_retry_requires_nonempty_original_task_identity(self):
+        """显式重试后索引读取不得继续豁免非空原失败任务标识。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-19.json').read_bytes())
+        for name in ('getTask', 'listKnowledgeBaseFiles', 'listKnowledgeBaseTasks'):
+            self.assertFalse(any('/retryOfTaskId/anyOf/0/' in key for key in mapping['操作'][name]))
+        for name in ('retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles'):
+            self.assertTrue(all(key.rsplit('/', 1)[-1] in {'409', '422', '429', '503'} for key in mapping['操作'][name]))
+            self.assertIn(name, verify.SCOPE)
+
+    def test_deletion_requires_missing_current_filename_and_cleanup_conflict(self):
+        """公开删除后历史快照缺失当前文件名及清理重试状态冲突均不可豁免。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-20.json').read_bytes())
+        self.assertFalse(any('/Evidence/properties/currentFilename/anyOf/1/' in key
+                             for conditions in mapping['操作'].values() for key in conditions))
+        self.assertNotIn('#/paths/~1tasks~1{taskId}~1retry-cleanup/post/responses/409',
+                         mapping['操作']['retryCleanupTask'])
+        self.assertIn('listTasks', verify.SCOPE)
+
+    def test_maintenance_safety_cannot_be_removed_from_migration_scope(self):
+        """迁移安全义务与失败阶段必须保留，不能以未测试缩减分母。"""
+        mapping = json.loads((verify.ROOT / 'scripts/contract/scope-21.json').read_bytes())
+        operations = verify.inventory(self.document)
+        for name in ('migrationPreflight', 'submitMigration', 'getMaintenanceTask', 'retryMaintenanceTask'):
+            self.assertIn(name, verify.SCOPE)
+            self.assertIn('#/x-business-constraints/maintenance', operations[name]['constraints'])
+            self.assertNotIn('#/x-business-constraints/maintenance', mapping['操作'][name])
+        for pointer in ('#/components/schemas/MaintenanceResult/properties/configurationSwitched/type',
+                        '#/components/schemas/MaintenanceResult/properties/oldDirectoryResidue/type',
+                        '#/components/schemas/MaintenanceResult/properties/failureStage/anyOf/0/enum'):
+            self.assertNotIn(pointer, mapping['操作']['getMaintenanceTask'])
+
     def test_rejects_duplicate_operations(self):
         """拒绝重复操作。"""
         self.document['paths']['/重复'] = copy.deepcopy(self.document['paths']['/session'])

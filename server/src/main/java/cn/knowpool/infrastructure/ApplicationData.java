@@ -20,10 +20,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Component
 public final class ApplicationData implements AutoCloseable {
-    private final Path directory;
-    private final FileChannel lockChannel;
-    private final FileLock lock;
+    private volatile Path directory;
+    private final Path anchor;
+    private final MaintenanceGate gate = new MaintenanceGate();
+    private FileChannel lockChannel;
+    private FileLock lock;
     private final DriverManagerDataSource dataSource;
+    private volatile boolean migrationFailed;
     private final Instant startedAt = Instant.now();
 
     public ApplicationData(@Value("${know-pool.data-directory}") String configuredDirectory) throws IOException {
@@ -32,7 +35,9 @@ public final class ApplicationData implements AutoCloseable {
             throw new IOException("数据目录必须位于本机磁盘。");
         }
         Files.createDirectories(requested);
-        directory = requested.toRealPath();
+        anchor = requested.toRealPath();
+        directory = locate(anchor);
+        Files.createDirectories(directory);
         lockChannel = FileChannel.open(
                 directory.resolve("application.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
         try {
@@ -52,10 +57,10 @@ public final class ApplicationData implements AutoCloseable {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
-            if (version > 6) {
+            if (version > 17) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
-            if (version > 0 && version < 6) {
+            if (version > 0 && version < 17) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
                 Path backup = backups.resolve("schema-" + version + "-" + java.util.UUID.randomUUID() + ".sqlite");
@@ -190,13 +195,102 @@ public final class ApplicationData implements AutoCloseable {
                     return null;
                 });
             }
+            if (version < 7) {
+                write(transaction -> {
+                    transaction.sql("ALTER TABLE index_runs ADD COLUMN parser_version TEXT NOT NULL DEFAULT 'plain-text-08'").update();
+                    transaction.sql("ALTER TABLE index_runs ADD COLUMN source_map TEXT NOT NULL DEFAULT '{}'").update();
+                    transaction.sql("ALTER TABLE index_runs ADD COLUMN config_snapshot TEXT NOT NULL DEFAULT '{}'").update();
+                    transaction.sql("ALTER TABLE index_chunks ADD COLUMN source_range TEXT NOT NULL DEFAULT '{}'").update();
+                    transaction.sql("PRAGMA user_version=7").update();
+                    return null;
+                });
+            }
+            if (version < 8) {
+                write(transaction -> {
+                    transaction.sql("ALTER TABLE index_runs ADD COLUMN preflight TEXT").update();
+                    transaction.sql("CREATE TABLE processing_config_history(id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,payload TEXT NOT NULL,collection_name TEXT NOT NULL)").update();
+                    transaction.sql("INSERT INTO processing_config_history SELECT json_extract(config,'$.id'),id,config,'kp_'||replace(id,'-','') FROM knowledge_bases").update();
+                    transaction.sql("CREATE TABLE processing_rebuilds(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,config_version_id TEXT NOT NULL,ready INTEGER NOT NULL DEFAULT 0)").update();
+                    transaction.sql("CREATE TABLE staged_indexes(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL)").update();
+                    transaction.sql("PRAGMA user_version=8").update();
+                    return null;
+                });
+            }
+            if (version < 9) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE knowledge_base_exclusions(knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,file_id))").update();
+                    transaction.sql("CREATE TABLE index_cleanup(task_id TEXT PRIMARY KEY,targets TEXT NOT NULL,endpoint TEXT)").update();
+                    transaction.sql("PRAGMA user_version=9").update();
+                    return null;
+                });
+            }
+            if (version < 10) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE file_version_cleanup(version_id TEXT PRIMARY KEY,relative_path TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0)").update();
+                    transaction.sql("PRAGMA user_version=10").update();
+                    return null;
+                });
+            }
+            if (version < 11) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE knowledge_base_check_keys(session_id TEXT NOT NULL,knowledge_base_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,task_id TEXT NOT NULL,PRIMARY KEY(session_id,knowledge_base_id,idempotency_key))").update();
+                    transaction.sql("PRAGMA user_version=11").update();
+                    return null;
+                });
+            }
+            if (version < 12) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE search_instances(id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
+                    transaction.sql("PRAGMA user_version=12").update();
+                    return null;
+                });
+            }
+            if (version < 13) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE conversations(id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
+                    transaction.sql("CREATE TABLE question_tasks(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)").update();
+                    transaction.sql("CREATE TABLE conversation_evidence(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)").update();
+                    transaction.sql("PRAGMA user_version=13").update();
+                    return null;
+                });
+            }
+            if (version < 14) {
+                write(transaction -> {
+                    transaction.sql("CREATE UNIQUE INDEX question_one_active ON question_tasks(conversation_id) WHERE json_extract(payload,'$.task.state') IN ('queued','running')").update();
+                    transaction.sql("CREATE INDEX conversation_turn_order ON question_tasks(conversation_id,json_extract(payload,'$.task.createdAt'),id)").update();
+                    transaction.sql("PRAGMA user_version=14").update();
+                    return null;
+                });
+            }
+            if (version < 15) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE index_retry_requests(session_id TEXT NOT NULL,operation TEXT NOT NULL,idempotency_key TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(session_id,operation,idempotency_key))").update();
+                    transaction.sql("PRAGMA user_version=15").update();return null;
+                });
+            }
+            if (version < 16) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE deleted_resources(kind TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(kind,id))").update();
+                    transaction.sql("CREATE TABLE deletion_cleanup(task_id TEXT PRIMARY KEY,targets TEXT NOT NULL,endpoint TEXT)").update();
+                    transaction.sql("CREATE TABLE owned_vector_collections(knowledge_base_id TEXT NOT NULL,collection_name TEXT NOT NULL,endpoint TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,collection_name))").update();
+                    transaction.sql("INSERT OR IGNORE INTO owned_vector_collections SELECT json_extract(t.payload,'$.knowledgeBaseId'),c.collection_name,c.endpoint FROM knowledge_base_creations c JOIN tasks t ON t.id=c.task_id WHERE c.ownership='owned' AND c.endpoint IS NOT NULL").update();
+                    transaction.sql("PRAGMA user_version=16").update();return null;
+                });
+            }
+
+            if (version < 17) {
+                write(transaction -> {
+                    transaction.sql("CREATE TABLE maintenance_tasks(task_id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
+                    transaction.sql("PRAGMA user_version=17").update();return null;
+                });
+            }
         } catch (RuntimeException | IOException failure) {
             close();
             throw new IOException("数据目录初始化失败，已停止业务写入。", failure);
         }
     }
 
-    public <T> T read(Function<JdbcClient, T> action) {
+    public synchronized <T> T read(Function<JdbcClient, T> action) {
         return action.apply(JdbcClient.create(dataSource));
     }
 
@@ -209,12 +303,40 @@ public final class ApplicationData implements AutoCloseable {
                 .execute(status -> action.apply(JdbcClient.create(dataSource)));
     }
 
-    public synchronized Status status() {
-        int version = JdbcClient.create(dataSource)
-                .sql("PRAGMA user_version")
-                .query(Integer.class)
-                .single();
-        return new Status("0.1.0", startedAt.toString(), "ready", directory.toString(), version, List.of());
+    public Status status() {
+        return new Status("0.1.0", startedAt.toString(), gate.paused()?"paused":migrationFailed?"migration_failed":"ready", directory.toString(), 17, List.of());
+    }
+
+    public void migrationFailed(boolean value) { migrationFailed=value; }
+    public MaintenanceGate gate() { return gate; }
+    public Path anchor() { return anchor; }
+    public synchronized void checkpoint() {
+        if (JdbcClient.create(dataSource).sql("PRAGMA wal_checkpoint(TRUNCATE)").query((row,n) -> row.getInt(1)).single()!=0) throw new IllegalStateException("数据库仍被占用，不能开始复制。");
+    }
+    public synchronized void switchDirectory(Path target) throws IOException {
+        FileChannel nextChannel=FileChannel.open(target.resolve("application.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
+        FileLock nextLock;
+        try { nextLock=nextChannel.tryLock();if (nextLock==null) throw new IOException("目标目录已被占用。"); }
+        catch (IOException | RuntimeException failure) { nextChannel.close();throw failure; }
+        try {
+            Path pointer=anchor.resolve("active-directory");
+            Path pending=anchor.resolve("active-directory.pending");
+            Files.writeString(pending,target.toString(),StandardOpenOption.CREATE,StandardOpenOption.TRUNCATE_EXISTING,StandardOpenOption.SYNC);
+            Files.move(pending,pointer,java.nio.file.StandardCopyOption.ATOMIC_MOVE,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException failure) { nextLock.release();nextChannel.close();throw failure; }
+        FileLock previousLock=lock;FileChannel previousChannel=lockChannel;
+        dataSource.setUrl("jdbc:sqlite:"+target.resolve("application.sqlite")+"?foreign_keys=on&busy_timeout=5000");
+        directory=target;lockChannel=nextChannel;lock=nextLock;
+        try { previousLock.release(); } finally { previousChannel.close(); }
+    }
+    private static Path locate(Path anchor) throws IOException {
+        Path pointer=anchor.resolve("active-directory");
+        if (!Files.exists(pointer)) return anchor;
+        if (Files.isSymbolicLink(pointer)) throw new IOException("数据目录检查点不能是链接。");
+        Path target=Path.of(Files.readString(pointer)).toAbsolutePath().normalize();
+        if (target.getParent()==null || !Files.isDirectory(target) || Files.isSymbolicLink(target) || target.toString().startsWith("\\\\")) throw new IOException("迁移检查点无效，已停止业务写入。");
+        for (Path item=target;item!=null;item=item.getParent()) if (Files.exists(item,java.nio.file.LinkOption.NOFOLLOW_LINKS) && (Files.isSymbolicLink(item) || !item.toRealPath().equals(item.toAbsolutePath().normalize()))) throw new IOException("迁移检查点不能指向链接或重解析目录。");
+        return target.toRealPath();
     }
 
     @PreDestroy

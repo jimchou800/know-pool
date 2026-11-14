@@ -20,7 +20,7 @@ const validSession = (value) =>
   typeof value.csrfToken === 'string' &&
   Array.from(value.csrfToken).length >= 32 &&
   date(value.expiresAt);
-const validStatus = (value) =>
+export const validStatus = (value) =>
   exact(value, [
     'applicationVersion',
     'startedAt',

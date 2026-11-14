@@ -45,7 +45,7 @@ function validScope(value, knowledgeBaseId) {
     typeof value.incomplete === 'boolean'
   );
 }
-function validLocation(value) {
+export function validLocation(value) {
   return (
     exact(value, [
       'format',
@@ -84,10 +84,21 @@ function validLocation(value) {
       'tableRowEnd',
       'tableColumnStart',
       'tableColumnEnd',
-    ].every((key) => nullable(value[key], (v) => integer(v)))
+    ].every((key) => nullable(value[key], (v) => integer(v))) &&
+    [
+      ['pageStart', 'pageEnd'],
+      ['lineStart', 'lineEnd'],
+      ['tableRowStart', 'tableRowEnd'],
+      ['tableColumnStart', 'tableColumnEnd'],
+    ].every(
+      ([start, end]) =>
+        value[start] === null ||
+        value[end] === null ||
+        value[end] >= value[start],
+    )
   );
 }
-function validEvidence(value, knowledgeBaseId) {
+export function validEvidence(value, knowledgeBaseId) {
   return (
     exact(value, [
       'id',

@@ -35,10 +35,10 @@
 | 06 模型配置 | `getGenerationModel`、`updateGenerationModel`、`testGenerationModel`、`getEmbeddingModel`、`updateEmbeddingModel`、`testEmbeddingModel`、`listEmbeddingModelVersions`、`getEmbeddingModelVersion`、`updateEmbeddingVersionCredential`、`getConnectionTestResult`；向量连接配套 `getVectorConfig`、`updateVectorConfig`、`testVectorConfig`；提前复用 `getTask`，共十四操作 |
 | 07 知识库初始化 | `listKnowledgeBases`、`createKnowledgeBase`、`getKnowledgeBase`、`updateKnowledgeBase`、`getProcessingConfig`、`addKnowledgeBaseSource`、`listKnowledgeBaseSources`、`listKnowledgeBaseFiles` |
 | 08 纯文本索引 | 继承 06 已有 `getTask`、`watchTask`、`listKnowledgeBaseTasks`、`testKnowledgeBaseSearch`；管理测试随后用 `getSearchRequest`、`getSearchEvidence` 读取结果 |
-| 09 文档索引 | 复用 08 管理检索与文件读取操作，验证 PDF、Markdown 原文位置与内容类型 |
+| 09 文档索引 | 新增 `previewVersionFile`，复用 08 管理检索与文件读取操作，验证 PDF、Markdown 原文位置、实际版本与内容类型 |
 | 10 切片预检 | `getChunkPreflight`、`updateProcessingConfig`；消费切片统计、样例、降级、位置与完整性结构 |
 | 11 来源与排除 | `removeKnowledgeBaseSource`、`listKnowledgeBaseExclusions`、`excludeKnowledgeBaseFile`、`includeKnowledgeBaseFile`、`listFileKnowledgeBases`；复用 07 来源及文件列表 |
-| 12 内容切换 | `listIndexSwitches`、`previewVersionFile`、`downloadVersionFile`、`cancelTask`；复用上传、任务与文件处理状态 |
+| 12 内容切换 | `listIndexSwitches`、`downloadVersionFile`、`cancelTask`；复用并回归 09 的 `previewVersionFile` 及上传、任务与文件处理状态，不重复计新增操作 |
 | 13 发布下线 | `publishKnowledgeBase`、`offlineKnowledgeBase`、`checkKnowledgeBase`；管理测试继续使用独立入口 |
 | 14 多库检索 | `submitSearch`、`getSearchRequest`、`getSearchEvidence`；检索实例承载普通请求，先创建最小实例以便端到端演示，完整实例交互由 15 完成 |
 | 15 检索实例 | `listSearchInstances`、`createSearchInstance`、`getSearchInstance`、`renameSearchInstance`、`updateSearchInstanceScope`、`deleteSearchInstance`、`cancelSearchRequest`；复用 14 提交及结果操作 |

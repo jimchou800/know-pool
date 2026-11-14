@@ -22,6 +22,54 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'migrationSafety': ({'migrationPathsSwitchRestartAndResidueStaySafe'}, {'migrationPreflight','submitMigration','getMaintenanceTask','retryMaintenanceTask'},
+        '#/x-business-constraints/maintenance', '固定本机资料及模拟向量服务验证路径边界、暂停排空、切换前失败保留旧目录及显式恢复、切换后清理失败保新与仅清残留、固定入口跨重启多次切换；向量仅访问集合核查接口，不搬迁原生数据。'),
+    'deletionPublication': ({'deletionPropagationLeasesAndCleanupRetryStaySafe'}, {'deleteFile','deleteDataset','deleteKnowledgeBase'},
+        '#/x-business-constraints/publication', '删除文件和数据集立即撤销资料有效范围并使归零库自动下线但保留库，删除知识库不删除源资料，历史快照保留；租约释放后才清物理目标，清理失败及重试不复活资源。'),
+    'indexRetryCost': ({'indexRetryEligibilityAndHistoryStayAtomic'}, {'retryKnowledgeBaseFile','retryFailedKnowledgeBaseFiles'},
+        '#/x-business-constraints/cost', '显式重试可能重新嵌入，原失败保持且新任务关联原失败；同键原结果和活动任务均不重复外发，成功及排除项不再嵌入，非重试凭据错误只发一次。'),
+    'configurationRebuildVersions': ({'configurationRebuildPublicationAndHistoryStayIndependent'}, {'updateProcessingConfig','getTask','listKnowledgeBaseFiles','listIndexSwitches'},
+        '#/x-business-constraints/indexSwitch', '整库目标和生效分离，构建期间继续旧版本，成功统一切换，失败旧索引可检索；历史配置归属不可串库，密钥替换身份不变不重建，端点变更同模型名仍用新身份重新嵌入。'),
+    'configurationRebuildPublication': ({'configurationRebuildPublicationAndHistoryStayIndependent'}, {'updateProcessingConfig','getKnowledgeBase','listKnowledgeBaseFiles'},
+        '#/x-business-constraints/publication', '已发布配置重建保持已发布，期间主动下线在成功切换后仍下线；失败不丢旧索引或发布决定，空库重建不凭空发布。'),
+    'conversationVersions': ({'conversationHistoryScopeAndReferenceReadsStayBound','conversationCancellationDeletionAndLateResultsStayIsolated'}, {'submitQuestion','listConversationTurns','getQuestionTask','getConversationEvidence'},
+        '#/x-business-constraints/indexSwitch', '追问重新检索当前生效版本，完整历史只含问题和最终回答，不带旧证据；逐轮范围不被默认范围修改，引用快照历史名称正文不变，当前名称和旧原文可用性读取时统一重查。'),
+    'conversationPublication': ({'conversationHistoryScopeAndReferenceReadsStayBound','conversationCancellationDeletionAndLateResultsStayIsolated'}, {'submitQuestion'},
+        '#/x-business-constraints/publication', '每轮显式提交范围，已发布知识库才能参与当轮检索，默认范围可空但不改写旧轮次。'),
+    'conversationCost': ({'conversationHistoryScopeAndReferenceReadsStayBound','conversationCancellationDeletionAndLateResultsStayIsolated'}, {'submitQuestion','deleteConversation'},
+        '#/x-business-constraints/cost', '追问同键复用原任务，同会话活动冲突不额外排队；取消后可再提交但外部调用仍全局限流，删除本地原子清理不调用模型，迟到和重启不复活。'),
+    'questionVersions': ({'groundedQuestionBudgetsValidationAndSnapshotsStayBound','groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'submitFirstQuestion','getQuestionTask','getConversationEvidence'},
+        '#/x-business-constraints/indexSwitch', '问答预处理前固定生效版本，切换后仍引用捕获切片；范围位置引用标识及支持性通过才持久保存完整实际切片，取消校验不泄露草稿。'),
+    'questionPublication': ({'groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'submitFirstQuestion'},
+        '#/x-business-constraints/publication', '已开始问答按固定范围版本继续，期间主动下线不篡改既有请求，后续新请求必须重新检查。'),
+    'questionCost': ({'groundedQuestionBudgetsValidationAndSnapshotsStayBound','groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'submitFirstQuestion','getQuestionTask','cancelQuestionTask'},
+        '#/x-business-constraints/cost', '最多一次预处理、一次生成及一次校验，无依据不生成，同键返回原任务；重启不重发，取消不递归修订，缺用量与截断输出拒绝。'),
+    'questionEvents': ({'groundedQuestionSharedQueueAndEventCapacityAreBounded','groundedQuestionBudgetsValidationAndSnapshotsStayBound','groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'watchQuestionTask','getQuestionTask'},
+        '#/x-business-constraints/sse', '问答专用事件只有阶段和终态，不含回答或草稿，完成后查询原持久任务，重连不外发。'),
+    'questionEventCursor': ({'groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'watchQuestionTask'},
+        '#/paths/~1question-tasks~1{taskId}~1events/get/x-sse/lastEventIdHeader', '真实旧和未来合法游标终态可重发，零序号或其他任务身份拒绝。'),
+    'questionEventReconnect': ({'groundedQuestionSharedQueueAndEventCapacityAreBounded','groundedQuestionFixedVersionsCancellationAndEventsStaySafe'}, {'watchQuestionTask'},
+        '#/paths/~1question-tasks~1{taskId}~1events/get/x-sse/reconnect', '同一持久任务重连不重发模型请求，终态重复通知不泄露正文。'),
+    'instanceLifecycleCost': ({'searchInstanceMetadataAndRestartKeepOnlyConditions','searchInstanceCancellationDeletionAndLateResultsStayIsolated'}, {'listSearchInstances','createSearchInstance','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest','submitSearch'},
+        '#/x-business-constraints/cost', '范围保存、切换读取和重启不触发嵌入，重启只恢复条件，原请求和证据失效；取消和删除不重发，资料及其他实例不受影响。'),
+    'instanceLifecycleVersions': ({'searchInstanceMetadataAndRestartKeepOnlyConditions','searchInstanceCancellationDeletionAndLateResultsStayIsolated'}, {'deleteSearchInstance','cancelSearchRequest','submitSearch','getSearchRequest'},
+        '#/x-business-constraints/indexSwitch', '提交元数据失败不替换当前请求，删除事务失败不取消旧任务；成功删除使临时结果失效，取消及删除后的迟到响应不得复活实例。'),
+    'multiSearchVersions': ({'multiSearchScopesFusionAndCostsAreExplicit','multiSearchLatestRequestAndQueueStayAtomic'}, {'submitSearch','getSearchRequest','getSearchEvidence'},
+        '#/x-business-constraints/indexSwitch', '多库固定生效版本证据按来源位置去重融合，不比较跨模型原始分数；同实例新提交取消旧请求，旧响应不能覆盖新失败或复活结果。'),
+    'multiSearchPublication': ({'multiSearchScopesFusionAndCostsAreExplicit','multiSearchLatestRequestAndQueueStayAtomic'}, {'submitSearch'},
+        '#/x-business-constraints/publication', '只在实际开始时领取已发布范围，未知及下线库明确遗漏，排队中下线不可参与；部分继续且警示，全不可用任务失败不冒充空结果。'),
+    'multiSearchCost': ({'multiSearchScopesFusionAndCostsAreExplicit'}, {'submitSearch'},
+        '#/x-business-constraints/cost', '同配置同次请求只生成一次查询嵌入，同键恢复原请求不重复收费，异负载冲突不替换当前请求。'),
+    'publicationStates': ({'publicationAndChecksKeepIndependentStates'}, {'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase'},
+        '#/x-business-constraints/publication', '真实门槛、发布幂等、主动和自动下线、恢复不自动发布及外部故障只改可用性均由接口逐项断言。'),
+    'checkDoesNotRepeatCalls': ({'publicationAndChecksKeepIndependentStates'}, {'checkKnowledgeBase'},
+        '#/x-business-constraints/cost', '固定中文短文本不发送资料正文，同键及活动不同键映射原任务，完成后查询和同键重放不重复外发。'),
+    'contentVersionSwitch': ({'contentSwitchHistoryAndCancellationRemainBoundToVersions','runningSearchAndRebuildCancellationRejectLateResults'}, {
+        'listIndexSwitches','cancelTask','downloadVersionFile','listKnowledgeBaseFiles','getTask'},
+        '#/x-business-constraints/indexSwitch','公开接口核对同源多库独立切换、原子指针关系、旧版保留、取消幂等及目标版本正文下载；未受理的非法新文件不取消在途任务。'),
+    'processingConfigurationSwitch': ({'preflightAndRebuildKeepVersionsAtomic'}, {
+        'updateProcessingConfig', 'getChunkPreflight', 'getProcessingConfig', 'getKnowledgeBase', 'getTask', 'getSearchRequest'},
+        '#/x-business-constraints/indexSwitch', '真实公开接口断言配置幂等任务、整库切换成功、后续失败保留旧生效版本及检索证据配置身份；预检读取不触发模型。'),
     'currentIndexVersions': ({'textIndexBecomesEffective'}, {
         'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'},
         '#/x-business-constraints/indexSwitch', '真实生效版本、替换和失败保留旧索引经公开接口断言。'),
@@ -89,7 +137,8 @@ def event_constraints(item, prefix):
         raise AssertionError('真实事件响应必须保留原始帧。')
     found = {prefix + '/responses/200/content/text~1event-stream/schema/type'}
     task_id = item['path'].split('?', 1)[0].split('/')[-2]
-    cursor_schema = document['paths']['/tasks/{taskId}/events']['get']['parameters'][1]['schema']
+    event_path = '/question-tasks/{taskId}/events' if item['path'].startswith('/question-tasks/') or item['path'].startswith('/api/v1/question-tasks/') else '/tasks/{taskId}/events'
+    cursor_schema = document['paths'][event_path]['get']['parameters'][1]['schema']
     count = 0
     normalized = item['response'].replace('\r\n', '\n').replace('\r', '\n')
     if not normalized.endswith('\n\n'):
@@ -112,7 +161,7 @@ def event_constraints(item, prefix):
         validator(cursor_schema).validate(fields['id'])
         if value['taskId'] != task_id or fields['id'] != task_id + ':' + str(value['sequence']):
             raise AssertionError('真实事件身份或序号不一致。')
-        terminal = value['state'] in document['paths']['/tasks/{taskId}/events']['get']['x-sse']['terminalStates']
+        terminal = value['state'] in document['paths'][event_path]['get']['x-sse']['terminalStates']
         if (fields['event'] == 'terminal') != terminal:
             raise AssertionError('真实事件类型与任务终态不一致。')
         if count and previous_terminal:
@@ -257,9 +306,32 @@ if profile == 'knowledge-bases':
 
 if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
     selected_operations = {'getTask', 'watchTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch',
+                           'getDatasetDeleteImpact','deleteDataset','getFileDeleteImpact','deleteFile','getKnowledgeBaseDeleteImpact','deleteKnowledgeBase','listTasks','retryCleanupTask','getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig', 'getProcessingConfigVersion', 'retryKnowledgeBaseFile','retryFailedKnowledgeBaseFiles',
+                           'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources',
+                           'listIndexSwitches','cancelTask','downloadVersionFile','previewVersionFile',
+                           'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getConnectionTestResult','submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','listConversations','getConversation','renameConversation','updateConversationScope','listConversationTurns','submitQuestion','deleteConversation','createSearchInstance','submitSearch','listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest',
                            'getSearchRequest', 'getSearchEvidence', 'uploadFiles', 'listKnowledgeBases',
                            'getKnowledgeBase', 'updateKnowledgeBase', 'listKnowledgeBaseFiles'}
     BEHAVIORS = {
+        'deletionPropagationLeasesAndCleanupRetryStaySafe': ('真实删除影响、墓碑立即不可见与归零下线、租约持有期间副本保留、清理连接不匹配失败可从全局发现并显式新任务重试，原失败保留及同键当前终态重放；数据集删资料保留库，删库保留源，引用快照及动态空当前名和清理后原文不可用一致。', {'getDatasetDeleteImpact','deleteDataset','getFileDeleteImpact','deleteFile','getKnowledgeBaseDeleteImpact','deleteKnowledgeBase','listTasks','retryCleanupTask','getTask','getQuestionTask','getConversationEvidence','getSearchRequest','getSearchEvidence','getKnowledgeBase','listKnowledgeBaseFiles'}),
+        'indexRetryEligibilityAndHistoryStayAtomic': ('真实非重试错误直接停止，新任务关联旧失败且保留原失败事实，同键不重提、已有活动不重复、成功排除项不重做，批量逐项结果及非法正文查询标识会话保护拒绝。', {'retryKnowledgeBaseFile','retryFailedKnowledgeBaseFiles','getTask','listKnowledgeBaseTasks','listKnowledgeBaseFiles'}),
+        'configurationRebuildPublicationAndHistoryStayIndependent': ('真实整库切换区分目标生效及历史不可变配置；仅换凭据无重建，端点相同模型名仍独立身份并重新嵌入；已发布处理中保持旧索引，主动下线后完成不重发布，失败继续旧版本服务，空库保持未发布，历史版本归属未知非法和会话拒绝。', {'getProcessingConfigVersion','updateProcessingConfig','getProcessingConfig','getKnowledgeBase','listKnowledgeBaseFiles','listIndexSwitches','getTask'}),
+        'conversationHistoryScopeAndReferenceReadsStayBound': ('真实追问仅带预算内近期完整轮次，不摘要不截断且历史不携带旧证据；同键不外发，重名手名不覆盖、默认范围不改旧请求、提交时间轮次分页及最近交互会话分页，旧原文清理与文件改名后各读取动态事实一致，历史跨重启保存不重发。', {'listConversations','getConversation','renameConversation','updateConversationScope','listConversationTurns','submitQuestion','getQuestionTask','getConversationEvidence','getTask'}),
+        'conversationCancellationDeletionAndLateResultsStayIsolated': ('真实同会话活动资格及同键原任务、取消释放资格且旧迟到不盖新任务；删除事务失败不取消，成功确认清理同键持久复用，任务和专属引用不可读取，通用任务脱敏状态保留，源资料与别会话不受影响，重启不复活不外发。', {'getConversation','submitQuestion','deleteConversation','getQuestionTask','cancelQuestionTask','getConversationEvidence','getTask'}),
+        'groundedQuestionSharedQueueAndEventCapacityAreBounded': ('真实知识服务队列容量满时首问四二九且同键不重提；问答专用事件六十四订阅及下一订阅四二九，阶段到取消终态恢复无正文不重发。', {'submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask'}),
+        'groundedQuestionBudgetsValidationAndSnapshotsStayBound': ('真实首问持久受理、手动名称、原问题和额外查询、生成校验最多各一次、无依据不生成、部分缺口矛盾澄清、无效预处理回退，坏引用及模型截断缺用量不泄草稿，引用跨重启保存且同键不重发。', {'submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','getTask'}),
+        'groundedQuestionFixedVersionsCancellationAndEventsStaySafe': ('预处理前捕获全部生效版本，资料切换及主动下线后仍用旧快照；校验期间没有草稿，取消后迟到不发布，专用事件终态重连游标和安全拒绝不重发模型。', {'submitFirstQuestion','getQuestionTask','cancelQuestionTask','watchQuestionTask','getConversationEvidence','getTask'}),
+        'searchInstanceMetadataAndRestartKeepOnlyConditions': ('真实实例允许重名、首查自动名及不覆盖手改，稳定分页、条件保存、事务失败不改旧指针；重启恢复条件不恢复正文或自动外发，原结果证据四一零，确认删除及同键原清理任务。', {'listSearchInstances','createSearchInstance','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest','submitSearch','getSearchRequest','getSearchEvidence','getTask'}),
+        'searchInstanceCancellationDeletionAndLateResultsStayIsolated': ('切换读取不互相取消，显式取消保留已核范围；删除事务失败保留原请求，成功后任务取消及请求失效，迟到不复活，其他实例及资料保持，管理和普通终态取消幂等。', {'listSearchInstances','getSearchInstance','renameSearchInstance','updateSearchInstanceScope','deleteSearchInstance','cancelSearchRequest','getSearchRequest','getTask'}),
+        'multiSearchScopesFusionAndCostsAreExplicit': ('真实最小实例和多库去重融合、固定身份、部分范围警示、全部故障与空命中区分、同键只嵌入一次及非法安全拒绝。', {'createSearchInstance','submitSearch','getSearchRequest','getSearchEvidence','getTask'}),
+        'multiSearchLatestRequestAndQueueStayAtomic': ('真实同实例新提交取消旧请求，满队列拒绝不取消当前请求，排队期间下线重新核资格，旧迟到不能恢复结果。', {'createSearchInstance','submitSearch','getSearchRequest','getTask'}),
+        'publicationAndChecksKeepIndependentStates': ('真实发布门槛、幂等发布下线、排除后自动下线、恢复不自动发布；收费确认、固定输入及活动异键合并、同键不重复调用，外部失败正常探测且发布状态保持。', {'publishKnowledgeBase','offlineKnowledgeBase','checkKnowledgeBase','getKnowledgeBase','getTask','getConnectionTestResult'}),
+        'runningSearchAndRebuildCancellationRejectLateResults': ('运行中检索取消后等待后继请求完成，旧结果仍为空；整库父任务取消传播子任务，旧生效指针与切换记录保持，取消接口会话与保护令牌真实拒绝。', {'cancelTask','getTask','getSearchRequest','listIndexSwitches','listKnowledgeBaseTasks','getKnowledgeBase'}),
+        'contentSwitchHistoryAndCancellationRemainBoundToVersions': ('实际内容版本、多库独立生效指针、完整前后切换关系、允许任务终态幂等取消与初始化类型拒绝，以及指定旧版下载正文和安全头均由真实接口断言。', {'listIndexSwitches','cancelTask','downloadVersionFile','listKnowledgeBaseFiles','getTask'}),
+        'associationUnionExclusionsAndLateTasksStayConsistent': ('真实来源重叠不重复索引、保留单来源不下线、排除优先、无来源排除可见、取消排除无来源不排队、上传新增同步及覆盖后迟到任务不得复活；排除持久化跨重启仍有效。', {'removeKnowledgeBaseSource', 'listKnowledgeBaseExclusions', 'excludeKnowledgeBaseFile', 'includeKnowledgeBaseFile', 'listFileKnowledgeBases', 'addKnowledgeBaseSource', 'listKnowledgeBaseSources', 'listKnowledgeBaseFiles', 'getKnowledgeBase', 'getTask'}),
+        'preflightAndRebuildKeepVersionsAtomic': ('预检真实码点、无损正文、硬切降级及完整性经断言；同键配置更新复用父任务、整库成功切换、失败继续检索旧版本，未知及错误类型预检拒绝。', {'getChunkPreflight', 'updateProcessingConfig', 'getProcessingConfig', 'getTask', 'getKnowledgeBase', 'listKnowledgeBaseTasks', 'getSearchRequest'}),
+        'markdownLocationsRemainBoundToOriginalSource': ('真实Markdown标题、源行、段落、表格、代码、实际内容版本和完整证据读取，经固定原文逐项断言。', {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
+        'pdfLocationsKeepCrossPageSourceAndBlankPages': ('真实中文PDF全文提取、跨页句子和空白页保留原始页号，固定副本版本与证据一致。', {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'textIndexBecomesEffective': ('真实文本索引、生效版本及管理结果身份与证据读取。',
             {'getTask', 'listKnowledgeBaseTasks', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence'}),
         'managementSearchFailureIsStableAndExpiresOnRestart': ('无索引异步失败、同键原请求、非法输入拒绝与重启410墓碑。',
@@ -279,6 +351,10 @@ if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
         selected_operations = {'watchTask', 'getTask'}
 
 
+if profile == 'maintenance':
+    selected_operations = {'migrationPreflight','submitMigration','getMaintenanceTask','retryMaintenanceTask'}
+    BEHAVIORS = {'migrationPathsSwitchRestartAndResidueStaySafe': ('迁移安全边界与固定入口恢复的代表性真实接口场景；复杂中断和外发并发矩阵留统一验证。', selected_operations)}
+
 for index, item in enumerate(observations):
     path = item['path'].split('?', 1)[0].removeprefix('/api/v1')
     selected = None
@@ -293,9 +369,10 @@ for index, item in enumerate(observations):
     if selected is None or selected[0] not in selected_operations:
         continue
     name, operation = selected
-    is_indexing = profile in ('indexing', 'indexing-events', 'indexing-gaps')
-    is_event = is_indexing and name == 'watchTask' and item['status'] == 200
-    if not is_event:
+    is_indexing = profile in ('indexing', 'indexing-events', 'indexing-gaps', 'maintenance')
+    is_event = is_indexing and name in ('watchTask','watchQuestionTask') and item['status'] == 200
+    is_binary = name in ('previewVersionFile','downloadVersionFile') and item['status'] == 200
+    if not is_event and not is_binary and item['status'] != 204:
         validate_media(item['contentType'])
     method = item['method'].lower()
     prefix = '#/paths/' + verification.escape(operation['path']) + '/' + method
@@ -318,6 +395,22 @@ for index, item in enumerate(observations):
         response_pointer = prefix + '/responses/' + str(item['status'])
     if is_event:
         found.update(event_constraints(item, prefix))
+    elif item['status'] == 204:
+        if item['response'] is not None or 'content' in response_definition:
+            raise AssertionError('真实204响应必须无正文且契约不能声明响应内容。')
+    elif is_binary:
+        media = item['contentType'].split(';',1)[0].strip().lower()
+        response_schema = response_definition['content'][media]['schema']
+        validator(response_schema).validate(item['response'])
+        keywords(response_schema,response_pointer + '/content/' + verification.escape(media) + '/schema',item['response'],found)
+        headers = {key.lower():value for key,value in item.get('responseHeaders',{}).items()}
+        for header, definition in response_definition.get('headers',{}).items():
+            value = headers.get(header.lower())
+            validator(definition['schema']).validate(value)
+            pointer = response_pointer + '/headers/' + verification.escape(header)
+            found.add(pointer)
+            if definition.get('description'): found.add(pointer + '/description')
+            keywords(definition['schema'],pointer + '/schema',value,found)
     else:
         response_schema = response_definition['content']['application/json']['schema']
         errors = list(validator(response_schema).iter_errors(item['response']))
@@ -361,7 +454,7 @@ for index, item in enumerate(observations):
             except ValueError: pass
         found.update(parameter_constraints(schema,pointer,actual,parameter.get('required',False),item['status']))
     found &= set(operation['constraints']) | ({'security.8'} if is_indexing else set())
-    request_label = '真实索引边界请求' if profile == 'indexing-gaps' else '真实事件请求' if profile == 'indexing-events' else '真实索引请求' if is_indexing else '真实知识库请求' if profile == 'knowledge-bases' else '真实设置请求'
+    request_label = '真实维护请求' if profile == 'maintenance' else '真实索引边界请求' if profile == 'indexing-gaps' else '真实事件请求' if profile == 'indexing-events' else '真实索引请求' if is_indexing else '真实知识库请求' if profile == 'knowledge-bases' else '真实设置请求'
     tests.append({'name': str(index + 1) + '：' + request_label + '：' + name + '：' + str(item['status']),
                   'passed': True, 'operationIds': [name], 'constraintIds': sorted(found),
                   'request': {'method': item['method'], 'path': path},
@@ -371,7 +464,7 @@ for index, item in enumerate(observations):
 report = {'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
           'implementationSha256': verification.snapshot()[0],
           'routes': observations[0]['routes'], 'tests': tests}
-output = root / ('server/target/contract/provider-indexing-gaps-evidence.json' if profile == 'indexing-gaps' else 'server/target/contract/provider-indexing-events-evidence.json' if profile == 'indexing-events' else 'server/target/contract/provider-indexing-evidence.json' if profile == 'indexing' else 'server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
+output = root / ('server/target/contract/provider-maintenance-evidence.json' if profile == 'maintenance' else 'server/target/contract/provider-indexing-gaps-evidence.json' if profile == 'indexing-gaps' else 'server/target/contract/provider-indexing-events-evidence.json' if profile == 'indexing-events' else 'server/target/contract/provider-indexing-evidence.json' if profile == 'indexing' else 'server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print('提供方证据完成：' + profile + '：' + str(len(tests)))

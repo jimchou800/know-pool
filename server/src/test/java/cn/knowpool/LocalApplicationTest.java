@@ -63,6 +63,25 @@ class LocalApplicationTest {
     }
 
     @Test
+    @DisplayName("指定版本预览在覆盖后仍保持原始字节与媒体")
+    void previewCapturedVersionAfterReplacement() throws Exception {
+        Credentials credentials = credentials();
+        String datasetId = createDataset("版本预览验收", credentials);
+        byte[] original = "# 旧版原文\r\n保留😀。".getBytes(StandardCharsets.UTF_8);
+        JsonNode file = JSON.readTree(upload(datasetId, credentials,
+                new UploadPart("version.md", "text/markdown", original)).body()).at("/items/0/file");
+        String fileId = file.path("id").asText();
+        String versionId = file.at("/latestVersion/id").asText();
+        assertThat(call("PATCH", "/files/" + fileId + "/name", "{\"name\":\"version.pdf\"}", credentials).statusCode()).isEqualTo(200);
+        upload(datasetId, credentials, new UploadPart("version.pdf", "application/pdf", textPdf()));
+        HttpResponse<byte[]> response = HTTP.send(request("GET", "/files/" + fileId + "/versions/"
+                + versionId + "/preview", null, credentials).build(), HttpResponse.BodyHandlers.ofByteArray());
+        verifiedBinary(response, original, "text/markdown", true);
+        assertError(call("GET", "/files/" + fileId + "/versions/" + UUID.randomUUID() + "/preview",
+                null, credentials), 404, "NOT_FOUND");
+    }
+
+    @Test
     @DisplayName("本机会话和持久状态通过真实接口联通")
     void sessionAndPersistentStatusWorkOverHttp() throws Exception {
         HttpResponse<String> initialization = get("/session", null, null);
@@ -271,10 +290,10 @@ class LocalApplicationTest {
                 .hasMessageContaining("另一应用进程");
         Path other = Files.createTempDirectory(Path.of("target/test-data"), "reopen-");
         try (ApplicationData first = new ApplicationData(other.toString())) {
-            assertThat(first.status().schemaVersion()).isEqualTo(6);
+            assertThat(first.status().schemaVersion()).isEqualTo(16);
         }
         try (ApplicationData reopened = new ApplicationData(other.toString())) {
-            assertThat(reopened.status().schemaVersion()).isEqualTo(6);
+            assertThat(reopened.status().schemaVersion()).isEqualTo(16);
         }
         assertThatThrownBy(() -> new ApplicationData("\\\\server\\share"))
                 .isInstanceOf(IOException.class)
@@ -524,7 +543,7 @@ class LocalApplicationTest {
             statement.execute("INSERT INTO application_metadata VALUES ('created_at','保留原始元数据')");
             statement.execute("PRAGMA user_version=1");
             try (ApplicationData upgraded = new ApplicationData(directory.toString())) {
-                assertThat(upgraded.status().schemaVersion()).isEqualTo(6);
+                assertThat(upgraded.status().schemaVersion()).isEqualTo(16);
                 assertThat(upgraded.<String>read(jdbc -> jdbc.sql("SELECT value FROM application_metadata")
                                 .query(String.class)
                                 .single()))
@@ -575,7 +594,7 @@ class LocalApplicationTest {
         try (var connection =
                         java.sql.DriverManager.getConnection("jdbc:sqlite:" + newer.resolve("application.sqlite"));
                 var statement = connection.createStatement()) {
-            statement.execute("PRAGMA user_version=7");
+            statement.execute("PRAGMA user_version=17");
         }
         assertThatThrownBy(() -> new ApplicationData(newer.toString()))
                 .isInstanceOf(IOException.class)
@@ -1993,16 +2012,18 @@ class LocalApplicationTest {
         assertThat(response.request().method()).isEqualTo("GET");
         assertThat(response.request().headers().firstValue("Cookie")).isPresent();
         String route = preview ? "preview" : "download";
-        String operation = preview ? "previewLatestFile" : "downloadLatestFile";
-        String prefix = "#/paths/~1files~1{fileId}~1latest~1" + route + "/get";
+        boolean versioned = response.request().uri().getPath().contains("/versions/");
+        String operation = versioned ? "previewVersionFile" : preview ? "previewLatestFile" : "downloadLatestFile";
+        String prefix = versioned ? "#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get" : "#/paths/~1files~1{fileId}~1latest~1" + route + "/get";
         String[] segments = response.request().uri().getPath().split("/");
-        assertThat(segments).hasSize(7);
+        assertThat(segments).hasSize(versioned ? 8 : 7);
         assertThat(segments[1]).isEqualTo("api");
         assertThat(segments[2]).isEqualTo("v1");
         assertThat(segments[3]).isEqualTo("files");
         UUID.fromString(segments[4]);
-        assertThat(segments[5]).isEqualTo("latest");
-        assertThat(segments[6]).isEqualTo(route);
+        assertThat(segments[5]).isEqualTo(versioned ? "versions" : "latest");
+        if (versioned) UUID.fromString(segments[6]);
+        assertThat(segments[versioned ? 7 : 6]).isEqualTo(route);
         assertThat(response.body()).isEqualTo(expected);
         assertThat(response.headers().firstValue("Content-Type").orElseThrow().split(";", 2)[0])
                 .isEqualTo(media);

@@ -1,11 +1,15 @@
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import Icon from '../Icon.vue';
-import { createSystemClient } from './session';
+import { createSystemClient, validStatus } from './session';
 import Datasets from '../datasets/Datasets.vue';
 import Settings from '../settings/Settings.vue';
 import KnowledgeBases from '../knowledge-bases/KnowledgeBases.vue';
+import Search from '../search/SearchInstances.vue';
+import Answers from '../answers/Answers.vue';
+import RecentAnswers from '../answers/RecentAnswers.vue';
+import CleanupTasks from '../cleanup/CleanupTasks.vue';
 
 const props = defineProps({
   client: { type: Object, default: () => createSystemClient() },
@@ -14,6 +18,37 @@ const route = useRoute();
 const loading = ref(true);
 const error = ref('');
 const status = ref(null);
+const statusError = ref('');
+const writable = computed(
+  () => status.value?.writeState === 'ready' && !statusError.value,
+);
+let alive = true,
+  statusTimer,
+  refreshing = false,
+  connection = 0;
+async function refreshStatus() {
+  if (refreshing || loading.value || !status.value || !alive) return;
+  const identity = connection;
+  refreshing = true;
+  clearTimeout(statusTimer);
+  try {
+    const value = await props.client.request({
+      method: 'get',
+      url: '/system/status',
+    });
+    if (!validStatus(value))
+      throw new Error('系统状态响应不符合约定，写入暂不可用。');
+    if (alive && identity === connection) {
+      status.value = value;
+      statusError.value = '';
+    }
+  } catch (cause) {
+    if (alive && identity === connection) statusError.value = cause.message;
+  } finally {
+    refreshing = false;
+    if (alive) statusTimer = setTimeout(refreshStatus, 2000);
+  }
+}
 const entries = [
   {
     path: '/datasets',
@@ -55,6 +90,8 @@ const pageNames = {
 };
 
 async function connect() {
+  connection++;
+  clearTimeout(statusTimer);
   loading.value = true;
   error.value = '';
   status.value = null;
@@ -64,9 +101,18 @@ async function connect() {
     error.value = failure.message;
   } finally {
     loading.value = false;
+    if (alive && status.value) {
+      statusError.value = '';
+      statusTimer = setTimeout(refreshStatus, 2000);
+    }
   }
 }
 onMounted(connect);
+onBeforeUnmount(() => {
+  alive = false;
+  connection++;
+  clearTimeout(statusTimer);
+});
 </script>
 
 <template>
@@ -94,6 +140,12 @@ onMounted(connect);
             ><Icon :name="entry.icon" />{{ entry.title }}</RouterLink
           >
           <p class="nav-group">知识服务</p>
+          <RouterLink
+            to="/tasks"
+            class="nav-item"
+            :class="{ selected: route.path === '/tasks' }"
+            ><Icon name="settings" />清理任务</RouterLink
+          >
           <RouterLink
             to="/search"
             class="nav-item"
@@ -135,6 +187,9 @@ onMounted(connect);
             重新连接
           </button>
         </div>
+        <p v-if="statusError" class="system-warning" role="alert">
+          {{ statusError }} 当前无法确认写入状态，写入口已暂停。
+        </p>
         <section v-if="route.path === '/'" class="welcome-content">
           <header class="welcome-heading">
             <p class="welcome-kicker">个人知识工作台</p>
@@ -160,12 +215,7 @@ onMounted(connect);
                 /></RouterLink>
               </div>
             </section>
-            <section>
-              <h2>最近问答</h2>
-              <p class="empty-history">
-                尚无问答记录。创建问答后，可在这里继续交流。
-              </p>
-            </section>
+            <RecentAnswers v-if="status && !loading" :client="client" />
           </div>
         </section>
         <template
@@ -175,12 +225,19 @@ onMounted(connect);
           ><Datasets
             v-if="status && !loading"
             :client="client"
-            :writable="status.writeState === 'ready'"
+            :writable="writable"
         /></template>
+        <CleanupTasks
+          v-else-if="route.path === '/tasks' && status && !loading"
+          :client="client"
+          :writable="writable"
+        />
         <Settings
           v-else-if="route.path === '/settings' && status && !loading"
           :client="client"
-          :writable="status.writeState === 'ready'"
+          :writable="writable"
+          :data-directory="status.dataDirectory"
+          @status-change="refreshStatus"
         />
         <KnowledgeBases
           v-else-if="
@@ -190,7 +247,22 @@ onMounted(connect);
             !loading
           "
           :client="client"
-          :writable="status.writeState === 'ready'"
+          :writable="writable"
+        />
+        <Search
+          v-else-if="route.path === '/search' && status && !loading"
+          :client="client"
+          :writable="writable"
+        />
+        <Answers
+          v-else-if="route.path === '/answers' && status && !loading"
+          :client="client"
+          :initial-id="
+            typeof route.query.conversation === 'string'
+              ? route.query.conversation
+              : null
+          "
+          :writable="writable"
         />
         <section v-else class="welcome-content">
           <h1>{{ pageNames[route.path] || '页面不存在' }}</h1>

@@ -11,6 +11,10 @@ public class KnowledgePoolApplication {
             System.exit(FileInspectionWorker.run(args));
             return;
         }
+        if (args.length > 0 && cn.knowpool.infrastructure.PdfExtractionWorker.INTERNAL_MODE.equals(args[0])) {
+            System.exit(cn.knowpool.infrastructure.PdfExtractionWorker.run(args));
+            return;
+        }
         SpringApplication.run(KnowledgePoolApplication.class, args);
     }
 }
