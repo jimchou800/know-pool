@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / 'docs/agents/api/openapi.yaml'
-TICKET = '23'
+TICKET = '24'
 SCOPE = ('initializeSession', 'getSystemStatus', 'listDatasets', 'createDataset', 'getDataset', 'updateDataset',
          'listDatasetFiles', 'uploadFiles', 'getFile', 'previewLatestFile', 'downloadLatestFile',
          'renameFile', 'listFileVersions', 'getGenerationModel', 'updateGenerationModel',
@@ -79,7 +79,7 @@ def snapshot():
     excluded = {'node_modules', 'target', 'dist', 'coverage', 'artifacts',
                 '.vite', '.codex', '.runtime', '__pycache__', 'playwright-report', 'test-results'}
     files = []
-    for base in ('front', 'server', 'verification', 'scripts/contract', '.github'):
+    for base in ('front', 'server', 'verification', 'scripts', '.github'):
         directory = ROOT / base
         if directory.exists():
             for parent, directories, names in os.walk(directory):

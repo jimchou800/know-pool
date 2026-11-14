@@ -10,6 +10,13 @@ if (-not $ApplicationJar) { $ApplicationJar = Join-Path $projectRoot 'server/tar
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $projectRoot 'target/releases' }
 $jdkPath = (Resolve-Path -LiteralPath $JdkDirectory).Path
 $jarPath = (Resolve-Path -LiteralPath $ApplicationJar).Path
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$application = [IO.Compression.ZipFile]::OpenRead($jarPath)
+try {
+    foreach ($required in @('BOOT-INF/classes/static/index.html', 'BOOT-INF/classes/cn/knowpool/KnowledgePoolApplication.class')) {
+        if (-not $application.GetEntry($required)) { throw '应用包缺少正式前端或后端启动入口，请先完成根统一构建。' }
+    }
+} finally { $application.Dispose() }
 $javaPath = Join-Path $jdkPath 'bin/java.exe'
 $linkPath = Join-Path $jdkPath 'bin/jlink.exe'
 if (-not (Test-Path -LiteralPath $javaPath -PathType Leaf) -or -not (Test-Path -LiteralPath $linkPath -PathType Leaf)) {

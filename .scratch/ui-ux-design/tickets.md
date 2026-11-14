@@ -30,12 +30,12 @@
 | [20：确认删除影响并恢复失败清理](issues/20-deletion-cleanup.md) | 技术 11、技术 12、技术 13、技术 17 | [技术 20](../technical-design/issues/20-deletion-cleanup.md) | 已实现，待统一验证 |
 | [21：安全迁移数据目录并呈现恢复阶段](issues/21-data-migration.md) | 技术 17、技术 19、技术 20 | [技术 21](../technical-design/issues/21-data-migration.md) | 已实现，待统一验证 |
 | [22：备份恢复并明确索引和凭据边界](issues/22-backup-restore.md) | 技术 18、技术 19、技术 20 | [技术 22](../technical-design/issues/22-backup-restore.md) | 已实现，待统一验证 |
-| [23：设置实测资源参数并验证中文业务边界](issues/23-quality-evaluation.md) | 技术 09、技术 10、技术 14、技术 16、技术 17、技术 18、技术 19 | [技术 23](../technical-design/issues/23-quality-evaluation.md) | 实现中 |
-| [24：验收完整网页发行与桌面适配边界](issues/24-release-acceptance.md) | 技术 15、技术 17、技术 18、技术 19、技术 20、技术 21、技术 22、技术 23 | [技术 24](../technical-design/issues/24-release-acceptance.md) | 未开始 |
+| [23：设置实测资源参数并验证中文业务边界](issues/23-quality-evaluation.md) | 技术 09、技术 10、技术 14、技术 16、技术 17、技术 18、技术 19 | [技术 23](../technical-design/issues/23-quality-evaluation.md) | 已实现，待统一验证 |
+| [24：验收完整网页发行与桌面适配边界](issues/24-release-acceptance.md) | 技术 15、技术 17、技术 18、技术 19、技术 20、技术 21、技术 22、技术 23 | [技术 24](../technical-design/issues/24-release-acceptance.md) | 实现中 |
 
 ## 当前可领取范围
 
-01—08 有历史端到端验收记录；09—22 已集成、待统一验证；23 已领取，24 等待23实现齐备。依赖按根代理约定以已提交实现推进编码，验收仍须统一验证及双方独立签认。
+01—08 有历史端到端验收记录；09—23 已集成、待统一验证；24 已领取。依赖按根代理约定以已提交实现推进编码，验收仍须统一验证及双方独立签认。
 
 ## 完成门槛
 
@@ -50,4 +50,4 @@
 
 06 已随技术切片完成验收，证据见 [06 实施记录](../technical-design/implementation-06.md)。后续按既定阻塞关系领取，不以领域完成代替验收。
 
-当前实现前沿：09—22 已集成、待统一验证；23 正在实现，随后按依赖推进24。依赖已提交实现可用于后续编码，统一验证与验收后置，见根代理约定。
+当前实现前沿：09—23 已集成、待统一验证；24 正在实现。依赖已提交实现可用于后续编码，统一验证与验收后置，见根代理约定。

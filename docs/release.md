@@ -18,4 +18,15 @@ powershell -File scripts/release/package.ps1 -JdkDirectory D:/Tools/jdk-21
 
 脚本只复制本次应用包、启动文件、使用说明和指定 Java 运行时，生成文件清单及压缩包 SHA-256；不会打包开发数据目录。输出默认在 `target/releases/`，每次使用独立目录，不覆盖旧包。需使用许可允许分发的 Java 21 开发工具，运行时法律声明随包保留。
 
+装配前检查应用包同时具有正式前端和后端入口。完成装配后，将压缩包解压到新的独立目录，使用包内运行时分别执行两浏览器的同一业务链：
+
+```powershell
+python scripts/contract/run_live.py --release-directory D:/KnowPoolRelease --browser msedge
+python scripts/contract/run_live.py --release-directory D:/KnowPoolRelease --browser chrome
+```
+
+验证启动前核对清单、全部文件摘要及清单外文件，拒绝缺件、篡改和链接路径；该核对只检查完整性，不代表发布者身份认证。两次运行各用独立临时数据目录，不读取个人模型配置，结束关闭自建进程。开发机需已安装对应浏览器及固定前端工具链；目标用户启动仍只需解压后的运行时。浏览器记录保留 `contract-browser-msedge.json`、`contract-browser-chrome.json` 与各自截图目录，公共报告指向最后一次运行；不能以存在旧报告代替本次成功。
+
+完整验收先在最终集成快照运行根 `mvn verify`，再执行装配及两浏览器发行回归，生成同一实现和契约的不可变报告，前后端各自签认。中文评测与资源测量见[评测说明](evaluation.md)，模拟结果不能作为真实模型效果或推荐性能值。
+
 当前装配脚本已编写，待全部票据实现后统一执行。打包成功不代表 Chrome/Edge、完整契约、升级恢复、真实模型效果及目标环境资源边界已经验收。

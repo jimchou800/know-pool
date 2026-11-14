@@ -9,8 +9,8 @@ $jarPath = Join-Path $PSScriptRoot 'application.jar'
 if (-not (Test-Path -LiteralPath $javaPath -PathType Leaf) -or -not (Test-Path -LiteralPath $jarPath -PathType Leaf)) {
     throw '发行包不完整，请重新解压整个压缩包。'
 }
+if ($DataDirectory -notmatch '^[A-Za-z]:[\\/]') { throw '数据目录必须为本机磁盘绝对路径。' }
 $dataPath = [IO.Path]::GetFullPath($DataDirectory)
-if ($dataPath.StartsWith('\\')) { throw '数据目录必须位于本机磁盘。' }
 New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
 $logPath = Join-Path $dataPath 'logs/application.log'
 Write-Output ('正在启动知池：http://127.0.0.1:' + $Port + '/')
