@@ -50,11 +50,47 @@ export async function checkContentSwitch(
   const newVersion = second.file.latestVersion.id;
   assert.equal((await state()).effectiveContentVersionId, oldVersion);
   assert.equal((await state()).targetContentVersionId, newVersion);
+  const nextTaskPage = () =>
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname ===
+          `/api/v1/knowledge-bases/${knowledgeBaseId}/tasks`,
+    );
+  const initialTasks = nextTaskPage();
   await page.reload();
   const tasks = page.getByRole('region', { name: '处理任务', exact: true });
-  const taskRow = tasks
-    .locator('.knowledge-files > li')
-    .filter({ hasText: second.indexTaskIds[0] });
+  const waitTaskPage = async (response) => {
+    const reply = await response;
+    assert.equal(reply.status(), 200);
+    const result = await reply.json();
+    assert.ok(result.items.length);
+    const last = result.items.at(-1);
+    await tasks
+      .locator('.knowledge-files > li')
+      .filter({
+        has: page.getByText(
+          `任务：${last.id}；文件：${last.fileId || '未绑定文件'}`,
+          {
+            exact: true,
+          },
+        ),
+      })
+      .waitFor();
+  };
+  await waitTaskPage(initialTasks);
+  const taskRow = tasks.locator('.knowledge-files > li').filter({
+    has: page.getByText(`任务：${second.indexTaskIds[0]}；文件：${fileId}`, {
+      exact: true,
+    }),
+  });
+  while ((await taskRow.count()) === 0) {
+    const response = nextTaskPage();
+    await tasks
+      .getByRole('button', { name: '更多处理任务', exact: true })
+      .click();
+    await waitTaskPage(response);
+  }
   await taskRow
     .getByRole('button', { name: '取消原任务', exact: true })
     .waitFor();
