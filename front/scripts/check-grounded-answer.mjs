@@ -81,16 +81,20 @@ export async function checkGroundedAnswer(
       submissions.push(request);
   };
   page.on('request', observe);
+  const window = () =>
+    page.getByRole('region', { name: '问答窗口', exact: true });
   const begin = async () => {
     await page.goto(`${base}/#/answers`);
     await page.reload();
     await page.getByRole('button', { name: '新建问答', exact: true }).click();
-    await page.getByLabel('问题', { exact: true }).fill('请按原文说明版本规则');
-    await page
+    await window()
+      .getByLabel('问题', { exact: true })
+      .fill('请按原文说明版本规则');
+    await window()
       .getByLabel('问答名称（可选）', { exact: true })
       .fill('保留的手动问答名');
-    await page.locator(`input[value="${knowledgeBaseId}"]`).check();
-    await page
+    await window().locator(`input[value="${knowledgeBaseId}"]`).check();
+    await window()
       .getByRole('checkbox', {
         name: '我同意本次问答可能调用嵌入、预处理、生成及校验模型并产生费用',
         exact: true,
@@ -102,7 +106,9 @@ export async function checkGroundedAnswer(
           '/api/v1/conversations/first-question' &&
         reply.request().method() === 'POST',
     );
-    await page.getByRole('button', { name: '提交首问', exact: true }).click();
+    await window()
+      .getByRole('button', { name: '提交首问', exact: true })
+      .click();
     const response = await accepted;
     assert.equal(response.status(), 202);
     return response.json();
@@ -134,7 +140,7 @@ export async function checkGroundedAnswer(
     });
     assert.equal(saved.status(), 200);
     const accepted = await begin();
-    await page
+    await window()
       .getByRole('heading', { name: '已依据资料回答', exact: true })
       .waitFor();
     assert.equal(accepted.conversation.name, '保留的手动问答名');
@@ -146,11 +152,14 @@ export async function checkGroundedAnswer(
     assert.equal(completed.answer.historyContext, 'none');
     assert.equal(completed.answer.omittedHistoryTurnCount, 0);
     const cited = completed.answer.evidence[0];
-    await page
+    await window()
       .getByRole('button', { name: '查看引用原文', exact: true })
       .first()
       .click();
-    const drawer = page.getByRole('region', { name: '引用原文', exact: true });
+    const drawer = window().getByRole('region', {
+      name: '引用原文',
+      exact: true,
+    });
     await drawer.waitFor();
     assert.ok((await drawer.innerText()).includes(cited.contentVersionId));
     assert.equal(await drawer.locator('pre').innerText(), cited.text);
@@ -166,29 +175,29 @@ export async function checkGroundedAnswer(
         path: `artifacts/live-grounded-answer-${width}.png`,
       });
     }
-    await page
+    await window()
       .getByRole('button', { name: '关闭引用原文', exact: true })
       .click();
     mode = 'invalid';
     await begin();
-    await page
+    await window()
       .getByText('回答未通过引用或事实校验，未展示草稿。', { exact: true })
       .waitFor();
     assert.equal(
-      await page
+      await window()
         .getByRole('region', { name: '已校验回答', exact: true })
         .count(),
       0,
     );
     mode = 'partial';
     await begin();
-    await page
+    await window()
       .getByRole('heading', { name: '部分问题有依据', exact: true })
       .waitFor();
-    await page
+    await window()
       .getByText('缺少依据的问题：另一个子问题没有依据', { exact: true })
       .waitFor();
-    await page
+    await window()
       .getByText('资料矛盾：固定替身声明不同来源条件不一致，需核对原文', {
         exact: true,
       })
@@ -197,7 +206,7 @@ export async function checkGroundedAnswer(
     noMatches(true);
     try {
       await begin();
-      await page
+      await window()
         .getByRole('heading', { name: '资料中没有足够依据', exact: true })
         .waitFor();
       assert.equal(
@@ -214,7 +223,7 @@ export async function checkGroundedAnswer(
     const count = submissions.length;
     try {
       await begin();
-      await page
+      await window()
         .getByRole('heading', { name: '已依据资料回答', exact: true })
         .waitFor();
       assert.equal(submissions.length, count + 1);
@@ -224,17 +233,17 @@ export async function checkGroundedAnswer(
     gateEmbedding();
     try {
       await begin();
-      await page
+      await window()
         .getByRole('button', { name: '取消本次问答', exact: true })
         .click();
-      await page
+      await window()
         .getByRole('button', { name: '确认取消问答', exact: true })
         .click();
-      await page
+      await window()
         .getByText('问答已取消，不展示草稿。', { exact: true })
         .waitFor();
       assert.equal(
-        await page
+        await window()
           .getByRole('region', { name: '已校验回答', exact: true })
           .count(),
         0,

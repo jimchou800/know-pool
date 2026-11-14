@@ -70,11 +70,17 @@ export async function checkConversationHistory(
   await page
     .getByRole('button', { name: '重命名当前问答', exact: true })
     .click();
-  await page.getByLabel('问答名称', { exact: true }).fill('允许重复的历史会话');
-  await page.getByRole('button', { name: '保存问答名称', exact: true }).click();
-  await page
-    .getByRole('region', { name: '重命名问答实例', exact: true })
-    .waitFor({ state: 'hidden' });
+  const rename = page.getByRole('region', {
+    name: '重命名问答实例',
+    exact: true,
+  });
+  await rename
+    .getByLabel('问答名称', { exact: true })
+    .fill('允许重复的历史会话');
+  await rename
+    .getByRole('button', { name: '保存问答名称', exact: true })
+    .click();
+  await rename.waitFor({ state: 'hidden' });
   assert.equal(
     (await (await http.get(`${root}/conversations/${first}`)).json()).name,
     (await (await http.get(`${root}/conversations/${second}`)).json()).name,
@@ -177,8 +183,12 @@ export async function checkConversationHistory(
     page.off('request', observe);
   }
   await page.getByRole('button', { name: '删除当前问答', exact: true }).click();
-  await page.getByText(/不删除源资料、数据集、知识库或其他会话/).waitFor();
-  await page
+  const deletion = page.getByRole('region', {
+    name: '确认删除问答实例',
+    exact: true,
+  });
+  await deletion.getByText(/不删除源资料、数据集、知识库或其他会话/).waitFor();
+  await deletion
     .getByRole('button', { name: '确认删除问答实例', exact: true })
     .click();
   await list()
@@ -256,6 +266,7 @@ export async function checkConversationRestart(
   try {
     await page.goto(`${base}/#/answers?conversation=${conversationId}`);
     await page
+      .getByRole('region', { name: '问答窗口', exact: true })
       .getByText(
         '应用重启后任务已中断，未自动重新调用模型；确认费用后可手动提问。',
         { exact: true },
