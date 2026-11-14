@@ -27,6 +27,8 @@ public final class ApplicationData implements AutoCloseable {
     private FileLock lock;
     private final DriverManagerDataSource dataSource;
     private volatile boolean migrationFailed;
+    private volatile long busyTimeout=5000;
+    public synchronized void busyTimeout(long value) { busyTimeout=value;dataSource.setUrl("jdbc:sqlite:"+directory.resolve("application.sqlite")+"?foreign_keys=on&busy_timeout="+value); }
     private final Instant startedAt = Instant.now();
 
     public ApplicationData(@Value("${know-pool.data-directory}") String configuredDirectory) throws IOException {
@@ -52,7 +54,7 @@ public final class ApplicationData implements AutoCloseable {
         dataSource = new DriverManagerDataSource();
         dataSource.setDriverClassName("org.sqlite.JDBC");
         dataSource.setUrl(
-                "jdbc:sqlite:" + directory.resolve("application.sqlite") + "?foreign_keys=on&busy_timeout=5000");
+                "jdbc:sqlite:" + directory.resolve("application.sqlite") + "?foreign_keys=on&busy_timeout="+busyTimeout);
         try {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
@@ -325,7 +327,7 @@ public final class ApplicationData implements AutoCloseable {
             Files.move(pending,pointer,java.nio.file.StandardCopyOption.ATOMIC_MOVE,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException failure) { nextLock.release();nextChannel.close();throw failure; }
         FileLock previousLock=lock;FileChannel previousChannel=lockChannel;
-        dataSource.setUrl("jdbc:sqlite:"+target.resolve("application.sqlite")+"?foreign_keys=on&busy_timeout=5000");
+        dataSource.setUrl("jdbc:sqlite:"+target.resolve("application.sqlite")+"?foreign_keys=on&busy_timeout="+busyTimeout);
         directory=target;lockChannel=nextChannel;lock=nextLock;
         try { previousLock.release(); } finally { previousChannel.close(); }
     }

@@ -19,6 +19,10 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public final class SearchRequests {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.RuntimeSettings runtime;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.ModelLimits modelLimits;
     private final ApplicationData data;
     private final KnowledgeBases bases;
     private final Indexes indexes;
@@ -26,13 +30,16 @@ public final class SearchRequests {
     private final java.util.Map<String, ObjectNode> requests = new java.util.HashMap<>();
     private final java.util.Map<String, String> keys = new java.util.HashMap<>();
     private final java.util.Map<String, String> inputs = new java.util.HashMap<>();
-    private final java.util.concurrent.Semaphore capacity = new java.util.concurrent.Semaphore(17);
+    private final cn.knowpool.infrastructure.AdjustableCapacity capacity = new cn.knowpool.infrastructure.AdjustableCapacity(() -> runtime==null?17:(int)runtime.number("queueCapacity")+(int)runtime.number("searchConcurrency"));
     private final ThreadPoolExecutor worker =
-            new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(16), r -> {
+            new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>(), r -> {
                 Thread t = new Thread(r, "management-search");
                 t.setDaemon(true);
                 return t;
             });
+    private final ThreadPoolExecutor questionWorker=new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,new java.util.concurrent.LinkedBlockingQueue<>(),r -> { Thread t=new Thread(r,"question-service");t.setDaemon(true);return t; });
+    private final cn.knowpool.infrastructure.AdjustableCapacity questionCapacity=new cn.knowpool.infrastructure.AdjustableCapacity(() -> runtime==null?17:(int)runtime.number("queueCapacity")+(int)runtime.number("questionConcurrency"));
+    private void resize(ThreadPoolExecutor pool,String field) { int value=runtime==null?1:(int)runtime.number(field);if (value>pool.getMaximumPoolSize()) pool.setMaximumPoolSize(value);pool.setCorePoolSize(value);pool.setMaximumPoolSize(value); }
     private boolean stopping;
     private final java.util.Map<String,ObjectNode> instances = new java.util.HashMap<>();
     private final java.util.Map<String,List<String>> selected = new java.util.HashMap<>();
@@ -190,6 +197,7 @@ public final class SearchRequests {
             if (!inputs.get(id).equals(fingerprint)) throw new ApiFailure(409,"CONFLICT","同一幂等键不能提交不同内容。",null);
             return requests.get(id).deepCopy();
         }
+        resize(worker,"searchConcurrency");
         if (!capacity.tryAcquire()) throw new ApiFailure(429,"QUEUE_FULL","检索队列已满，请稍后重试。",null);
         String id=UUID.randomUUID().toString(),taskId=UUID.randomUUID().toString();
         ObjectNode task=json.createObjectNode().put("id",taskId).put("kind","search").put("state","queued").put("phase","queued")
@@ -269,7 +277,7 @@ public final class SearchRequests {
             task.put("state","running").put("phase","retrieving").put("startedAt",Instant.now().toString()).put("attempt",1);
             save(task);
         }
-        try {
+        try (var parameters=runtime==null?null:runtime.capture();var budget=modelLimits==null?null:modelLimits.request()) {
             Retrieval retrieval=kb==null?retrieveMany(id,query):new Retrieval(indexes.retrieve(kb,query),scope(kb,null));
             synchronized (this) {
                 if (cancelledRequest(id)) return;
@@ -330,7 +338,9 @@ public final class SearchRequests {
         progress(id,scope);
         var lists=new java.util.LinkedHashMap<String,JsonNode>();
         try (var cache=new Indexes.QueryVectors()) {
-        int quota=Math.max(1,Math.max(100,Math.min(10000,candidateBudget))/Math.max(1,all.size()));
+        long routeBudget=runtime==null?1000:runtime.number("maxRequestCandidates");
+        if (all.size()>routeBudget) throw new ApiFailure(429,"RESOURCE_LIMIT","所选范围超过请求候选预算。",null);
+        int quota=(int)Math.min(Integer.MAX_VALUE,Math.max(1,routeBudget/Math.max(1,all.size())));
         for (String kb:eligible) {
             if (cancelledRequest(id)) return new Retrieval(json.createArrayNode(),scope);
             try {
@@ -377,26 +387,27 @@ public final class SearchRequests {
                 String identity=item.path("fileId").asText()+":"+item.path("contentVersionId").asText()+":"+item.path("location").toString()+":"+item.path("text").asText();
                 if (!seen.add(identity)) continue;
                 values.putIfAbsent(identity,item);
-                scores.merge(identity,1.0/(Math.max(1,fusionOffset)+rank),Double::sum);
+                scores.merge(identity,1.0/((runtime==null?Math.max(1,fusionOffset):runtime.decimal("rrfConstant"))+rank),Double::sum);
             }
         }
         var ordered=new java.util.ArrayList<>(values.keySet());
         ordered.sort(java.util.Comparator.comparingDouble((String key) -> scores.get(key)).reversed());
         var result=json.createArrayNode();
-        ordered.stream().limit(Math.max(1,Math.min(1000,evidenceLimit))).forEach(key -> result.add(values.get(key)));
+        ordered.stream().limit(runtime==null?Math.max(1,evidenceLimit):runtime.number("finalEvidenceLimit")).forEach(key -> result.add(values.get(key)));
         return result;
     }
 
     private record Retrieval(JsonNode evidence,ObjectNode scope) {}
 
     public void reserveQuestion() {
-        if (!capacity.tryAcquire()) throw new ApiFailure(429,"QUEUE_FULL","知识服务队列已满，请稍后重试。",null);
+        resize(questionWorker,"questionConcurrency");
+        if (!questionCapacity.tryAcquire()) throw new ApiFailure(429,"QUEUE_FULL","知识服务队列已满，请稍后重试。",null);
     }
 
-    public void releaseQuestion() { capacity.release(); }
+    public void releaseQuestion() { questionCapacity.release(); }
 
     public void executeQuestion(Runnable action) {
-        worker.execute(data.gate().activity(() -> { try { action.run(); } finally { Thread.interrupted();capacity.release(); } },capacity::release));
+        questionWorker.execute(data.gate().activity(() -> { try { action.run(); } finally { Thread.interrupted();questionCapacity.release(); } },questionCapacity::release));
     }
 
     public Grounding beginGrounding(List<String> selectedIds) {
@@ -432,7 +443,9 @@ public final class SearchRequests {
             ObjectNode scope=json.createObjectNode();scope.set("selectedKnowledgeBaseIds",json.valueToTree(selectedIds));scope.set("usedKnowledgeBaseIds",used);scope.set("omitted",omitted);scope.put("incomplete",!omitted.isEmpty());
             progress.accept(scope.deepCopy());
             var routes=new java.util.LinkedHashMap<String,JsonNode>();
-            int quota=Math.max(1,Math.max(400,Math.min(10000,candidateBudget))/(Math.max(1,selectedIds.size())*queries.size()));
+            long routeBudget=runtime==null?1000:runtime.number("maxRequestCandidates");
+        if ((long)selectedIds.size()*queries.size()>routeBudget) throw new ApiFailure(429,"RESOURCE_LIMIT","范围及查询数超过请求候选预算。",null);
+            int quota=(int)Math.min(Integer.MAX_VALUE,Math.max(1,routeBudget/(Math.max(1,selectedIds.size())*queries.size())));
             for (String kb:eligible) {
                 if (cancelled.getAsBoolean()) return json.createObjectNode().set("scope",scope);
                 var local=new java.util.LinkedHashMap<String,JsonNode>();
@@ -540,7 +553,7 @@ public final class SearchRequests {
         synchronized (this) {
             stopping = true;
         }
-        worker.shutdownNow();
+        worker.shutdownNow();questionWorker.shutdownNow();
         try {
             worker.awaitTermination(6, TimeUnit.SECONDS);
         } catch (InterruptedException failure) {

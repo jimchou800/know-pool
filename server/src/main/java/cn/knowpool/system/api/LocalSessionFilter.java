@@ -38,6 +38,8 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
     private final Clock clock;
     @Autowired(required=false)
     private cn.knowpool.infrastructure.ApplicationData data;
+    @Autowired(required=false)
+    private cn.knowpool.infrastructure.UploadBoundary uploadBoundary;
     private final SecureRandom random = new SecureRandom();
 
     @Autowired
@@ -145,7 +147,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         && request.getMethod().equals("GET")
                 || path.matches("/api/v1/files/[^/]+/versions/[^/]+/(?:preview|download)")
                         && request.getMethod().equals("GET");
-        boolean settings = path.matches("/api/v1/settings/models/(?:generation|embedding)")
+        boolean settings = path.equals("/api/v1/settings/runtime") && Set.of("GET","PUT").contains(request.getMethod()) || path.matches("/api/v1/settings/models/(?:generation|embedding)")
                         && Set.of("GET", "PUT").contains(request.getMethod())
                 || path.equals("/api/v1/settings/vector-store")
                         && Set.of("GET", "PUT").contains(request.getMethod())
@@ -207,6 +209,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
             if (data==null || readable) { chain.doFilter(request,response);return; }
             try (var lease=data.gate().enter()) {
                 if (lease==null) { error(response,503,"WRITES_PAUSED","数据维护进行中，请稍后重试。",requestId);return; }
+                if (uploadBoundary!=null && path.endsWith("/files:upload")) uploadBoundary.parse(request);
                 chain.doFilter(request,response);
             }
             return;

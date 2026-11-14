@@ -17,13 +17,15 @@ import tools.jackson.databind.json.JsonMapper;
 
 @Service
 public final class ConnectionTests {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.RuntimeSettings runtime;
     private static final String COST_WARNING = "连接测试可能已产生费用，请勿自动重新提交。";
     private final ApplicationData data;
     private final JsonMapper json;
     private final ConnectionProbe probe;
-    private final Semaphore capacity = new Semaphore(17);
+    private final cn.knowpool.infrastructure.AdjustableCapacity capacity = new cn.knowpool.infrastructure.AdjustableCapacity(() -> runtime==null?17:(int)runtime.number("queueCapacity")+1);
     private final ThreadPoolExecutor executor =
-            new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(16), runnable -> {
+            new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>(), runnable -> {
                 Thread thread = new Thread(runnable, "connection-test");
                 thread.setDaemon(true);
                 return thread;

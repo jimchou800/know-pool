@@ -10,35 +10,25 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 public class UploadConfiguration {
     @Bean
-    public Limits uploadLimits(
-            @Value("${know-pool.upload.max-file-bytes}") long maxFileBytes,
-            @Value("${know-pool.upload.max-upload-bytes}") long maxUploadBytes,
-            @Value("${know-pool.upload.max-upload-files}") int maxUploadFiles,
-            @Value("${know-pool.processing.parse-timeout-seconds}") long parseTimeoutSeconds,
-            @Value("${know-pool.processing.max-extracted-code-points}") long maxExtractedCodePoints) {
-        if (maxFileBytes < 1
-                || maxUploadBytes < maxFileBytes
-                || maxUploadBytes > 9007199254740991L
-                || maxUploadFiles < 1
-                || maxUploadFiles > 1000
-                || parseTimeoutSeconds < 1
-                || parseTimeoutSeconds > 9007199254740991L
-                || maxExtractedCodePoints < 1
-                || maxExtractedCodePoints > 9007199254740991L) throw new IllegalArgumentException("上传资源参数不合法。");
-        return new Limits(maxFileBytes, maxUploadBytes, maxUploadFiles, parseTimeoutSeconds, maxExtractedCodePoints);
-    }
+    public Limits uploadLimits(RuntimeSettings settings) { return new Limits(settings); }
 
     @Bean
     public MultipartConfigElement multipartConfigElement(ApplicationData data, Limits limits) throws IOException {
         var directory = Files.createTempDirectory("know-pool-multipart-");
         Files.createDirectories(directory);
-        return new MultipartConfigElement(directory.toString(), limits.maxUploadBytes(), limits.maxUploadBytes(), 0);
+        return new MultipartConfigElement(directory.toString(), -1, -1, 0);
     }
 
-    public record Limits(
-            long maxFileBytes,
-            long maxUploadBytes,
-            int maxUploadFiles,
-            long parseTimeoutSeconds,
-            long maxExtractedCodePoints) {}
+    public static final class Limits {
+        private final RuntimeSettings runtime;
+        private final long file,upload,timeout,extracted;
+        private final int count;
+        public Limits(RuntimeSettings runtime) { this.runtime=runtime;file=upload=timeout=extracted=0;count=0; }
+        public Limits(long file,long upload,int count,long timeout,long extracted) { this.runtime=null;this.file=file;this.upload=upload;this.count=count;this.timeout=timeout;this.extracted=extracted; }
+        public long maxFileBytes() { return runtime==null?file:runtime.number("maxFileBytes"); }
+        public long maxUploadBytes() { return runtime==null?upload:runtime.number("maxUploadBytes"); }
+        public int maxUploadFiles() { return runtime==null?count:(int)runtime.number("maxUploadFiles"); }
+        public long parseTimeoutSeconds() { return runtime==null?timeout:runtime.number("parseTimeoutSeconds"); }
+        public long maxExtractedCodePoints() { return runtime==null?extracted:runtime.number("maxExtractedCodePoints"); }
+    }
 }

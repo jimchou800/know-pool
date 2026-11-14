@@ -9,6 +9,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 @Component
 public final class Generations {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.RuntimeSettings runtime;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.ModelLimits modelLimits;
     private final JsonMapper json;
     private final java.util.concurrent.Semaphore capacity=new java.util.concurrent.Semaphore(1,true);
     public Generations(JsonMapper json) { this.json=json; }
@@ -20,11 +24,11 @@ public final class Generations {
         if (reserved<1 || upper+reserved>model.contextWindowTokens()) throw new ApiFailure(422,"MODEL_CONFIG_INVALID","完整模型输入与预留输出超过上下文安全预算。",null);
         boolean acquired=false;
         try {
-            capacity.acquire();acquired=true;
-            try (var transport=new ConnectionProbe.Transport()) {
+            if (modelLimits==null) { capacity.acquire();acquired=true; }
+            try (var modelLease=modelLimits==null?null:modelLimits.acquire(model.endpoint(),model.model(),upper+reserved,false);var transport=new ConnectionProbe.Transport(runtime==null?5:runtime.number("modelTimeoutSeconds"))) {
                 var client=new com.openai.client.OpenAIClientImpl(com.openai.core.ClientOptions.builder().httpClient(transport)
                         .baseUrl(model.endpoint()).apiKey(model.secret()).maxRetries(0).logLevel(com.openai.core.LogLevel.OFF)
-                        .responseValidation(true).timeout(Duration.ofSeconds(5)).build());
+                        .responseValidation(true).timeout(Duration.ofSeconds(runtime==null?5:runtime.number("modelTimeoutSeconds"))).build());
                 var options=org.springframework.ai.openai.OpenAiChatOptions.builder().model(model.model()).maxTokens((int)reserved)
                         .extraBody(java.util.Map.of("stream",false)).build();
                 var response=org.springframework.ai.openai.OpenAiChatModel.builder().openAiClient(client).openAiClientAsync(client.async()).options(options).build()

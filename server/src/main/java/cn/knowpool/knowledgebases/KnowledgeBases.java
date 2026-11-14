@@ -25,15 +25,17 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public final class KnowledgeBases {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.RuntimeSettings runtime;
     private final ApplicationData data;
     private final ModelSettingsService settings;
     private final VectorCollections vectors;
     private final JsonMapper json;
     private final FileService files;
-    private final java.util.concurrent.Semaphore capacity = new java.util.concurrent.Semaphore(17);
+    private final cn.knowpool.infrastructure.AdjustableCapacity capacity = new cn.knowpool.infrastructure.AdjustableCapacity(() -> runtime==null?17:(int)runtime.number("queueCapacity")+1);
     private final AtomicBoolean stopping = new AtomicBoolean();
     private final ThreadPoolExecutor executor =
-            new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(16), runnable -> {
+            new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>(), runnable -> {
                 Thread thread = new Thread(runnable, "knowledge-base-create");
                 thread.setDaemon(true);
                 return thread;
@@ -432,6 +434,19 @@ public final class KnowledgeBases {
                 .params(version, id).query(String.class).optional().orElse("kp_" + id.replace("-", "")));
     }
 
+    public void runtimeInputChanged(long limit) {
+        List<String> ids=data.read(jdbc -> jdbc.sql("SELECT id FROM knowledge_bases WHERE visible=1 ORDER BY id").query(String.class).list());
+        for (String id:ids) {
+            ObjectNode input=(ObjectNode)config(id).path("input").deepCopy();
+            updateConfig(id,"runtime",UUID.randomUUID().toString(),input);
+            data.write(jdbc -> {
+                ObjectNode current=(ObjectNode)config(id);current.put("runtimeChunkHardLimitCodePoints",limit);
+                jdbc.sql("UPDATE knowledge_bases SET config=? WHERE id=?").params(json.writeValueAsString(current),id).update();
+                jdbc.sql("UPDATE processing_config_history SET payload=? WHERE id=?").params(json.writeValueAsString(current),current.path("id").asText()).update();return null;
+            });
+        }
+    }
+
     public ConnectionTests.Accepted updateConfig(String id, String session, String key, JsonNode input) {
         String validKey = ModelSettingsService.identifier(key, "Idempotency-Key");
         return data.write(jdbc -> {
@@ -450,7 +465,8 @@ public final class KnowledgeBases {
                 throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "嵌入快照与已保存版本不匹配。", "/embedding/modelSnapshot");
             if (settings.vectorConnection().endpoint() == null) throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "请先设置向量连接。", null);
             if (jdbc.sql("SELECT COUNT(*) FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE t.state IN ('queued','running')")
-                    .query(Integer.class).single() >= 17) throw new ApiFailure(429, "QUEUE_FULL", "配置重建队列已满。", null);
+                    .query(Integer.class).single() >= (runtime==null?17:runtime.number("queueCapacity"))) throw new ApiFailure(429, "QUEUE_FULL", "配置重建队列已满。", null);
+            requireIndexCapacity(jdbc,jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=?").param(id).query(Long.class).single());
             JsonNode oldConfig = config(id);
             jdbc.sql("INSERT OR IGNORE INTO processing_config_history VALUES(?,?,?,?)").params(oldConfig.path("id").asText(), id,
                     json.writeValueAsString(oldConfig), "kp_" + id.replace("-", "")).update();
@@ -569,6 +585,7 @@ public final class KnowledgeBases {
         JsonNode parent=jdbc.sql("SELECT t.payload FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE r.knowledge_base_id=? AND r.config_version_id=?")
                 .params(kb,config).query(String.class).optional().map(json::readTree).orElse(null);
         if (parent!=null && parent.path("state").asText().equals("cancelled")) return result;
+        requireIndexCapacity(jdbc,1);
         String now=Instant.now().toString(),taskId=UUID.randomUUID().toString();
         if (parent!=null && List.of("failed","interrupted").contains(parent.path("state").asText())) {
             String parentId=UUID.randomUUID().toString();
@@ -671,6 +688,12 @@ public final class KnowledgeBases {
         contentCommitted(event,null);
     }
 
+    private void requireIndexCapacity(JdbcClient jdbc,long added) {
+        long active=jdbc.sql("SELECT COUNT(*) FROM tasks WHERE kind='index_file' AND state IN ('queued','running')").query(Long.class).single();
+        long maximum=runtime==null?17:runtime.number("queueCapacity")+runtime.number("indexConcurrency");
+        if (active+added>maximum) throw new ApiFailure(429,"QUEUE_FULL","索引等待队列已满，请稍后重试。",null);
+    }
+
     private void contentCommitted(FileService.ContentCommitted event, String targetBase) {
         JdbcClient jdbc = event.jdbc();
         List<String> ids = jdbc.sql(
@@ -696,6 +719,7 @@ public final class KnowledgeBases {
                         .params(json.writeValueAsString(old), old.path("id").asText())
                         .update();
             }
+            requireIndexCapacity(jdbc,1);
             String config = get(jdbc, kb).path("targetConfigVersionId").asText(),
                     taskId = UUID.randomUUID().toString();
             ConnectionTests.Task task = new ConnectionTests.Task(
@@ -774,6 +798,7 @@ public final class KnowledgeBases {
                             .query(Integer.class)
                             .single()
                     > 0) continue;
+            requireIndexCapacity(jdbc,1);
             String taskId = UUID.randomUUID().toString();
             ConnectionTests.Task task = new ConnectionTests.Task(
                     taskId,

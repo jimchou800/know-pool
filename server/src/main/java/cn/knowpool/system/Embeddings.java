@@ -14,6 +14,10 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class Embeddings {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.RuntimeSettings runtime;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.ModelLimits modelLimits;
     private final java.util.concurrent.Semaphore capacity = new java.util.concurrent.Semaphore(1, true);
 
     private final tools.jackson.databind.json.JsonMapper json;
@@ -39,10 +43,9 @@ public final class Embeddings {
         if (upper == 0 || upper > 8192) throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "完整嵌入输入超过模型安全预算或为空。", null);
         boolean acquired = false;
         try {
-            capacity.acquire();
-            acquired = true;
+            if (modelLimits==null) { capacity.acquire();acquired=true; }
             var actual = new java.util.concurrent.atomic.AtomicInteger(-1);
-            try (var transport = new ConnectionProbe.Transport(body -> {
+            try (var modelLease=modelLimits==null?null:modelLimits.acquire(snapshot.endpoint(),snapshot.model(),upper,true);var transport = new ConnectionProbe.Transport(body -> {
                 var usage = json.readTree(body).at("/usage/prompt_tokens");
                 if (!usage.isIntegralNumber()
                         || !usage.canConvertToLong()
@@ -51,7 +54,7 @@ public final class Embeddings {
                         || usage.longValue() > upper)
                     throw new ApiFailure(500, "INTEGRITY_FAILED", "嵌入实际用量必须是预算内的非负安全整数。", null);
                 actual.set(usage.intValue());
-            })) {
+            },runtime==null?5:runtime.number("modelTimeoutSeconds"))) {
                 var client = new OpenAIClientImpl(ClientOptions.builder()
                         .httpClient(transport)
                         .baseUrl(snapshot.endpoint())
@@ -59,7 +62,7 @@ public final class Embeddings {
                         .maxRetries(0)
                         .logLevel(LogLevel.OFF)
                         .responseValidation(true)
-                        .timeout(Duration.ofSeconds(5))
+                        .timeout(Duration.ofSeconds(runtime==null?5:runtime.number("modelTimeoutSeconds")))
                         .build());
                 var options = OpenAiEmbeddingOptions.builder()
                         .model(snapshot.model())

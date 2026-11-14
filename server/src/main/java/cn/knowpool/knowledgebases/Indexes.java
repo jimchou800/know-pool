@@ -20,6 +20,8 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public final class Indexes {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.RuntimeSettings runtime;
     private static final java.util.Set<String> ABBREVIATIONS =
             java.util.Set.of("mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "e.g", "i.e", "fig", "no");
     private static final java.util.regex.Pattern ACRONYM = java.util.regex.Pattern.compile("(?:[a-z]\\.)+[a-z]");
@@ -35,6 +37,8 @@ public final class Indexes {
     private final java.util.Map<String,Integer> readers = new java.util.HashMap<>();
     private volatile boolean stopping;
     private boolean workerBusy;
+    private final java.util.Set<String> activeFiles=new java.util.HashSet<>();
+    private final java.util.concurrent.ExecutorService fileWorkers=Executors.newCachedThreadPool(r -> { Thread t=new Thread(r,"index-file-work");t.setDaemon(true);return t; });
     private boolean deletionBusy;
     private long nextOriginalCleanup;
     private final java.util.concurrent.ScheduledExecutorService worker =
@@ -110,13 +114,16 @@ public final class Indexes {
             cleanups();
             rebuilds();
             List<String> ids = data.read(jdbc -> jdbc.sql(
-                            "SELECT t.id FROM tasks t WHERE t.kind='index_file' AND t.state IN ('queued','running') AND NOT EXISTS(SELECT 1 FROM processing_rebuilds r JOIN tasks p ON p.id=r.task_id WHERE r.knowledge_base_id=json_extract(t.payload,'$.knowledgeBaseId') AND r.config_version_id=json_extract(t.payload,'$.targetConfigVersionId') AND p.state IN ('failed','interrupted','cancelled')) ORDER BY t.id LIMIT 1")
+                            "SELECT t.id FROM tasks t WHERE t.kind='index_file' AND t.state IN ('queued','running') AND NOT EXISTS(SELECT 1 FROM processing_rebuilds r JOIN tasks p ON p.id=r.task_id WHERE r.knowledge_base_id=json_extract(t.payload,'$.knowledgeBaseId') AND r.config_version_id=json_extract(t.payload,'$.targetConfigVersionId') AND p.state IN ('failed','interrupted','cancelled')) ORDER BY t.id LIMIT 100000")
                     .query(String.class)
                     .list());
-            if (!ids.isEmpty()) {
-                boolean waiting = data.read(jdbc -> jdbc.sql("SELECT COUNT(*) FROM tasks t JOIN processing_rebuilds r ON r.knowledge_base_id=json_extract(t.payload,'$.knowledgeBaseId') AND r.config_version_id=json_extract(t.payload,'$.targetConfigVersionId') JOIN tasks p ON p.id=r.task_id WHERE t.id=? AND r.ready=0 AND p.state IN ('queued','running')")
-                        .param(ids.getFirst()).query(Integer.class).single() > 0);
-                if (!waiting) run(ids.getFirst());
+            for (String id:ids) {
+                synchronized(data) { if (activeFiles.size()>=(runtime==null?1:runtime.number("indexConcurrency"))) break;if (activeFiles.contains(id)) continue; }
+                boolean waiting=data.read(jdbc -> jdbc.sql("SELECT COUNT(*) FROM tasks t JOIN processing_rebuilds r ON r.knowledge_base_id=json_extract(t.payload,'$.knowledgeBaseId') AND r.config_version_id=json_extract(t.payload,'$.targetConfigVersionId') JOIN tasks p ON p.id=r.task_id WHERE t.id=? AND r.ready=0 AND p.state IN ('queued','running')").param(id).query(Integer.class).single()>0);
+                if (waiting) continue;
+                synchronized(data) { activeFiles.add(id); }
+                Runnable release=() -> { synchronized(data) { activeFiles.remove(id); } };
+                fileWorkers.execute(data.gate().activity(() -> { try { run(id); } finally { release.run(); } },release));
             }
         } catch (RuntimeException failure) {
             // 持久任务保留现场，下一轮仅从安全检查点领取。
@@ -125,7 +132,7 @@ public final class Indexes {
 
     public boolean cleanWhenIdle(List<String> indexes,Runnable action) {
         synchronized (data) {
-            if (workerBusy || deletionBusy || !readers.isEmpty()) return false;
+            if (workerBusy || !activeFiles.isEmpty() || deletionBusy || !readers.isEmpty()) return false;
             deletionBusy=true;
         }
         try { action.run();return true; } finally { synchronized (data) { deletionBusy=false; } }
@@ -400,10 +407,13 @@ public final class Indexes {
     }
 
     private void run(String id) {
-        try {
+        try (var parameters=runtime==null?null:runtime.capture()) {
             ObjectNode task = phase(id, "parsing", 0, null);
-            JsonNode config =
-                    bases.config(task.path("knowledgeBaseId").asText(), task.path("targetConfigVersionId").asText()).path("input");
+            JsonNode version=bases.config(task.path("knowledgeBaseId").asText(),task.path("targetConfigVersionId").asText());
+            JsonNode config=version.path("input");
+            ObjectNode chunkConfig=(ObjectNode)config.path("chunking").deepCopy();
+            long chunkLimit=version.path("runtimeChunkHardLimitCodePoints").asLong(runtime==null?2000:runtime.number("chunkHardLimitCodePoints"));
+            chunkConfig.put("runtimeChunkHardLimitCodePoints",chunkLimit);
             String index = data.write(jdbc -> {
                 jdbc.sql("INSERT OR IGNORE INTO index_runs(task_id,id,phase,parser_version,config_snapshot) VALUES(?,?,'parsing',?,?)")
                         .params(id, UUID.randomUUID().toString(), DocumentSources.RULE_VERSION, json.writeValueAsString(config))
@@ -423,8 +433,8 @@ public final class Indexes {
                     throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "按页切片仅适用于PDF。", null);
                 DocumentSources.Parsed document = documentSources.parse(source, config.path("chunking"));
                 phase(id, "chunking", 0, null);
-                List<JsonNode> parsed = chunkPlans.build(document, config.path("chunking"), index);
-                ObjectNode preflight = chunkPlans.report(task, parsed, document.warnings(), completeSources(document, parsed));
+                List<JsonNode> parsed = chunkPlans.build(document, chunkConfig, index);
+                ObjectNode preflight = chunkPlans.report(task, parsed, document.warnings(), completeSources(document, parsed,chunkLimit));
                 data.write(jdbc -> {
                     if (!eligible(jdbc, task(jdbc, id))) throw new ApiFailure(409, "TASK_CANCELLED", "任务资格已失效。", null);
                     jdbc.sql("UPDATE index_runs SET parser_version=?,source_map=?,config_snapshot=? WHERE id=?")
@@ -692,7 +702,7 @@ public final class Indexes {
                 .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "目标预检尚未生成或任务不存在。", null)));
     }
 
-    private boolean completeSources(DocumentSources.Parsed document, List<JsonNode> chunks) {
+    private boolean completeSources(DocumentSources.Parsed document, List<JsonNode> chunks,long limit) {
         for (int unit = 0; unit < document.sources().size(); unit++) {
             int covered = 0;
             for (JsonNode chunk : chunks) {
@@ -701,7 +711,7 @@ public final class Indexes {
                 String source = document.sources().get(unit).text();
                 if (start < 0 || start > covered || end <= start || end > source.length()
                         || !chunk.path("text").asText().equals(chunk.at("/sourceRange/injectedPrefix").asText("") + source.substring(start,end))
-                        || chunk.path("text").asText().codePointCount(0, chunk.path("text").asText().length()) > 2000) return false;
+                        || chunk.path("text").asText().codePointCount(0, chunk.path("text").asText().length()) > limit) return false;
                 covered = Math.max(covered, end);
             }
             if (covered != document.sources().get(unit).text().length()) return false;
@@ -1055,7 +1065,7 @@ public final class Indexes {
     @PreDestroy
     public void close() {
         stopping = true;
-        worker.shutdownNow();
+        worker.shutdownNow();fileWorkers.shutdownNow();
         try {
             worker.awaitTermination(6, TimeUnit.SECONDS);
         } catch (InterruptedException interrupted) {

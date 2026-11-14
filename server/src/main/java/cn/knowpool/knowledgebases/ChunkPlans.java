@@ -12,6 +12,8 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Component
 final class ChunkPlans {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.RuntimeSettings runtime;
     static final String RULE_VERSION = "structure-fallback-1";
     private static final int LIMIT = 2000;
     private final JsonMapper json;
@@ -20,6 +22,7 @@ final class ChunkPlans {
     List<JsonNode> build(DocumentSources.Parsed document, JsonNode config, String index) {
         var chunks = new ArrayList<JsonNode>();
         var sequences = new java.util.HashMap<String, Integer>();
+        int limit=(int)Math.min(Integer.MAX_VALUE,config.path("runtimeChunkHardLimitCodePoints").asLong(runtime==null?LIMIT:runtime.number("chunkHardLimitCodePoints")));
         int unit = 0;
         for (DocumentSources.Source source : document.sources()) {
             String text = source.text();
@@ -35,10 +38,10 @@ final class ChunkPlans {
                     if (headerEnd >= 0) {
                         int separatorEnd = text.indexOf('\n', headerEnd+1);
                         String header = text.substring(0, separatorEnd < 0 ? headerEnd+1 : separatorEnd+1);
-                        if (header.codePointCount(0, header.length()) < LIMIT / 2) prefix = header;
+                        if (header.codePointCount(0, header.length()) < limit / 2) prefix = header;
                     }
                 }
-                int available = LIMIT - prefix.codePointCount(0, prefix.length());
+                int available = limit - prefix.codePointCount(0, prefix.length());
                 int end = text.offsetByCodePoints(start, Math.min(available, text.codePointCount(start, text.length())));
                 if (config.path("strategy").asText().equals("page") && source.pageEnds() != null) {
                     int pageEnd = text.length();

@@ -16,6 +16,10 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public final class Questions {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.RuntimeSettings runtime;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.ModelLimits modelLimits;
     private final ApplicationData data;
     private final SearchRequests searches;
     private final ModelSettingsService settings;
@@ -227,7 +231,7 @@ public final class Questions {
 
     private void run(String id) {
         synchronized (this) { if (cancelled(id)) return;running.put(id,Thread.currentThread()); }
-        try {
+        try (var parameters=runtime==null?null:runtime.capture();var budget=modelLimits==null?null:modelLimits.request()) {
             if (!phase(id,"retrieving")) return;
             JsonNode question=rawGet(id);String text=question.path("question").asText();
             List<String> selected=question.path("selectedKnowledgeBaseIds").valueStream().map(JsonNode::asText).toList();
@@ -263,7 +267,7 @@ public final class Questions {
                 for (JsonNode hit:hits) {
                     evidence.add(hit);
                     long bytes=json.writeValueAsBytes(context).length;
-                    if (bytes+reserved+4096>model.contextWindowTokens()) { evidence.remove(evidence.size()-1);warnings.add("上下文预算有限，部分完整证据未纳入本轮，请缩小问题范围。"); }
+                    if (bytes>(runtime==null?Long.MAX_VALUE:runtime.number("contextEvidenceTokenBudget")) || bytes+reserved+4096>model.contextWindowTokens()) { evidence.remove(evidence.size()-1);warnings.add("上下文预算有限，部分完整证据未纳入本轮，请缩小问题范围。"); }
                 }
                 if (evidence.isEmpty()) throw new ApiFailure(422,"MODEL_CONFIG_INVALID","没有完整证据可放入本轮模型上下文安全预算。",null);
                 if (!phase(id,"generating")) return;
@@ -288,7 +292,7 @@ public final class Questions {
         String conversation=current.path("conversationId").asText(),created=current.at("/task/createdAt").asText(),id=current.at("/task/id").asText();
         List<JsonNode> previous=data.read(jdbc -> jdbc.sql("SELECT payload FROM question_tasks WHERE conversation_id=? AND json_extract(payload,'$.task.state')='succeeded' AND json_type(payload,'$.answer')='object' AND (json_extract(payload,'$.task.createdAt')<? OR (json_extract(payload,'$.task.createdAt')=? AND id<?)) ORDER BY json_extract(payload,'$.task.createdAt') DESC,id DESC")
                 .params(conversation,created,created,id).query(String.class).list().stream().map(json::readTree).toList());
-        long available=Math.min(historyByteLimit,Math.min(model.contextWindowTokens()/4,Math.max(0,model.contextWindowTokens()-json.writeValueAsBytes(current.path("question")).length-Math.min(model.maxOutputTokens(),2048)-4096)));
+        long available=Math.min(runtime==null?historyByteLimit:runtime.number("historyContextTokenBudget"),Math.min(model.contextWindowTokens()/4,Math.max(0,model.contextWindowTokens()-json.writeValueAsBytes(current.path("question")).length-Math.min(model.maxOutputTokens(),2048)-4096)));
         var selected=new java.util.ArrayList<JsonNode>();long bytes=2;
         for (JsonNode prior:previous) {
             ObjectNode turn=json.createObjectNode().put("question",prior.path("question").asText()).put("answer",prior.at("/answer/text").asText());

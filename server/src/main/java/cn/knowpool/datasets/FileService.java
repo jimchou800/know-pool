@@ -248,6 +248,7 @@ public final class FileService {
 
     public Upload upload(String datasetId, List<MultipartFile> inputs, String requestId) {
         datasetId = datasets.get(datasetId).id();
+        if (inputs.stream().mapToLong(org.springframework.web.multipart.MultipartFile::getSize).reduce(0,Math::addExact)>limits.maxUploadBytes()) throw new ApiFailure(413,"RESOURCE_LIMIT","单次上传总量超过运行上限。",null);
         if (inputs.isEmpty() || inputs.size() > limits.maxUploadFiles())
             throw ApiFailure.invalid("files", "文件数量超出允许范围。");
         Map<String, Long> groups = inputs.stream()
@@ -332,7 +333,7 @@ public final class FileService {
             try {
                 Files.write(temporary, bytes);
                 var result = cn.knowpool.infrastructure.FileInspectionWorker.inspectPdf(
-                        temporary, limits.parseTimeoutSeconds() * 1000, limits.maxExtractedCodePoints());
+                        temporary, Math.min(Long.MAX_VALUE/1000,limits.parseTimeoutSeconds()) * 1000, limits.maxExtractedCodePoints());
                 if (result == cn.knowpool.infrastructure.FileInspectionWorker.Result.UNSUPPORTED) throw unsupported();
                 if (result == cn.knowpool.infrastructure.FileInspectionWorker.Result.RESOURCE_LIMIT)
                     throw new ApiFailure(413, "RESOURCE_LIMIT", "PDF校验资源不足或超过限制，请稍后重试或调整资源参数。", "/files");

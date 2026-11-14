@@ -20,6 +20,8 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public final class KnowledgeBaseChecks {
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    private cn.knowpool.infrastructure.RuntimeSettings runtime;
     private final ApplicationData data;
     private final KnowledgeBases bases;
     private final ModelSettingsService settings;
@@ -27,8 +29,8 @@ public final class KnowledgeBaseChecks {
     private final Embeddings embeddings;
     private final ConnectionTests tasks;
     private final JsonMapper json;
-    private final java.util.concurrent.Semaphore capacity = new java.util.concurrent.Semaphore(17);
-    private final ThreadPoolExecutor worker = new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<>(16),r -> {
+    private final cn.knowpool.infrastructure.AdjustableCapacity capacity = new cn.knowpool.infrastructure.AdjustableCapacity(() -> runtime==null?17:(int)runtime.number("queueCapacity")+1);
+    private final ThreadPoolExecutor worker = new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,new java.util.concurrent.LinkedBlockingQueue<>(),r -> {
         Thread thread = new Thread(r,"knowledge-base-check"); thread.setDaemon(true); return thread;
     });
     private volatile boolean stopping;
