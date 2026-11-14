@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "description": "固定虚构中文资料，无个人资料；跨页复用工程中文PDF，实际引用页码须由真实运行验证。",
+  "documents": [
+    {
+      "id": "manual",
+      "name": "青禾设备使用规范",
+      "format": "markdown",
+      "units": [
+        {"id": "term-rule", "knowledgeBase": "equipment", "page": null, "text": "术语：冷却等待期指设备停机后等待三十分钟，期间不得打开外壳。"},
+        {"id": "power-rule", "knowledgeBase": "equipment", "page": null, "text": "设备断电前应先保存当前工作，再关闭设备总电源。"},
+        {"id": "price-table", "knowledgeBase": "equipment", "page": null, "text": "| 配件 | 单价 |\n| --- | --- |\n| 过滤芯 | 80元 |\n| 密封圈 | 15元 |"},
+        {"id": "cycle-old", "knowledgeBase": "equipment", "page": null, "text": "维护规程甲：过滤芯必须每六十天更换一次。本条未标注生效日期或替代关系。"}
+      ]
+    },
+    {
+      "id": "maintenance",
+      "name": "中文跨页固定资料",
+      "format": "text_pdf",
+      "source": "server/src/test/resources/documents/chinese-cross-page.pdf",
+      "units": [
+        {"id": "page-one", "knowledgeBase": "equipment", "page": 1, "text": "这是一句跨页的"},
+        {"id": "page-two", "knowledgeBase": "equipment", "page": 2, "text": "连续中文句子。"}
+      ]
+    },
+    {
+      "id": "notice",
+      "name": "青禾设备维护补充通知",
+      "format": "text",
+      "units": [
+        {"id": "inspection", "knowledgeBase": "equipment", "page": null, "text": "设备每周检查过滤芯堵塞情况；发现堵塞时立即停机处理，不应等到常规更换日。"},
+        {"id": "cycle-new", "knowledgeBase": "equipment", "page": null, "text": "维护通知乙：过滤芯必须每九十天更换一次。本条未标注生效日期或替代关系。"}
+      ]
+    },
+    {
+      "id": "garden",
+      "name": "园艺工具规程",
+      "format": "text",
+      "units": [
+        {"id": "other-rule", "knowledgeBase": "garden", "page": null, "text": "园艺喷灌机的冷却等待期为五分钟；此规则只适用于园艺喷灌机。"}
+      ]
+    }
+  ],
+  "cases": [
+    {"id": "term", "category": "精确术语", "scope": ["equipment"], "question": "青禾设备的冷却等待期是什么意思？", "relevantUnitIds": ["term-rule"], "evidenceGroups": [["term-rule"]], "expectedOutcome": "answered", "reference": "设备停机后等待三十分钟，期间不得打开外壳。"},
+    {"id": "synonym", "category": "同义表达", "scope": ["equipment"], "question": "青禾设备关机前要先做什么？", "relevantUnitIds": ["power-rule"], "evidenceGroups": [["power-rule"]], "expectedOutcome": "answered", "reference": "先保存当前工作，再关闭总电源。"},
+    {"id": "cross-page", "category": "跨页证据", "scope": ["equipment"], "question": "中文跨页固定资料中，跨页的完整句子是什么？", "relevantUnitIds": ["page-one", "page-two"], "evidenceGroups": [["page-one"], ["page-two"]], "expectedOutcome": "answered", "reference": "这是一句跨页的连续中文句子。引用范围应覆盖第一页和第二页。"},
+    {"id": "table", "category": "表格", "scope": ["equipment"], "question": "青禾设备过滤芯和密封圈的单价分别是多少？", "relevantUnitIds": ["price-table"], "evidenceGroups": [["price-table"]], "expectedOutcome": "answered", "reference": "过滤芯80元，密封圈15元，不混淆列和值。"},
+    {"id": "multi-document", "category": "多资料综合", "scope": ["equipment"], "question": "青禾设备过滤芯每周检查什么，发现问题时怎么处理，停机后要等待多久才能打开外壳？", "relevantUnitIds": ["inspection", "term-rule"], "evidenceGroups": [["inspection"], ["term-rule"]], "expectedOutcome": "answered", "reference": "每周检查堵塞，堵塞时立即停机处理；停机后等待三十分钟冷却再打开外壳。"},
+    {"id": "no-answer", "category": "无答案", "scope": ["equipment"], "question": "青禾设备电机的额定功率是多少？", "relevantUnitIds": [], "evidenceGroups": [], "expectedOutcome": "no_answer", "reference": "固定资料没有额定功率，明确无依据，不猜数值。"},
+    {"id": "contradiction", "category": "矛盾资料", "scope": ["equipment"], "question": "青禾设备过滤芯应该每多少天更换？", "relevantUnitIds": ["cycle-old", "cycle-new"], "evidenceGroups": [["cycle-old"], ["cycle-new"]], "expectedOutcome": "contradiction", "reference": "两份资料分别说60天和90天，无生效日期和替代关系，指出冲突并引用两者。"},
+    {"id": "wrong-scope", "category": "错误知识库过滤", "scope": ["garden"], "question": "青禾设备停机后应该冷却多久？", "relevantUnitIds": [], "evidenceGroups": [], "expectedOutcome": "no_answer", "reference": "当前只允许园艺知识库，不能用青禾设备知识库作答，不能混用园艺喷灌机五分钟。"}
+  ]
+}

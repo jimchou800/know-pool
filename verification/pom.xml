@@ -51,6 +51,26 @@
                         </configuration>
                     </execution>
                     <execution>
+                        <id>test-evaluation-tools</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+                            <executable>python</executable>
+                            <arguments>
+                                <argument>-m</argument>
+                                <argument>unittest</argument>
+                                <argument>discover</argument>
+                                <argument>-s</argument>
+                                <argument>scripts/evaluation</argument>
+                                <argument>-p</argument>
+                                <argument>test_*.py</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>verify-live-integration</id>
                         <phase>verify</phase>
                         <goals>

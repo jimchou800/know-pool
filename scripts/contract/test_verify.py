@@ -92,9 +92,9 @@ class ContractGateTests(unittest.TestCase):
     def test_indexing_inventory_adds_exact_sse_and_business_obligations(self):
         """事件语义及直接所属业务规则新增为证据要求，不扩散到无关操作。"""
         operations = verify.inventory(self.document)
-        self.assertEqual(verify.TICKET, '22')
-        self.assertEqual(len(verify.SCOPE), 93)
-        self.assertEqual(len(set(verify.SCOPE)), 93)
+        self.assertEqual(verify.TICKET, '23')
+        self.assertEqual(len(verify.SCOPE), 95)
+        self.assertEqual(len(set(verify.SCOPE)), 95)
         prefix = '#/paths/~1tasks~1{taskId}~1events/get/x-sse/'
         for suffix in ('events/phase', 'events/terminal', 'id', 'lastEventIdHeader', 'terminalStates', 'reconnect'):
             pointer = prefix + suffix
@@ -102,9 +102,9 @@ class ContractGateTests(unittest.TestCase):
             self.assertEqual(verify.coverage({'tests': []}, 'watchTask', pointer), [])
         rules = {
             'maintenance': {'migrationPreflight', 'submitMigration', 'getMaintenanceTask', 'retryMaintenanceTask', 'backupPreflight', 'submitBackup', 'restorePreflight', 'submitRestore'},
-            'indexSwitch': {'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
+            'indexSwitch': {'updateRuntimeSettings', 'getTask', 'listKnowledgeBaseFiles', 'testKnowledgeBaseSearch', 'getSearchRequest', 'getSearchEvidence', 'updateProcessingConfig', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'getConversationEvidence', 'submitQuestion', 'listConversationTurns'},
             'publication': {'testKnowledgeBaseSearch', 'getKnowledgeBase', 'publishKnowledgeBase', 'offlineKnowledgeBase', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'submitQuestion', 'deleteDataset', 'deleteFile', 'deleteKnowledgeBase'},
-            'cost': {'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask', 'submitQuestion', 'deleteConversation', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles'},
+            'cost': {'updateRuntimeSettings', 'getTask', 'testKnowledgeBaseSearch', 'checkKnowledgeBase', 'submitSearch', 'submitFirstQuestion', 'getQuestionTask', 'cancelQuestionTask', 'submitQuestion', 'deleteConversation', 'retryKnowledgeBaseFile', 'retryFailedKnowledgeBaseFiles'},
             'sse': {'watchTask', 'getTask', 'watchQuestionTask', 'getQuestionTask'},
         }
         for rule, expected in rules.items():
