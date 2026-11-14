@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { configureFixedModelLimits } from './fixed-model-limits.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 
@@ -150,6 +151,15 @@ export async function checkSettings(page, tests) {
     return data.task;
   };
   try {
+    await configureFixedModelLimits(
+      page.context().request,
+      new URL(page.url()).origin,
+      [
+        { endpoint: endpoint + '/v1', model: '未核实生成模型' },
+        { endpoint: endpoint + '/v1', model: '固定嵌入模型' },
+        { endpoint: endpoint + '/denied', model: '未核实生成模型' },
+      ],
+    );
     await page.getByRole('link', { name: '设置', exact: true }).click();
     await panel('generation').getByLabel('基础地址').waitFor();
     assert.equal(

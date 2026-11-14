@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { createSettingsClient } from './client';
 import ConnectionSettings from './ConnectionSettings.vue';
 import Migration from '../maintenance/Migration.vue';
+import RuntimeSettings from './RuntimeSettings.vue';
 import './settings.css';
 const props = defineProps({
   client: { type: Object, required: true },
@@ -83,6 +84,11 @@ onBeforeUnmount(() => {
         @saved="saved"
       />
     </div>
+    <RuntimeSettings
+      :client="client"
+      :writable="writable"
+      :key="dataDirectory"
+    />
     <Migration
       v-for="operation in ['migration', 'backup', 'restore']"
       :key="operation"

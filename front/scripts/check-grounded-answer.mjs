@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { configureFixedModelLimits } from './fixed-model-limits.mjs';
 import { createServer } from 'node:http';
 import { checkConversationHistory } from './check-conversation-history.mjs';
 
@@ -106,6 +107,17 @@ export async function checkGroundedAnswer(
     return response.json();
   };
   try {
+    await configureFixedModelLimits(
+      http,
+      base,
+      [
+        {
+          endpoint: `http://127.0.0.1:${model.address().port}/v1`,
+          model: 'fixed-question-model',
+        },
+      ],
+      headers,
+    );
     const saved = await http.put(`${root}/settings/models/generation`, {
       headers,
       data: {

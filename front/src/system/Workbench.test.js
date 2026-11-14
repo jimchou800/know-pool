@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import Workbench from './Workbench.vue';
 import { createSystemClient } from './session';
+import { fixedRuntime } from '../../test-fixtures/runtime';
 
 let wrapper;
 afterEach(() => {
@@ -86,14 +87,16 @@ async function setup(adapter) {
   wrapper = mount(Workbench, {
     props: {
       client: createSystemClient((config) =>
-        config.url === '/conversations'
-          ? {
-              data: { items: [], nextCursor: null },
-              status: 200,
-              headers: {},
-              config,
-            }
-          : adapter(config),
+        config.url === '/settings/runtime'
+          ? { data: fixedRuntime, status: 200, headers: {}, config }
+          : config.url === '/conversations'
+            ? {
+                data: { items: [], nextCursor: null },
+                status: 200,
+                headers: {},
+                config,
+              }
+            : adapter(config),
       ),
     },
     global: { plugins: [router] },

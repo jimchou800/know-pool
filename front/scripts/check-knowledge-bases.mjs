@@ -13,6 +13,7 @@ import { checkConfigurationRebuild } from './check-configuration-rebuild.mjs';
 import { checkDeletionCleanup } from './check-deletion-cleanup.mjs';
 import { checkDataMigration } from './check-data-migration.mjs';
 import { checkBackupRestore } from './check-backup-restore.mjs';
+import { configureFixedModelLimits } from './fixed-model-limits.mjs';
 
 export async function checkKnowledgeBases(page, tests) {
   await mkdir('artifacts', { recursive: true });
@@ -158,6 +159,12 @@ export async function checkKnowledgeBases(page, tests) {
     const http = page.context().request;
     const session = await (await http.get(`${base}/api/v1/session`)).json();
     const headers = { 'X-CSRF-Token': session.csrfToken };
+    await configureFixedModelLimits(
+      http,
+      base,
+      [{ endpoint: `${endpoint}/v1`, model: 'text-embedding-v4' }],
+      headers,
+    );
     const put = async (path, data) => {
       const response = await http.put(`${base}/api/v1${path}`, {
         headers,

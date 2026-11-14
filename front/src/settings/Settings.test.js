@@ -2,6 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import Settings from './Settings.vue';
 import { createSystemClient } from '../system/session';
+import { fixedRuntime } from '../../test-fixtures/runtime';
 const time = '2026-01-01T00:00:00Z';
 const id = '00000000-0000-4000-8000-000000000061';
 const model = (kind) => ({
@@ -22,6 +23,8 @@ it('设置展示三独立配置初值，保存后清理秘密且不自动发起�
   const client = createSystemClient(async (config) => {
     requests.push(config);
     let data;
+    if (config.url === '/settings/runtime')
+      return { data: fixedRuntime, status: 200, headers: {}, config };
     if (config.url === '/session')
       data = {
         sessionId: id,
@@ -140,7 +143,8 @@ async function page(respond = () => undefined, writable = true) {
         config,
       };
     requests.push(config);
-    let data = await respond(config);
+    let data =
+      config.url === '/settings/runtime' ? fixedRuntime : await respond(config);
     if (data === undefined) {
       if (config.url.endsWith('/versions'))
         data = { items: [configured('embedding')], nextCursor: null };

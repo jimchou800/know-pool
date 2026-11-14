@@ -199,6 +199,30 @@
   overflow-wrap: anywhere;
 }
 
+.runtime-settings {
+  margin-top: 24px;
+  overflow-wrap: anywhere;
+}
+.runtime-fields,
+.runtime-rate {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.runtime-rate {
+  padding-block: 16px;
+  border-top: 1px solid var(--line);
+}
+.runtime-rate > button {
+  align-self: end;
+}
+
+.runtime-settings input[type='checkbox'] {
+  width: auto;
+  min-height: auto;
+  margin-right: 8px;
+}
+
 .migration form,
 .migration > section {
   display: grid;
