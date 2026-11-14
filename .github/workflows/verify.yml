@@ -26,7 +26,7 @@ jobs:
       - name: Build Application
         run: mvn --batch-mode --no-transfer-progress package '-Dmaven.test.skip=true'
       - name: Verify Application Runtime
-        run: python scripts/contract/run_live.py
+        run: python scripts/runtime/run_live.py
       - name: Upload Verification Evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -21,8 +21,8 @@ powershell -File scripts/release/package.ps1 -JdkDirectory D:/Tools/jdk-21
 装配前检查应用包同时具有正式前端和后端入口。完成装配后，将压缩包解压到新的独立目录，使用包内运行时分别执行两浏览器的同一业务链：
 
 ```powershell
-python scripts/contract/run_live.py --release-directory D:/KnowPoolRelease --browser msedge
-python scripts/contract/run_live.py --release-directory D:/KnowPoolRelease --browser chrome
+python scripts/runtime/run_live.py --release-directory D:/KnowPoolRelease --browser msedge
+python scripts/runtime/run_live.py --release-directory D:/KnowPoolRelease --browser chrome
 ```
 
 验证启动前核对清单、全部文件摘要及清单外文件，拒绝缺件、篡改和链接路径；该核对只检查完整性，不代表发布者身份认证。两次运行各用独立临时数据目录，不读取个人模型配置，结束关闭自建进程。开发机需已安装对应浏览器及固定前端工具链；目标用户启动仍只需解压后的运行时。浏览器记录保留 `contract-browser-msedge.json`、`contract-browser-chrome.json` 与各自截图目录，公共报告指向最后一次运行；不能以存在旧报告代替本次成功。

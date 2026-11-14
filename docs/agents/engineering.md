@@ -1,5 +1,7 @@
 # 工程与验证基线
 
+当前执行以根 `AGENTS.md` 最新用户要求为准：生产构建与真实运行优先，工作流不执行契约工具测试、评测工具单元测试、前后端单元测试与覆盖率，也不生成严格契约报告。下文完整验证基线保留供以后显式恢复使用，不作为本轮运行验收的阻塞项。
+
 ## 选型和目录
 
 根 Maven 工程管理公共版本与 Java/Maven 版本门禁，聚合 `front/`、`server/`、`verification/`。前端模块执行前端检查与构建；后端模块执行 Java 检查、测试、资源装配与打包；验证模块依赖前后端产物，在最后执行工具自检、真实浏览器联调和契约报告，避免根父工程先于子模块运行集成验证。目标版本为 Java 21、Spring Boot 4.1.x、Spring AI 2.0.2、Maven 3.9.x；精确补丁、SQLite 驱动、迁移工具与整套依赖须验证锁定。前端为 Vue 3、Vite、Pinia、Vue Router 4、Axios、JavaScript（以 ECMAScript 6 为语法基础）与原生 CSS。pnpm 镜像为 `https://registry.npmmirror.com/`，提交锁文件，冻结安装。

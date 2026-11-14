@@ -161,64 +161,6 @@ try {
   } finally {
     await anonymous.dispose();
   }
-  const reviewedSources = [
-    '../server/src/main/resources/application.properties',
-    '../server/src/main/java/cn/knowpool/system/api/LocalSessionFilter.java',
-    '../server/src/test/java/cn/knowpool/LocalApplicationTest.java',
-    '../server/src/test/java/cn/knowpool/system/api/LocalSessionFilterTest.java',
-  ];
-  const originalReports = [
-    '../server/target/surefire-reports/TEST-cn.knowpool.LocalApplicationTest.xml',
-    '../server/target/surefire-reports/TEST-cn.knowpool.system.api.LocalSessionFilterTest.xml',
-  ];
-  for (const path of originalReports) {
-    const report = await readFile(path, 'utf8');
-    const suite = report.match(/<testsuite\s[^>]*>/)?.[0];
-    assert.ok(suite, '缺少后端原始测试套件');
-    for (const attribute of ['failures', 'errors', 'skipped']) {
-      assert.match(suite, new RegExp(`${attribute}="0"`));
-    }
-    assert.match(suite, /tests="[1-9]\d*"/);
-  }
-  const integrationReport = await readFile(originalReports[0], 'utf8');
-  const filterReport = await readFile(originalReports[1], 'utf8');
-  assert.ok(
-    integrationReport.includes(
-      'rejectUntrustedOriginsAndHostsAndAllowConfiguredOrigins',
-    ),
-  );
-  assert.ok(
-    integrationReport.includes('sessionAndPersistentStatusWorkOverHttp'),
-  );
-  assert.ok(
-    filterReport.includes('renewExpiredSessionsAndBoundSessionCapacity'),
-  );
-  const sources = await Promise.all(
-    reviewedSources.map(async (path) => ({
-      path,
-      sha256: createHash('sha256')
-        .update(await readFile(path))
-        .digest('hex'),
-    })),
-  );
-  tests.push({
-    name: '前端独立审阅后端回环主机、安全Cookie与日志保护证据',
-    passed: true,
-    operationIds: ['initializeSession', 'getSystemStatus'],
-    constraintIds: ['security.1', 'security.4', 'security.7'],
-    source: {
-      actor: '/root/frontend06',
-      files: sources,
-      originalReports,
-    },
-    assertions: [
-      '前端代理已独立审阅server.address回环配置及真实Socket伪Host拒绝断言',
-      '前端代理已独立审阅secure请求过滤器测试；未冒称真实TLS浏览器部署',
-      '前端代理已独立审阅实际会话令牌和标识不进入测试日志的断言',
-      '关联后端原始测试结果零失败、零错误、零跳过；源码摘要绑定当前实现快照',
-      '浏览器实际请求不含令牌URL且浏览器持久化为空；报告不输出真实令牌',
-    ],
-  });
   await mkdir('artifacts', { recursive: true });
   for (const width of [1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });

@@ -40,7 +40,7 @@
                             <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
                             <executable>python</executable>
                             <arguments>
-                                <argument>scripts/contract/run_live.py</argument>
+                                <argument>scripts/runtime/run_live.py</argument>
                             </arguments>
                         </configuration>
                     </execution>

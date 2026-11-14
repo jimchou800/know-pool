@@ -91,7 +91,7 @@ def main(release_directory=None, browser='msedge'):
                 time.sleep(0.2)
             else:
                 raise TimeoutError('测试应用启动超时，详见 ' + str(directory.relative_to(ROOT)))
-            result = subprocess.run([node_command, 'scripts/check-live.mjs', base_url, browser],
+            result = subprocess.run([node_command, 'scripts/check-runtime.mjs', base_url, browser],
                                     cwd=ROOT / 'front', timeout=600, check=False)
             return result.returncode
         finally:
