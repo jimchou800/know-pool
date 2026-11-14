@@ -359,6 +359,10 @@ if profile == 'maintenance':
     selected_operations = {'migrationPreflight','submitMigration','backupPreflight','submitBackup','restorePreflight','submitRestore','getMaintenanceTask','retryMaintenanceTask'}
     BEHAVIORS = {'backupRestoreSnapshotAndMaintenanceFactsStaySafe': ('备份与恢复快照及维护事实保留的代表性真实接口场景；索引缺失和更完整故障矩阵留统一验证。', selected_operations), 'migrationPathsSwitchRestartAndResidueStaySafe': ('迁移安全边界与固定入口恢复的代表性真实接口场景；复杂中断和外发并发矩阵留统一验证。', selected_operations)}
 
+if profile == 'runtime':
+    selected_operations = {'getRuntimeSettings', 'updateRuntimeSettings'}
+    BEHAVIORS = {'runtimeSettingsPersistAndRejectInvalidChanges': ('真实全量读取、严格类型与字段及组合约束、端点模型等价重复拒绝、失败保留旧参数、维护暂停及重启持久化；实际负载、整库重建和更多资源边界留统一验证。', selected_operations)}
+
 for index, item in enumerate(observations):
     path = item['path'].split('?', 1)[0].removeprefix('/api/v1')
     selected = None
@@ -468,7 +472,7 @@ for index, item in enumerate(observations):
 report = {'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
           'implementationSha256': verification.snapshot()[0],
           'routes': observations[0]['routes'], 'tests': tests}
-output = root / ('server/target/contract/provider-maintenance-evidence.json' if profile == 'maintenance' else 'server/target/contract/provider-indexing-gaps-evidence.json' if profile == 'indexing-gaps' else 'server/target/contract/provider-indexing-events-evidence.json' if profile == 'indexing-events' else 'server/target/contract/provider-indexing-evidence.json' if profile == 'indexing' else 'server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
+output = root / ('server/target/contract/provider-runtime-evidence.json' if profile == 'runtime' else 'server/target/contract/provider-maintenance-evidence.json' if profile == 'maintenance' else 'server/target/contract/provider-indexing-gaps-evidence.json' if profile == 'indexing-gaps' else 'server/target/contract/provider-indexing-events-evidence.json' if profile == 'indexing-events' else 'server/target/contract/provider-indexing-evidence.json' if profile == 'indexing' else 'server/target/contract/provider-knowledge-bases-evidence.json' if profile == 'knowledge-bases' else 'server/target/contract/provider-settings-evidence.json')
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 print('提供方证据完成：' + profile + '：' + str(len(tests)))

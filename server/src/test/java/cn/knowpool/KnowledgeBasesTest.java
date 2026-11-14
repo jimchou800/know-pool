@@ -1417,6 +1417,7 @@ class KnowledgeBasesTest {
                                         : HttpRequest.BodyPublishers.ofString(body))
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
+        RuntimeTestFixtures.allowSavedModel(http,client.base(),path,method,body,client.cookie(),client.token(),response.statusCode());
         observed(response, body);
         return response;
     }
