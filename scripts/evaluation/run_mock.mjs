@@ -39,11 +39,13 @@ async function selfCheck() {
   const base = `http://127.0.0.1:${server.address().port}`;
   const send = async (method, path, body) => {
     const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: await response.json(), connection: response.headers.get('connection') };
   };
   try {
     const collection = '/collections/kp_' + 'a'.repeat(32);
-    assert.equal((await send('GET', collection)).status, 404);
+    const absent = await send('GET', collection);
+    assert.equal(absent.status, 404);
+    assert.equal(absent.connection, 'close');
     await send('PUT', collection, { vectors: { size: 3, distance: 'Cosine' } });
     assert.equal((await send('GET', collection)).body.result.config.params.vectors.size, 3);
     const points = [{ id: 'allowed', payload: { index_id: 'current' }, vector: [1, 0, 0] }, { id: 'old', payload: { index_id: 'stale' }, vector: [1, 0, 0] }];
@@ -75,6 +77,8 @@ export function createMockModel(modelCalls, diagnostics = []) {
   const points = new Map(), collections = new Map();
   const sockets = new WeakMap();
   const server = createServer(async (request, response) => {
+    // 固定替身不保留闲置连接，避免将开发机连接池时序混入资源测量。
+    response.setHeader('Connection', 'close');
     const path = new URL(request.url, 'http://127.0.0.1').pathname;
     diagnostics.push({ event: 'request', at: new Date().toISOString(), socketId: sockets.get(request.socket), method: request.method, path });
     response.once('finish', () => diagnostics.push({ event: 'response', at: new Date().toISOString(), socketId: sockets.get(request.socket), method: request.method, path, status: response.statusCode }));
