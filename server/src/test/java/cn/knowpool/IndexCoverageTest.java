@@ -33,6 +33,63 @@ class IndexCoverageTest {
     private final HttpClient http = HttpClient.newHttpClient();
 
     @Test
+    @DisplayName("千候选查询仅传标识与分数，正文仍从有效索引快照回查")
+    void thousandCandidatesStayWithinVectorResponseBudget() throws Exception {
+        var ids = new java.util.ArrayList<String>();
+        for (int i = 0; i < 1000; i++) ids.add(UUID.randomUUID().toString());
+        var unknown = new java.util.concurrent.atomic.AtomicBoolean();
+        HttpServer vector =
+                indexedVector(new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {}, () -> {}, "4", hits -> {
+                    ObjectNode template = ((ObjectNode) hits.get(0)).deepCopy();
+                    hits.removeAll();
+                    for (String id : ids) {
+                        ObjectNode hit = template.deepCopy().put("id", id);
+                        ((ObjectNode) hit.path("payload")).put("untrusted", "不可信向量载荷".repeat(50));
+                        hits.add(hit);
+                    }
+                    if (unknown.get())
+                        ((ObjectNode) hits.get(0)).put("id", UUID.randomUUID().toString());
+                });
+        try (var app = start(Files.createTempDirectory(Path.of("target"), "thousand-candidates-")
+                .toAbsolutePath())) {
+            Client client = client(app);
+            ObjectNode config = (ObjectNode)
+                    JSON.readTree(processing(client, vector.getAddress().getPort(), 0, "{}", "[]"));
+            ((ObjectNode) config.path("embedding")).put("candidatesPerQuery", 1000);
+            String kb = createIndexedBase(client, config.toString(), "千候选传输核验库", "只从本地索引读取的固定原文。");
+            JsonNode file = read(client, "/knowledge-bases/" + kb + "/files").at("/items/0");
+            String index = file.path("effectiveIndexVersionId").asText();
+            // 固定已生效索引中的千条候选，回归真实查询传输与数据库回查，不重复执行千次嵌入。
+            app.getBean(cn.knowpool.infrastructure.ApplicationData.class).write(jdbc -> {
+                String original = jdbc.sql("SELECT id FROM index_chunks WHERE index_id=? LIMIT 1")
+                        .param(index)
+                        .query(String.class)
+                        .single();
+                for (int i = 0; i < ids.size(); i++)
+                    jdbc.sql(
+                                    "INSERT INTO index_chunks(id,index_id,ordinal,text,location,source_range) SELECT ?,index_id,?,text,location,source_range FROM index_chunks WHERE id=?")
+                            .params(ids.get(i), i + 1, original)
+                            .update();
+                return null;
+            });
+            Indexes indexes = app.getBean(Indexes.class);
+            JsonNode result = indexes.retrieve(kb, "固定千候选查询");
+            assertThat(result.size()).isEqualTo(1000);
+            assertThat(result).allSatisfy(hit -> {
+                assertThat(hit.path("text").asText()).contains("只从本地索引读取的固定原文。");
+                assertThat(hit.path("fileId").asText())
+                        .isEqualTo(file.path("fileId").asText());
+                assertThat(hit.path("indexVersionId").asText()).isEqualTo(index);
+                assertThat(hit.path("text").asText()).doesNotContain("不可信向量载荷");
+            });
+            unknown.set(true);
+            assertThat(indexes.retrieve(kb, "未知标识不得泄露原文").size()).isEqualTo(999);
+        } finally {
+            vector.stop(0);
+        }
+    }
+
+    @Test
     @DisplayName("整库旧失败项排在新重试之前仍允许子项执行，全部恢复后才原子切换")
     void rebuildWaitsForRetriedChildrenBeforeFailing() throws Exception {
         var embedded = new java.util.concurrent.CopyOnWriteArrayList<String>();
@@ -628,6 +685,11 @@ class IndexCoverageTest {
                         if (point.at("/payload/index_id").asText().equals(index.asText()))
                             result.add(((tools.jackson.databind.node.ObjectNode) point.deepCopy()).put("score", 0.9));
                 adjustHits.accept(result);
+                for (JsonNode hit : result) {
+                    ObjectNode projected = (ObjectNode) hit;
+                    if (!body.path("with_payload").asBoolean()) projected.remove("payload");
+                    if (!body.path("with_vector").asBoolean()) projected.remove("vector");
+                }
                 response = JSON.writeValueAsString(
                         java.util.Map.of("status", "ok", "result", java.util.Map.of("points", result)));
             } else if (path.endsWith("/points/delete")) {

@@ -51,7 +51,19 @@ async function selfCheck() {
     const points = [{ id: 'allowed', payload: { index_id: 'current' }, vector: [1, 0, 0] }, { id: 'old', payload: { index_id: 'stale' }, vector: [1, 0, 0] }];
     await send('PUT', collection + '/points', { points });
     const query = await send('POST', collection + '/points/query', { filter: { must: [{ key: 'index_id', match: { any: ['current'] } }] }, limit: 10 });
-    assert.deepEqual(query.body.result.points.map((item) => item.id), ['allowed']);
+    assert.deepEqual(query.body.result.points, [{ id: 'allowed', score: 0.9 }]);
+    const expanded = await send('POST', collection + '/points/query', { filter: { must: [{ key: 'index_id', match: { any: ['current'] } }] }, limit: 10, with_payload: true, with_vector: true });
+    assert.deepEqual(expanded.body.result.points, [{ ...points[0], score: 0.9 }]);
+    const readback = await send('POST', collection + '/points', { ids: ['allowed'] });
+    assert.deepEqual(readback.body.result, [{ id: 'allowed', payload: points[0].payload }]);
+    const verified = await send('POST', collection + '/points', { ids: ['allowed'], with_payload: true, with_vector: true });
+    assert.deepEqual(verified.body.result, [points[0]]);
+    const bulk = Array.from({ length: 1000 }, () => ({ id: randomUUID(), vector: [1, 0, 0], payload: { index_id: 'bulk', knowledge_base_id: randomUUID(), file_id: randomUUID(), content_version_id: randomUUID(), config_version_id: randomUUID() } }));
+    await send('PUT', collection + '/points', { points: bulk });
+    const compact = await send('POST', collection + '/points/query', { filter: { must: [{ key: 'index_id', match: { any: ['bulk'] } }] }, limit: 1000, with_payload: false, with_vector: false });
+    assert.equal(compact.body.result.points.length, 1000);
+    assert.ok(compact.body.result.points.every((item) => Object.keys(item).length === 2 && typeof item.id === 'string' && item.score === 0.9));
+    assert.ok(Buffer.byteLength(JSON.stringify(compact.body)) < 262144);
     assert.equal((await send('POST', '/v1/embeddings', { model: '固定嵌入', input: ['甲', '乙'] })).body.data.length, 2);
     const messages = [{ role: 'system', content: '任务是根据本次原文作答' }, { role: 'user', content: JSON.stringify({ evidence: [{ id: 'actual', text: '实际候选原文' }], reference: '不可使用的参考答案' }) }];
     const completion = (await send('POST', '/v1/chat/completions', { model: '固定生成', messages })).body;
@@ -106,15 +118,16 @@ export function createMockModel(modelCalls, diagnostics = []) {
         const match = /^\/collections\/(kp_[a-f0-9]{32})(?:\/points(\/query)?)?$/.exec(path);
         assert.ok(match, '向量替身收到未知路径');
         const name = match[1], saved = points.get(name) || new Map();
+        const project = (item, payloadDefault) => ({ id: item.id, ...((body.with_payload ?? payloadDefault) === true ? { payload: item.payload } : {}), ...(body.with_vector === true ? { vector: item.vector } : {}) });
         if (path.endsWith('/query')) {
           const allowed = body.filter.must.find((item) => item.key === 'index_id').match.any;
-          result = { status: 'ok', result: { points: [...saved.values()].filter((item) => allowed.includes(item.payload.index_id)).map((item) => ({ ...item, score: 0.9 })).slice(0, body.limit) } };
+          result = { status: 'ok', result: { points: [...saved.values()].filter((item) => allowed.includes(item.payload.index_id)).map((item) => ({ ...project(item, false), score: 0.9 })).slice(0, body.limit) } };
         } else if (path.endsWith('/points')) {
           if (request.method === 'PUT') {
             for (const item of body.points) saved.set(item.id, item);
             points.set(name, saved);
             result = { status: 'ok', result: { status: 'completed' } };
-          } else result = { status: 'ok', result: body.ids.map((id) => saved.get(id)).filter(Boolean) };
+          } else result = { status: 'ok', result: body.ids.map((id) => saved.get(id)).filter(Boolean).map((item) => project(item, true)) };
         } else if (request.method === 'PUT') {
           collections.set(name, body.vectors);
           result = { status: 'ok', result: true };
@@ -229,7 +242,8 @@ async function measureResources({ api, wait, modelCalls, embedding, endpoint, sa
     assert.equal(result.result.evidence.length, 100);
     const queries = modelCalls.slice(firstCall).filter((call) => call.path.endsWith('/points/query'));
     assert.ok(queries.some((call) => call.request.limit === 1000 && call.response.result.points.length === 1000), '必须实际请求并读回一千候选');
-    return { requestId: request.id, evidenceCount: result.result.evidence.length, vectorRequests: queries.map((call) => ({ limit: call.request.limit, returnedCandidates: call.response.result.points.length })) };
+    assert.ok(queries.every((call) => call.request.with_payload === false && call.request.with_vector === false && call.response.result.points.every((item) => !Object.hasOwn(item, 'payload') && !Object.hasOwn(item, 'vector'))), '千候选查询不回传未使用的载荷和向量');
+    return { requestId: request.id, evidenceCount: result.result.evidence.length, vectorRequests: queries.map((call) => ({ limit: call.request.limit, returnedCandidates: call.response.result.points.length, responseBytes: Buffer.byteLength(JSON.stringify(call.response)) })) };
   });
 }
 

@@ -1172,7 +1172,7 @@ public final class Indexes {
             int limit = Math.min(config.path("candidatesPerQuery").asInt(), candidateLimit);
             ObjectNode body = json.createObjectNode();
             body.set("query", json.valueToTree(vector));
-            body.put("limit", limit).put("with_payload", true);
+            body.put("limit", limit).put("with_payload", false).put("with_vector", false);
             body.set(
                     "filter",
                     json.valueToTree(java.util.Map.of(
