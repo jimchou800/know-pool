@@ -14,7 +14,7 @@
 
 ```powershell
 python -m pip install -r scripts/contract/requirements.txt
-mvn --batch-mode --no-transfer-progress package -Dmaven.test.skip=true
+mvn --batch-mode --no-transfer-progress package '-Dmaven.test.skip=true'
 java -jar server/target/server-0.1.0-SNAPSHOT.jar
 ```
 

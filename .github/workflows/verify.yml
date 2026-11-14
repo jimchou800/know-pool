@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Build Application
-        run: mvn --batch-mode --no-transfer-progress package -Dmaven.test.skip=true
+        run: mvn --batch-mode --no-transfer-progress package '-Dmaven.test.skip=true'
       - name: Verify Application Runtime
         run: python scripts/contract/run_live.py
       - name: Upload Verification Evidence

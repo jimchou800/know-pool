@@ -202,9 +202,15 @@ export async function checkBatchFiles(page, tests) {
   assert.equal((await versionRequest).status(), 200);
   await history.getByText('第 2 页', { exact: true }).waitFor();
   assert.equal(await history.locator('li').count(), 1);
+  const previousVersions = page.waitForResponse(
+    (response) =>
+      response.url().includes('/versions?') &&
+      !response.url().includes('cursor='),
+  );
   await page.getByRole('button', { name: '上一页版本', exact: true }).click();
+  const previousVersionPage = await (await previousVersions).json();
   await history.locator('li').nth(19).waitFor();
-  await verifyAvailability(firstVersionPage.items);
+  await verifyAvailability(previousVersionPage.items);
   for (const width of [1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
     assert.equal(
