@@ -3,6 +3,7 @@ package cn.knowpool.knowledgebases;
 import cn.knowpool.datasets.FileService;
 import cn.knowpool.infrastructure.ApiFailure;
 import cn.knowpool.infrastructure.ApplicationData;
+import cn.knowpool.infrastructure.TaskEvents;
 import cn.knowpool.system.ConnectionTests;
 import cn.knowpool.system.ModelSettingsService;
 import jakarta.annotation.PreDestroy;
@@ -397,7 +398,7 @@ public final class KnowledgeBases {
                     jdbc.sql("INSERT INTO knowledge_base_files VALUES(?,?,?,?,?) ON CONFLICT(knowledge_base_id,file_id) DO UPDATE SET content_version_id=excluded.content_version_id,config_version_id=excluded.config_version_id,task_id=excluded.task_id").params(kb,file,source.contentVersionId(),config,id).update();
                 }
                 jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=?").param(kb).update();jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=?").param(kb).update();
-                base.put("availability","unavailable").put("availabilityReason","恢复后索引尚未通过核查，请显式重建；可能产生嵌入费用。");jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(base),kb).update();
+                base.put("availability","unavailable").put("availabilityReason","恢复后索引尚未通过核查，请显式重建；可能产生嵌入费用。");jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(base),kb).update();updateCounts(jdbc,kb);
             }
             return null;
         });

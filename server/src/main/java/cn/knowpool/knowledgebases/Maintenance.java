@@ -155,8 +155,8 @@ public final class Maintenance {
             String id=UUID.randomUUID().toString();ObjectNode task=json.createObjectNode().put("id",id).put("kind",kind).put("state","queued").put("phase","queued").put("createdAt",Instant.now().toString()).put("attempt",0).put("progressCompleted",0);
             for (String field:List.of("startedAt","finishedAt","knowledgeBaseId","fileId","targetContentVersionId","targetConfigVersionId","progressTotal","failure","resultResourceId")) task.putNull(field);
             if (retry==null) task.putNull("retryOfTaskId");else task.put("retryOfTaskId",retry);task.set("warnings",json.createArrayNode());
-            ObjectNode result=json.createObjectNode().put("operation",kind).put("activeDataDirectory",data.directory().toString()).put("targetPath",target.toString()).put("configurationSwitched",cleanup).put("oldDirectoryResidue",cleanup).put("recoverable",false).put("indexStatus",cleanup?previous.path("result").path("indexStatus").asText():"not_checked").put("credentialsIncluded",credentials()).put("vectorSnapshotIncluded",false).putNull("failureStage");
-            result.set("task",task);result.set("warnings",json.createArrayNode().add("迁移包含本地明文凭据；向量服务原生数据不在迁移范围内。"));
+            ObjectNode result=json.createObjectNode().put("operation",kind).put("activeDataDirectory",data.directory().toString()).put("targetPath",target.toString()).put("configurationSwitched",cleanup).put("oldDirectoryResidue",cleanup).put("recoverable",false).put("indexStatus",cleanup?previous.path("result").path("indexStatus").asText():"not_checked").put("credentialsIncluded",kind.equals("restore")?json.readTree(readArchiveDescription(backup)).path("credentialsIncluded").asBoolean():credentials()).put("vectorSnapshotIncluded",false).putNull("failureStage");
+            result.set("task",task);result.set("warnings",json.createArrayNode().add("维护快照可能包含本地明文凭据；向量服务原生数据不在备份和恢复范围内。"));
             ObjectNode stored=json.createObjectNode().put("sourcePath",source.toString()).put("cleanupOnly",cleanup);if (backup!=null) stored.put("backupPath",backup.toString());
             stored.set("result",result);stored.set("manifest",previous==null?json.createArrayNode():previous.path("manifest").deepCopy());
             if (previous!=null && previous.path("targetInitialized").asBoolean()) stored.put("targetInitialized",true);
@@ -206,6 +206,8 @@ public final class Maintenance {
           }
         } finally { data.gate().resume(); }
     }
+
+    private static String readArchiveDescription(Path backup) throws IOException { return Files.readString(inside(backup,"manifest.json")); }
 
     private List<Entry> archive(Path backup) throws IOException {
         safePath(backup);JsonNode description=json.readTree(Files.readString(inside(backup,"manifest.json")));
