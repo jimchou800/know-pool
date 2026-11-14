@@ -42,7 +42,7 @@ it('最小实例费用确认后多库命中显示选定实际遗漏范围，原�
   const { s, w } = await ready((r) =>
     r.url.includes('/evidence/') ? evidence : { httpStatus: 202, body: result },
   );
-  await button(w, '开始检索').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain('检索范围不完整');
   expect(w.text()).toContain('遗漏：故障资料库');
@@ -67,12 +67,12 @@ it('无结果和范围全失败显示分别状态，缺费用确认不外发', a
   };
   const { s, w } = await ready(() => ({ httpStatus: 202, body: value }));
   await w.findAll('input[type=checkbox]').at(-1).setValue(false);
-  await button(w, '开始检索').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain('请确认本次检索可能产生');
   expect(s.requests.filter((r) => r.url.endsWith('/requests'))).toHaveLength(0);
   await w.findAll('input[type=checkbox]').at(-1).setValue(true);
-  await button(w, '开始检索').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain('未找到相关内容');
   value = {
@@ -99,7 +99,7 @@ it('无结果和范围全失败显示分别状态，缺费用确认不外发', a
     },
   };
   await w.findAll('input[type=checkbox]').at(-1).setValue(true);
-  await button(w, '开始检索').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain('选定范围全部不可用');
   expect(w.text()).not.toContain('未找到相关内容');
@@ -147,12 +147,12 @@ it('同实例新提交清空旧结果并隔离迟到原请求，即使新请求�
       },
     };
   });
-  await button(w, '开始检索').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   await vi.advanceTimersByTimeAsync(750);
   await flushPromises();
   await w.findAll('input[type=checkbox]').at(-1).setValue(true);
-  await button(w, '开始检索').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   resolve(result);
   await flushPromises();
@@ -166,7 +166,7 @@ it('受理结果不明恢复同键原负载，不暗中改变查询或范围', a
     if (fail) throw new Error('连接中断');
     return { httpStatus: 202, body: result };
   });
-  await button(w, '开始检索').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   const first = s.requests.at(-1);
   expect(w.text()).toContain('受理结果尚未确认');
@@ -204,7 +204,7 @@ it('范围检查从空值到已核子集持续查询，成功后显示完整范�
         }
       : result;
   });
-  await button(w, '开始检索').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain('正在检索');
   expect(w.text()).not.toContain('实际检索：');
@@ -230,7 +230,7 @@ it('取消后保留已核实际范围，不把尚未检查的库伪造为遗漏'
     task: { ...result.task, state: 'cancelled', resultResourceId: null },
   };
   const { w } = await ready(() => ({ httpStatus: 202, body: value }));
-  await button(w, '开始检索').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain('检索已取消');
   expect(w.text()).toContain('实际检索：空知识库');

@@ -159,7 +159,6 @@ class ContractGateTests(unittest.TestCase):
             self.assertNotIn('#/components/schemas/Task/properties/warnings/items/type', mapping['操作'][identifier])
         self.assertEqual(set(mapping['操作']['previewVersionFile']), {
             '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/429',
-            '#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get/responses/503',
         })
 
     def test_preflight_scope_keeps_statistics_and_rebuild_identities_required(self):

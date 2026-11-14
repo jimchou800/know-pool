@@ -465,6 +465,7 @@ def main():
     text.extend('\n- ' + row['标识'] + '：' + row['状态'] for row in report['操作'])
     (output / 'report.md').write_text('\n\n'.join(text) + '\n', encoding='utf-8')
     print(str(output.relative_to(ROOT)) + '：' + report['结论'])
+    print('失败明细：' + json.dumps(report['失败'], ensure_ascii=False))
     return 1 if report['失败'] else 0
 
 

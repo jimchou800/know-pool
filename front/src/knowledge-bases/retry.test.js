@@ -133,8 +133,12 @@ it('费用未确认零请求，受理不明同键恢复并分别展示逐项结�
   w.unmount();
 });
 afterAll(() =>
-  execFileSync('python', ['scripts/settings-evidence.py', '08'], {
-    input: JSON.stringify(observations),
-    encoding: 'utf8',
-  }),
+  execFileSync(
+    'python',
+    ['scripts/settings-evidence.py', '08', 'knowledge-bases-retry'],
+    {
+      input: JSON.stringify(observations),
+      encoding: 'utf8',
+    },
+  ),
 );

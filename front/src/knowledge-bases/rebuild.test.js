@@ -130,8 +130,12 @@ it('整库父进度与同配置子任务分组，子成功不伪装已切换', a
   w.unmount();
 });
 afterAll(() =>
-  execFileSync('python', ['scripts/settings-evidence.py', '08'], {
-    input: JSON.stringify(observations),
-    encoding: 'utf8',
-  }),
+  execFileSync(
+    'python',
+    ['scripts/settings-evidence.py', '08', 'knowledge-bases-rebuild'],
+    {
+      input: JSON.stringify(observations),
+      encoding: 'utf8',
+    },
+  ),
 );

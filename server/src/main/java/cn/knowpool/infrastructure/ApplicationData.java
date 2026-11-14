@@ -27,8 +27,14 @@ public final class ApplicationData implements AutoCloseable {
     private FileLock lock;
     private final DriverManagerDataSource dataSource;
     private volatile boolean migrationFailed;
-    private volatile long busyTimeout=5000;
-    public synchronized void busyTimeout(long value) { busyTimeout=value;dataSource.setUrl("jdbc:sqlite:"+directory.resolve("application.sqlite")+"?foreign_keys=on&busy_timeout="+value); }
+    private volatile long busyTimeout = 5000;
+
+    public synchronized void busyTimeout(long value) {
+        busyTimeout = value;
+        dataSource.setUrl(
+                "jdbc:sqlite:" + directory.resolve("application.sqlite") + "?foreign_keys=on&busy_timeout=" + value);
+    }
+
     private final Instant startedAt = Instant.now();
 
     public ApplicationData(@Value("${know-pool.data-directory}") String configuredDirectory) throws IOException {
@@ -53,8 +59,8 @@ public final class ApplicationData implements AutoCloseable {
         }
         dataSource = new DriverManagerDataSource();
         dataSource.setDriverClassName("org.sqlite.JDBC");
-        dataSource.setUrl(
-                "jdbc:sqlite:" + directory.resolve("application.sqlite") + "?foreign_keys=on&busy_timeout="+busyTimeout);
+        dataSource.setUrl("jdbc:sqlite:" + directory.resolve("application.sqlite") + "?foreign_keys=on&busy_timeout="
+                + busyTimeout);
         try {
             JdbcClient jdbc = JdbcClient.create(dataSource);
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
@@ -71,224 +77,296 @@ public final class ApplicationData implements AutoCloseable {
             }
             // 全部升级共用外层事务，后续版本失败不能留下已提交的中间结构。
             write(upgrade -> {
-            if (version < 3) {
-                write(transaction -> {
-                    if (version < 2) {
+                if (version < 3) {
+                    write(transaction -> {
+                        if (version < 2) {
+                            transaction
+                                    .sql(
+                                            "CREATE TABLE IF NOT EXISTS application_metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                                    .update();
+                            transaction
+                                    .sql(
+                                            "INSERT OR IGNORE INTO application_metadata(name, value) VALUES ('created_at', ?)")
+                                    .param(startedAt.toString())
+                                    .update();
+                            transaction
+                                    .sql(
+                                            "CREATE TABLE datasets (id TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL UNIQUE, description TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+                                    .update();
+                        }
                         transaction
                                 .sql(
-                                        "CREATE TABLE IF NOT EXISTS application_metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                                        "CREATE TABLE files (id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL REFERENCES datasets(id), name TEXT NOT NULL, name_key TEXT NOT NULL, created_by TEXT, created_at TEXT NOT NULL, uploaded_at TEXT NOT NULL, updated_at TEXT NOT NULL, latest_version TEXT NOT NULL, UNIQUE(dataset_id,name_key))")
                                 .update();
                         transaction
-                                .sql("INSERT OR IGNORE INTO application_metadata(name, value) VALUES ('created_at', ?)")
+                                .sql(
+                                        "CREATE TABLE file_versions (id TEXT PRIMARY KEY, file_id TEXT NOT NULL REFERENCES files(id), uploaded_name TEXT NOT NULL, file_type TEXT NOT NULL, media_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, content_hash TEXT NOT NULL, uploaded_by TEXT, uploaded_at TEXT NOT NULL, relative_path TEXT NOT NULL, available INTEGER NOT NULL)")
+                                .update();
+                        transaction.sql("PRAGMA user_version=3").update();
+                        return null;
+                    });
+                }
+                if (version < 4) {
+                    write(transaction -> {
+                        transaction
+                                .sql(
+                                        "CREATE TABLE model_configs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, endpoint TEXT, model TEXT, context_tokens INTEGER, output_tokens INTEGER, credential TEXT, updated_at TEXT NOT NULL)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE active_configs (kind TEXT PRIMARY KEY, config_id TEXT NOT NULL REFERENCES model_configs(id))")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE vector_config (id INTEGER PRIMARY KEY CHECK(id=1), endpoint TEXT, credential TEXT, updated_at TEXT NOT NULL)")
+                                .update();
+                        for (String kind : List.of("generation", "embedding")) {
+                            String id = java.util.UUID.randomUUID().toString();
+                            transaction
+                                    .sql("INSERT INTO model_configs(id,kind,updated_at) VALUES(?,?,?)")
+                                    .params(id, kind, startedAt.toString())
+                                    .update();
+                            transaction
+                                    .sql("INSERT INTO active_configs(kind,config_id) VALUES(?,?)")
+                                    .params(kind, id)
+                                    .update();
+                        }
+                        transaction
+                                .sql("INSERT INTO vector_config(id,updated_at) VALUES(1,?)")
                                 .param(startedAt.toString())
                                 .update();
                         transaction
                                 .sql(
-                                        "CREATE TABLE datasets (id TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL UNIQUE, description TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+                                        "CREATE TABLE tasks (id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, result TEXT, session_id TEXT NOT NULL, operation TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_fingerprint TEXT NOT NULL, UNIQUE(session_id,operation,idempotency_key))")
                                 .update();
-                    }
-                    transaction
-                            .sql(
-                                    "CREATE TABLE files (id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL REFERENCES datasets(id), name TEXT NOT NULL, name_key TEXT NOT NULL, created_by TEXT, created_at TEXT NOT NULL, uploaded_at TEXT NOT NULL, updated_at TEXT NOT NULL, latest_version TEXT NOT NULL, UNIQUE(dataset_id,name_key))")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE file_versions (id TEXT PRIMARY KEY, file_id TEXT NOT NULL REFERENCES files(id), uploaded_name TEXT NOT NULL, file_type TEXT NOT NULL, media_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, content_hash TEXT NOT NULL, uploaded_by TEXT, uploaded_at TEXT NOT NULL, relative_path TEXT NOT NULL, available INTEGER NOT NULL)")
-                            .update();
-                    transaction.sql("PRAGMA user_version=3").update();
-                    return null;
-                });
-            }
-            if (version < 4) {
-                write(transaction -> {
-                    transaction
-                            .sql(
-                                    "CREATE TABLE model_configs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, endpoint TEXT, model TEXT, context_tokens INTEGER, output_tokens INTEGER, credential TEXT, updated_at TEXT NOT NULL)")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE active_configs (kind TEXT PRIMARY KEY, config_id TEXT NOT NULL REFERENCES model_configs(id))")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE vector_config (id INTEGER PRIMARY KEY CHECK(id=1), endpoint TEXT, credential TEXT, updated_at TEXT NOT NULL)")
-                            .update();
-                    for (String kind : List.of("generation", "embedding")) {
-                        String id = java.util.UUID.randomUUID().toString();
+                        transaction.sql("PRAGMA user_version=4").update();
+                        return null;
+                    });
+                }
+                if (version < 5) {
+                    write(transaction -> {
                         transaction
-                                .sql("INSERT INTO model_configs(id,kind,updated_at) VALUES(?,?,?)")
-                                .params(id, kind, startedAt.toString())
+                                .sql(
+                                        "CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, name_key TEXT NOT NULL UNIQUE, visible INTEGER NOT NULL, payload TEXT NOT NULL, config TEXT NOT NULL)")
                                 .update();
                         transaction
-                                .sql("INSERT INTO active_configs(kind,config_id) VALUES(?,?)")
-                                .params(kind, id)
+                                .sql(
+                                        "CREATE TABLE knowledge_base_creations (task_id TEXT PRIMARY KEY REFERENCES tasks(id), knowledge_base_id TEXT NOT NULL, collection_name TEXT NOT NULL, endpoint TEXT NOT NULL, ownership TEXT NOT NULL, phase TEXT NOT NULL, datasets TEXT NOT NULL, cleanup_error TEXT, cleanup_attempts INTEGER NOT NULL DEFAULT 0)")
                                 .update();
-                    }
-                    transaction
-                            .sql("INSERT INTO vector_config(id,updated_at) VALUES(1,?)")
-                            .param(startedAt.toString())
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE tasks (id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, result TEXT, session_id TEXT NOT NULL, operation TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_fingerprint TEXT NOT NULL, UNIQUE(session_id,operation,idempotency_key))")
-                            .update();
-                    transaction.sql("PRAGMA user_version=4").update();
-                    return null;
-                });
-            }
-            if (version < 5) {
-                write(transaction -> {
-                    transaction
-                            .sql(
-                                    "CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, name_key TEXT NOT NULL UNIQUE, visible INTEGER NOT NULL, payload TEXT NOT NULL, config TEXT NOT NULL)")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE knowledge_base_creations (task_id TEXT PRIMARY KEY REFERENCES tasks(id), knowledge_base_id TEXT NOT NULL, collection_name TEXT NOT NULL, endpoint TEXT NOT NULL, ownership TEXT NOT NULL, phase TEXT NOT NULL, datasets TEXT NOT NULL, cleanup_error TEXT, cleanup_attempts INTEGER NOT NULL DEFAULT 0)")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE knowledge_base_sources (id TEXT PRIMARY KEY, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id), type TEXT NOT NULL, resource_id TEXT NOT NULL, payload TEXT NOT NULL, UNIQUE(knowledge_base_id,type,resource_id))")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE knowledge_base_files (knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id), file_id TEXT NOT NULL, content_version_id TEXT NOT NULL, config_version_id TEXT NOT NULL, task_id TEXT NOT NULL REFERENCES tasks(id), PRIMARY KEY(knowledge_base_id,file_id))")
-                            .update();
-                    transaction.sql("PRAGMA user_version=5").update();
-                    return null;
-                });
-            }
-            if (version < 6) {
-                write(transaction -> {
-                    transaction
-                            .sql(
-                                    "CREATE TABLE index_runs (task_id TEXT PRIMARY KEY REFERENCES tasks(id),id TEXT NOT NULL UNIQUE,phase TEXT NOT NULL)")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE index_chunks (id TEXT PRIMARY KEY,index_id TEXT NOT NULL REFERENCES index_runs(id),ordinal INTEGER NOT NULL,text TEXT NOT NULL,location TEXT NOT NULL,vector TEXT,input_upper_bound INTEGER,prompt_tokens INTEGER,meter_version TEXT,write_attempts INTEGER NOT NULL DEFAULT 0,embed_attempts INTEGER NOT NULL DEFAULT 0,verify_attempts INTEGER NOT NULL DEFAULT 0,write_completed INTEGER NOT NULL DEFAULT 0,written INTEGER NOT NULL DEFAULT 0)")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE effective_files (knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,file_id))")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE index_switches (id TEXT PRIMARY KEY,task_id TEXT NOT NULL UNIQUE,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,previous_content_id TEXT,content_id TEXT NOT NULL,previous_index_id TEXT,index_id TEXT NOT NULL,config_id TEXT NOT NULL,switched_at TEXT NOT NULL)")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE task_events (task_id TEXT PRIMARY KEY,sequence INTEGER NOT NULL,payload TEXT NOT NULL)")
-                            .update();
-                    transaction
-                            .sql("CREATE TABLE search_identities (id TEXT PRIMARY KEY)")
-                            .update();
-                    transaction
-                            .sql(
-                                    "CREATE TABLE search_evidence_identities (id TEXT PRIMARY KEY,request_id TEXT NOT NULL REFERENCES search_identities(id))")
-                            .update();
-                    var eventJson =
-                            tools.jackson.databind.json.JsonMapper.builder().build();
-                    for (String task : transaction
-                            .sql("SELECT payload FROM tasks")
-                            .query(String.class)
-                            .list()) {
-                        TaskEvents.record(transaction, eventJson, eventJson.readTree(task));
-                    }
-                    transaction.sql("PRAGMA user_version=6").update();
-                    return null;
-                });
-            }
-            if (version < 7) {
-                write(transaction -> {
-                    transaction.sql("ALTER TABLE index_runs ADD COLUMN parser_version TEXT NOT NULL DEFAULT 'plain-text-08'").update();
-                    transaction.sql("ALTER TABLE index_runs ADD COLUMN source_map TEXT NOT NULL DEFAULT '{}'").update();
-                    transaction.sql("ALTER TABLE index_runs ADD COLUMN config_snapshot TEXT NOT NULL DEFAULT '{}'").update();
-                    transaction.sql("ALTER TABLE index_chunks ADD COLUMN source_range TEXT NOT NULL DEFAULT '{}'").update();
-                    transaction.sql("PRAGMA user_version=7").update();
-                    return null;
-                });
-            }
-            if (version < 8) {
-                write(transaction -> {
-                    transaction.sql("ALTER TABLE index_runs ADD COLUMN preflight TEXT").update();
-                    transaction.sql("CREATE TABLE processing_config_history(id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,payload TEXT NOT NULL,collection_name TEXT NOT NULL)").update();
-                    transaction.sql("INSERT INTO processing_config_history SELECT json_extract(config,'$.id'),id,config,'kp_'||replace(id,'-','') FROM knowledge_bases").update();
-                    transaction.sql("CREATE TABLE processing_rebuilds(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,config_version_id TEXT NOT NULL,ready INTEGER NOT NULL DEFAULT 0)").update();
-                    transaction.sql("CREATE TABLE staged_indexes(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL)").update();
-                    transaction.sql("PRAGMA user_version=8").update();
-                    return null;
-                });
-            }
-            if (version < 9) {
-                write(transaction -> {
-                    transaction.sql("CREATE TABLE knowledge_base_exclusions(knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,file_id))").update();
-                    transaction.sql("CREATE TABLE index_cleanup(task_id TEXT PRIMARY KEY,targets TEXT NOT NULL,endpoint TEXT)").update();
-                    transaction.sql("PRAGMA user_version=9").update();
-                    return null;
-                });
-            }
-            if (version < 10) {
-                write(transaction -> {
-                    transaction.sql("CREATE TABLE file_version_cleanup(version_id TEXT PRIMARY KEY,relative_path TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0)").update();
-                    transaction.sql("PRAGMA user_version=10").update();
-                    return null;
-                });
-            }
-            if (version < 11) {
-                write(transaction -> {
-                    transaction.sql("CREATE TABLE knowledge_base_check_keys(session_id TEXT NOT NULL,knowledge_base_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,task_id TEXT NOT NULL,PRIMARY KEY(session_id,knowledge_base_id,idempotency_key))").update();
-                    transaction.sql("PRAGMA user_version=11").update();
-                    return null;
-                });
-            }
-            if (version < 12) {
-                write(transaction -> {
-                    transaction.sql("CREATE TABLE search_instances(id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
-                    transaction.sql("PRAGMA user_version=12").update();
-                    return null;
-                });
-            }
-            if (version < 13) {
-                write(transaction -> {
-                    transaction.sql("CREATE TABLE conversations(id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
-                    transaction.sql("CREATE TABLE question_tasks(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)").update();
-                    transaction.sql("CREATE TABLE conversation_evidence(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)").update();
-                    transaction.sql("PRAGMA user_version=13").update();
-                    return null;
-                });
-            }
-            if (version < 14) {
-                write(transaction -> {
-                    transaction.sql("CREATE UNIQUE INDEX question_one_active ON question_tasks(conversation_id) WHERE json_extract(payload,'$.task.state') IN ('queued','running')").update();
-                    transaction.sql("CREATE INDEX conversation_turn_order ON question_tasks(conversation_id,json_extract(payload,'$.task.createdAt'),id)").update();
-                    transaction.sql("PRAGMA user_version=14").update();
-                    return null;
-                });
-            }
-            if (version < 15) {
-                write(transaction -> {
-                    transaction.sql("CREATE TABLE index_retry_requests(session_id TEXT NOT NULL,operation TEXT NOT NULL,idempotency_key TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(session_id,operation,idempotency_key))").update();
-                    transaction.sql("PRAGMA user_version=15").update();return null;
-                });
-            }
-            if (version < 16) {
-                write(transaction -> {
-                    transaction.sql("CREATE TABLE deleted_resources(kind TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(kind,id))").update();
-                    transaction.sql("CREATE TABLE deletion_cleanup(task_id TEXT PRIMARY KEY,targets TEXT NOT NULL,endpoint TEXT)").update();
-                    transaction.sql("CREATE TABLE owned_vector_collections(knowledge_base_id TEXT NOT NULL,collection_name TEXT NOT NULL,endpoint TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,collection_name))").update();
-                    transaction.sql("INSERT OR IGNORE INTO owned_vector_collections SELECT json_extract(t.payload,'$.knowledgeBaseId'),c.collection_name,c.endpoint FROM knowledge_base_creations c JOIN tasks t ON t.id=c.task_id WHERE c.ownership='owned' AND c.endpoint IS NOT NULL").update();
-                    transaction.sql("PRAGMA user_version=16").update();return null;
-                });
-            }
+                        transaction
+                                .sql(
+                                        "CREATE TABLE knowledge_base_sources (id TEXT PRIMARY KEY, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id), type TEXT NOT NULL, resource_id TEXT NOT NULL, payload TEXT NOT NULL, UNIQUE(knowledge_base_id,type,resource_id))")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE knowledge_base_files (knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id), file_id TEXT NOT NULL, content_version_id TEXT NOT NULL, config_version_id TEXT NOT NULL, task_id TEXT NOT NULL REFERENCES tasks(id), PRIMARY KEY(knowledge_base_id,file_id))")
+                                .update();
+                        transaction.sql("PRAGMA user_version=5").update();
+                        return null;
+                    });
+                }
+                if (version < 6) {
+                    write(transaction -> {
+                        transaction
+                                .sql(
+                                        "CREATE TABLE index_runs (task_id TEXT PRIMARY KEY REFERENCES tasks(id),id TEXT NOT NULL UNIQUE,phase TEXT NOT NULL)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE index_chunks (id TEXT PRIMARY KEY,index_id TEXT NOT NULL REFERENCES index_runs(id),ordinal INTEGER NOT NULL,text TEXT NOT NULL,location TEXT NOT NULL,vector TEXT,input_upper_bound INTEGER,prompt_tokens INTEGER,meter_version TEXT,write_attempts INTEGER NOT NULL DEFAULT 0,embed_attempts INTEGER NOT NULL DEFAULT 0,verify_attempts INTEGER NOT NULL DEFAULT 0,write_completed INTEGER NOT NULL DEFAULT 0,written INTEGER NOT NULL DEFAULT 0)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE effective_files (knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,file_id))")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE index_switches (id TEXT PRIMARY KEY,task_id TEXT NOT NULL UNIQUE,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,previous_content_id TEXT,content_id TEXT NOT NULL,previous_index_id TEXT,index_id TEXT NOT NULL,config_id TEXT NOT NULL,switched_at TEXT NOT NULL)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE task_events (task_id TEXT PRIMARY KEY,sequence INTEGER NOT NULL,payload TEXT NOT NULL)")
+                                .update();
+                        transaction
+                                .sql("CREATE TABLE search_identities (id TEXT PRIMARY KEY)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE search_evidence_identities (id TEXT PRIMARY KEY,request_id TEXT NOT NULL REFERENCES search_identities(id))")
+                                .update();
+                        var eventJson =
+                                tools.jackson.databind.json.JsonMapper.builder().build();
+                        for (String task : transaction
+                                .sql("SELECT payload FROM tasks")
+                                .query(String.class)
+                                .list()) {
+                            TaskEvents.record(transaction, eventJson, eventJson.readTree(task));
+                        }
+                        transaction.sql("PRAGMA user_version=6").update();
+                        return null;
+                    });
+                }
+                if (version < 7) {
+                    write(transaction -> {
+                        transaction
+                                .sql(
+                                        "ALTER TABLE index_runs ADD COLUMN parser_version TEXT NOT NULL DEFAULT 'plain-text-08'")
+                                .update();
+                        transaction
+                                .sql("ALTER TABLE index_runs ADD COLUMN source_map TEXT NOT NULL DEFAULT '{}'")
+                                .update();
+                        transaction
+                                .sql("ALTER TABLE index_runs ADD COLUMN config_snapshot TEXT NOT NULL DEFAULT '{}'")
+                                .update();
+                        transaction
+                                .sql("ALTER TABLE index_chunks ADD COLUMN source_range TEXT NOT NULL DEFAULT '{}'")
+                                .update();
+                        transaction.sql("PRAGMA user_version=7").update();
+                        return null;
+                    });
+                }
+                if (version < 8) {
+                    write(transaction -> {
+                        transaction
+                                .sql("ALTER TABLE index_runs ADD COLUMN preflight TEXT")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE processing_config_history(id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,payload TEXT NOT NULL,collection_name TEXT NOT NULL)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "INSERT INTO processing_config_history SELECT json_extract(config,'$.id'),id,config,'kp_'||replace(id,'-','') FROM knowledge_bases")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE processing_rebuilds(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,config_version_id TEXT NOT NULL,ready INTEGER NOT NULL DEFAULT 0)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE staged_indexes(task_id TEXT PRIMARY KEY,knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,content_version_id TEXT NOT NULL,config_version_id TEXT NOT NULL,index_id TEXT NOT NULL)")
+                                .update();
+                        transaction.sql("PRAGMA user_version=8").update();
+                        return null;
+                    });
+                }
+                if (version < 9) {
+                    write(transaction -> {
+                        transaction
+                                .sql(
+                                        "CREATE TABLE knowledge_base_exclusions(knowledge_base_id TEXT NOT NULL,file_id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,file_id))")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE index_cleanup(task_id TEXT PRIMARY KEY,targets TEXT NOT NULL,endpoint TEXT)")
+                                .update();
+                        transaction.sql("PRAGMA user_version=9").update();
+                        return null;
+                    });
+                }
+                if (version < 10) {
+                    write(transaction -> {
+                        transaction
+                                .sql(
+                                        "CREATE TABLE file_version_cleanup(version_id TEXT PRIMARY KEY,relative_path TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0)")
+                                .update();
+                        transaction.sql("PRAGMA user_version=10").update();
+                        return null;
+                    });
+                }
+                if (version < 11) {
+                    write(transaction -> {
+                        transaction
+                                .sql(
+                                        "CREATE TABLE knowledge_base_check_keys(session_id TEXT NOT NULL,knowledge_base_id TEXT NOT NULL,idempotency_key TEXT NOT NULL,task_id TEXT NOT NULL,PRIMARY KEY(session_id,knowledge_base_id,idempotency_key))")
+                                .update();
+                        transaction.sql("PRAGMA user_version=11").update();
+                        return null;
+                    });
+                }
+                if (version < 12) {
+                    write(transaction -> {
+                        transaction
+                                .sql("CREATE TABLE search_instances(id TEXT PRIMARY KEY,payload TEXT NOT NULL)")
+                                .update();
+                        transaction.sql("PRAGMA user_version=12").update();
+                        return null;
+                    });
+                }
+                if (version < 13) {
+                    write(transaction -> {
+                        transaction
+                                .sql("CREATE TABLE conversations(id TEXT PRIMARY KEY,payload TEXT NOT NULL)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE question_tasks(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE conversation_evidence(id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,payload TEXT NOT NULL)")
+                                .update();
+                        transaction.sql("PRAGMA user_version=13").update();
+                        return null;
+                    });
+                }
+                if (version < 14) {
+                    write(transaction -> {
+                        transaction
+                                .sql(
+                                        "CREATE UNIQUE INDEX question_one_active ON question_tasks(conversation_id) WHERE json_extract(payload,'$.task.state') IN ('queued','running')")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE INDEX conversation_turn_order ON question_tasks(conversation_id,json_extract(payload,'$.task.createdAt'),id)")
+                                .update();
+                        transaction.sql("PRAGMA user_version=14").update();
+                        return null;
+                    });
+                }
+                if (version < 15) {
+                    write(transaction -> {
+                        transaction
+                                .sql(
+                                        "CREATE TABLE index_retry_requests(session_id TEXT NOT NULL,operation TEXT NOT NULL,idempotency_key TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(session_id,operation,idempotency_key))")
+                                .update();
+                        transaction.sql("PRAGMA user_version=15").update();
+                        return null;
+                    });
+                }
+                if (version < 16) {
+                    write(transaction -> {
+                        transaction
+                                .sql(
+                                        "CREATE TABLE deleted_resources(kind TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(kind,id))")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE deletion_cleanup(task_id TEXT PRIMARY KEY,targets TEXT NOT NULL,endpoint TEXT)")
+                                .update();
+                        transaction
+                                .sql(
+                                        "CREATE TABLE owned_vector_collections(knowledge_base_id TEXT NOT NULL,collection_name TEXT NOT NULL,endpoint TEXT NOT NULL,PRIMARY KEY(knowledge_base_id,collection_name))")
+                                .update();
+                        transaction
+                                .sql(
+                                        "INSERT OR IGNORE INTO owned_vector_collections SELECT json_extract(t.payload,'$.knowledgeBaseId'),c.collection_name,c.endpoint FROM knowledge_base_creations c JOIN tasks t ON t.id=c.task_id WHERE c.ownership='owned' AND c.endpoint IS NOT NULL")
+                                .update();
+                        transaction.sql("PRAGMA user_version=16").update();
+                        return null;
+                    });
+                }
 
-            if (version < 17) {
-                write(transaction -> {
-                    transaction.sql("CREATE TABLE maintenance_tasks(task_id TEXT PRIMARY KEY,payload TEXT NOT NULL)").update();
-                    transaction.sql("PRAGMA user_version=17").update();return null;
-                });
-            }
-            return null;
+                if (version < 17) {
+                    write(transaction -> {
+                        transaction
+                                .sql("CREATE TABLE maintenance_tasks(task_id TEXT PRIMARY KEY,payload TEXT NOT NULL)")
+                                .update();
+                        transaction.sql("PRAGMA user_version=17").update();
+                        return null;
+                    });
+                }
+                return null;
             });
         } catch (RuntimeException | IOException failure) {
             close();
@@ -310,38 +388,93 @@ public final class ApplicationData implements AutoCloseable {
     }
 
     public Status status() {
-        return new Status("0.1.0", startedAt.toString(), gate.paused()?"paused":migrationFailed?"migration_failed":"ready", directory.toString(), 17, List.of());
+        return new Status(
+                "0.1.0",
+                startedAt.toString(),
+                gate.paused() ? "paused" : migrationFailed ? "migration_failed" : "ready",
+                directory.toString(),
+                17,
+                List.of());
     }
 
-    public void migrationFailed(boolean value) { migrationFailed=value; }
-    public MaintenanceGate gate() { return gate; }
-    public Path anchor() { return anchor; }
+    public void migrationFailed(boolean value) {
+        migrationFailed = value;
+    }
+
+    public MaintenanceGate gate() {
+        return gate;
+    }
+
+    public Path anchor() {
+        return anchor;
+    }
+
     public synchronized void checkpoint() {
-        if (JdbcClient.create(dataSource).sql("PRAGMA wal_checkpoint(TRUNCATE)").query((row,n) -> row.getInt(1)).single()!=0) throw new IllegalStateException("数据库仍被占用，不能开始复制。");
+        if (JdbcClient.create(dataSource)
+                        .sql("PRAGMA wal_checkpoint(TRUNCATE)")
+                        .query((row, n) -> row.getInt(1))
+                        .single()
+                != 0) throw new IllegalStateException("数据库仍被占用，不能开始复制。");
     }
+
     public synchronized void switchDirectory(Path target) throws IOException {
-        FileChannel nextChannel=FileChannel.open(target.resolve("application.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
+        FileChannel nextChannel = FileChannel.open(
+                target.resolve("application.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
         FileLock nextLock;
-        try { nextLock=nextChannel.tryLock();if (nextLock==null) throw new IOException("目标目录已被占用。"); }
-        catch (IOException | RuntimeException failure) { nextChannel.close();throw failure; }
         try {
-            Path pointer=anchor.resolve("active-directory");
-            Path pending=anchor.resolve("active-directory.pending");
-            Files.writeString(pending,target.toString(),StandardOpenOption.CREATE,StandardOpenOption.TRUNCATE_EXISTING,StandardOpenOption.SYNC);
-            Files.move(pending,pointer,java.nio.file.StandardCopyOption.ATOMIC_MOVE,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException failure) { nextLock.release();nextChannel.close();throw failure; }
-        FileLock previousLock=lock;FileChannel previousChannel=lockChannel;
-        dataSource.setUrl("jdbc:sqlite:"+target.resolve("application.sqlite")+"?foreign_keys=on&busy_timeout="+busyTimeout);
-        directory=target;lockChannel=nextChannel;lock=nextLock;
-        try { previousLock.release(); } finally { previousChannel.close(); }
+            nextLock = nextChannel.tryLock();
+            if (nextLock == null) throw new IOException("目标目录已被占用。");
+        } catch (IOException | RuntimeException failure) {
+            nextChannel.close();
+            throw failure;
+        }
+        try {
+            Path pointer = anchor.resolve("active-directory");
+            Path pending = anchor.resolve("active-directory.pending");
+            Files.writeString(
+                    pending,
+                    target.toString(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.SYNC);
+            Files.move(
+                    pending,
+                    pointer,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException failure) {
+            nextLock.release();
+            nextChannel.close();
+            throw failure;
+        }
+        FileLock previousLock = lock;
+        FileChannel previousChannel = lockChannel;
+        dataSource.setUrl(
+                "jdbc:sqlite:" + target.resolve("application.sqlite") + "?foreign_keys=on&busy_timeout=" + busyTimeout);
+        directory = target;
+        lockChannel = nextChannel;
+        lock = nextLock;
+        try {
+            previousLock.release();
+        } finally {
+            previousChannel.close();
+        }
     }
+
     private static Path locate(Path anchor) throws IOException {
-        Path pointer=anchor.resolve("active-directory");
+        Path pointer = anchor.resolve("active-directory");
         if (!Files.exists(pointer)) return anchor;
         if (Files.isSymbolicLink(pointer)) throw new IOException("数据目录检查点不能是链接。");
-        Path target=Path.of(Files.readString(pointer)).toAbsolutePath().normalize();
-        if (target.getParent()==null || !Files.isDirectory(target) || Files.isSymbolicLink(target) || target.toString().startsWith("\\\\")) throw new IOException("迁移检查点无效，已停止业务写入。");
-        for (Path item=target;item!=null;item=item.getParent()) if (Files.exists(item,java.nio.file.LinkOption.NOFOLLOW_LINKS) && (Files.isSymbolicLink(item) || !item.toRealPath().equals(item.toAbsolutePath().normalize()))) throw new IOException("迁移检查点不能指向链接或重解析目录。");
+        Path target = Path.of(Files.readString(pointer)).toAbsolutePath().normalize();
+        if (target.getParent() == null
+                || !Files.isDirectory(target)
+                || Files.isSymbolicLink(target)
+                || target.toString().startsWith("\\\\")) throw new IOException("迁移检查点无效，已停止业务写入。");
+        for (Path item = target; item != null; item = item.getParent())
+            if (Files.exists(item, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    && (Files.isSymbolicLink(item)
+                            || !item.toRealPath().equals(item.toAbsolutePath().normalize())))
+                throw new IOException("迁移检查点不能指向链接或重解析目录。");
         return target.toRealPath();
     }
 
@@ -353,6 +486,8 @@ public final class ApplicationData implements AutoCloseable {
         }
         lockChannel.close();
     }
+
+    public record Restored() {}
 
     public record Status(
             String applicationVersion,

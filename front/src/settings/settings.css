@@ -170,6 +170,10 @@
   border-top: 1px solid var(--line);
 }
 
+.runtime-rate > button {
+  align-self: end;
+}
+
 .embedding-history li button {
   display: grid;
   grid-template-columns: minmax(140px, 0.6fr) minmax(160px, 1fr) minmax(
@@ -181,6 +185,11 @@
   text-align: left;
   width: 100%;
   padding: 16px 0;
+}
+
+.migration li button {
+  display: block;
+  overflow-wrap: anywhere;
 }
 
 .settings-page input:focus-visible,
@@ -203,18 +212,17 @@
   margin-top: 24px;
   overflow-wrap: anywhere;
 }
+
 .runtime-fields,
 .runtime-rate {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
+
 .runtime-rate {
   padding-block: 16px;
   border-top: 1px solid var(--line);
-}
-.runtime-rate > button {
-  align-self: end;
 }
 
 .runtime-settings input[type='checkbox'] {
@@ -245,11 +253,6 @@
   width: auto;
   min-height: auto;
   margin-right: 8px;
-}
-
-.migration li button {
-  display: block;
-  overflow-wrap: anywhere;
 }
 
 @media (width <= 1350px) {

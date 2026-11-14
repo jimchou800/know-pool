@@ -27,7 +27,8 @@ class RuntimeLimitsTest {
     @BeforeEach
     void openSettings() throws Exception {
         Path root = Files.createDirectories(Path.of("target", "test-data").toAbsolutePath());
-        data = new ApplicationData(Files.createTempDirectory(root, "runtime-limits-").toString());
+        data = new ApplicationData(
+                Files.createTempDirectory(root, "runtime-limits-").toString());
         settings = new RuntimeSettings(data, JSON, new MockEnvironment());
     }
 
@@ -59,11 +60,11 @@ class RuntimeLimitsTest {
                         assertThat(failure.code()).isEqualTo("INVALID_REQUEST");
                     });
             assertThat(settings.get()).isEqualTo(previous);
-            String stored = data.read(jdbc -> jdbc.sql(
-                            "SELECT value FROM application_metadata WHERE name='runtime_settings'")
-                    .query(String.class)
-                    .single());
-            assertThat(JSON.readTree(stored)).isEqualTo(previous);
+            String stored =
+                    data.read(jdbc -> jdbc.sql("SELECT value FROM application_metadata WHERE name='runtime_settings'")
+                            .query(String.class)
+                            .single());
+            assertThat(JSON.readTree(stored)).isEqualTo(JSON.readTree(previous.toString()));
         }
         assertThat(rebuilds.get()).isZero();
     }

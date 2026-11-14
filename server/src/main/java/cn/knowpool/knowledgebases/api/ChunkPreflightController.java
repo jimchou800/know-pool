@@ -11,7 +11,11 @@ import tools.jackson.databind.JsonNode;
 @RestController
 public final class ChunkPreflightController {
     private final Indexes indexes;
-    public ChunkPreflightController(Indexes indexes) { this.indexes = indexes; }
+
+    public ChunkPreflightController(Indexes indexes) {
+        this.indexes = indexes;
+    }
+
     @GetMapping("/api/v1/tasks/{taskId}/chunk-preflight")
     public JsonNode get(@PathVariable String taskId, HttpServletRequest request) {
         if (!request.getParameterMap().isEmpty()) throw ApiFailure.invalid(null, "预检读取不接受查询参数。");

@@ -1,6 +1,6 @@
 # 中文检索问答固定评测
 
-第23票使用 [固定资料与问题](../scripts/evaluation/suite.json) 及 [离线汇总器](../scripts/evaluation/evaluate.py)。工具仅使用 Python 标准库，不联网、不执行模型调用，不新增业务接口。当前已编写，尚未运行；工程参数初值不是实测推荐值。
+第23票使用 [固定资料与问题](../scripts/evaluation/suite.json)、[本机模拟运行器](../scripts/evaluation/run_mock.mjs)及[离线汇总器](../scripts/evaluation/evaluate.py)。运行器只连接独立本机应用与固定模型、向量替身；离线工具仅使用 Python 标准库，不联网、不执行模型调用，不新增业务接口。当前正在统一验证；工程参数初值不是实测推荐值，实际运行证据归入技术23及24实施记录。
 
 ## 资料与运行
 
@@ -52,13 +52,21 @@
 
 ## 复跑和结果
 
-全部票据实现后再执行，当前不运行以下命令：
+全部票据实现已齐，统一验证时执行以下命令；目录使用新的运行标识，避免覆盖旧证据：
 
 ```powershell
 python -m unittest discover -s scripts/evaluation -p test_evaluate.py
 python scripts/evaluation/materialize.py --output .runtime/evaluation/materials-01
 python scripts/evaluation/evaluate.py --input .runtime/evaluation/run.json --output .runtime/evaluation/report-01
 ```
+
+本机模拟运行器自动准备资料、启动独立应用和替身、导入并发布知识库，执行全部问题的真实检索与问答接口，再调用离线汇总器：
+
+```powershell
+front/target/toolchain/node/node.exe scripts/evaluation/run_mock.mjs --java D:/Tools/jdk-21/bin/java.exe --output .runtime/evaluation/mock-01
+```
+
+Java 路径按本机 Java 21 实际目录替换；先完成对应集成快照的源码打包。模拟向量及用量是固定替身值，不能当成真实召回质量、词元测量或费用。运行器保留原始接口、模型、引用及资源记录；未知候选保留排名，质量复核保持独立，失败不能从问题分母删除。
 
 输出目录必须没有同名报告，避免覆盖已有证据。`report.json` 记录输入及固定评测集的 SHA-256、运行和实现引用、逐问题指标；`report.md` 输出中文报告。报告不复制问题、正文、完整回答或凭据，输入和原始证据也不得包含真实密钥或个人资料。
 

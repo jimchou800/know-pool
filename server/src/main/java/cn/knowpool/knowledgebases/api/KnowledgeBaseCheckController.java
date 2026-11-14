@@ -18,16 +18,27 @@ import tools.jackson.databind.JsonNode;
 @RestController
 public final class KnowledgeBaseCheckController {
     private final KnowledgeBaseChecks checks;
-    public KnowledgeBaseCheckController(KnowledgeBaseChecks checks) { this.checks=checks; }
-    @PostMapping(value="/api/v1/knowledge-bases/{knowledgeBaseId}/check",consumes="application/json")
+
+    public KnowledgeBaseCheckController(KnowledgeBaseChecks checks) {
+        this.checks = checks;
+    }
+
+    @PostMapping(value = "/api/v1/knowledge-bases/{knowledgeBaseId}/check", consumes = "application/json")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public ConnectionTests.Accepted check(@PathVariable String knowledgeBaseId,@RequestBody JsonNode input,HttpServletRequest request) {
-        if (!request.getParameterMap().isEmpty()) throw ApiFailure.invalid(null,"复查不接受查询参数。");
-        if (!input.isObject() || input.size()!=1 || !input.path("allowChargedCall").isBoolean() || !input.path("allowChargedCall").asBoolean())
-            throw ApiFailure.invalid("/allowChargedCall","须明确同意复查可能产生费用。");
-        List<String> keys=java.util.Collections.list(request.getHeaders("Idempotency-Key"));
-        if (keys.size()!=1) throw ApiFailure.invalid("Idempotency-Key","须提供唯一幂等键。");
-        var session=(LocalSessionFilter.Session)request.getAttribute("localSession");
-        return checks.submit(ModelSettingsService.identifier(knowledgeBaseId,"knowledgeBaseId"),session.sessionId(),keys.getFirst());
+    public ConnectionTests.Accepted check(
+            @PathVariable String knowledgeBaseId, @RequestBody JsonNode input, HttpServletRequest request) {
+        if (!request.getParameterMap().isEmpty()) throw ApiFailure.invalid(null, "复查不接受查询参数。");
+        if (!input.isObject()
+                || input.size() != 1
+                || !input.path("allowChargedCall").isBoolean()
+                || !input.path("allowChargedCall").asBoolean())
+            throw ApiFailure.invalid("/allowChargedCall", "须明确同意复查可能产生费用。");
+        List<String> keys = java.util.Collections.list(request.getHeaders("Idempotency-Key"));
+        if (keys.size() != 1) throw ApiFailure.invalid("Idempotency-Key", "须提供唯一幂等键。");
+        var session = (LocalSessionFilter.Session) request.getAttribute("localSession");
+        return checks.submit(
+                ModelSettingsService.identifier(knowledgeBaseId, "knowledgeBaseId"),
+                session.sessionId(),
+                keys.getFirst());
     }
 }

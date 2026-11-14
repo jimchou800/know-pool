@@ -271,8 +271,12 @@ it('问答专用事件接口声明的公开错误均由订阅客户端消费', a
   }
 });
 afterAll(() =>
-  execFileSync('python', ['scripts/settings-evidence.py', '08'], {
-    input: JSON.stringify(observations),
-    encoding: 'utf8',
-  }),
+  execFileSync(
+    'python',
+    ['scripts/settings-evidence.py', '08', 'answers-client'],
+    {
+      input: JSON.stringify(observations),
+      encoding: 'utf8',
+    },
+  ),
 );

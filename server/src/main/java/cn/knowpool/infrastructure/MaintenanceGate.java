@@ -7,21 +7,47 @@ public final class MaintenanceGate {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     private volatile boolean paused;
     private volatile long generation;
-    public void invalidateQueuedActivities() { generation++; }
-    public boolean paused() { return paused; }
-    public synchronized boolean pause() { if (paused) return false; paused=true; return true; }
-    public void resume() { paused=false; }
+
+    public void invalidateQueuedActivities() {
+        generation++;
+    }
+
+    public boolean paused() {
+        return paused;
+    }
+
+    public synchronized boolean pause() {
+        if (paused) return false;
+        paused = true;
+        return true;
+    }
+
+    public void resume() {
+        paused = false;
+    }
+
     public Lease enter() {
-        boolean admitted=lock.getReadHoldCount()>0 || lock.isWriteLockedByCurrentThread();
+        boolean admitted = lock.getReadHoldCount() > 0 || lock.isWriteLockedByCurrentThread();
         if (paused && !admitted) return null;
         lock.readLock().lock();
-        if (paused && !admitted) { lock.readLock().unlock();return null; }
+        if (paused && !admitted) {
+            lock.readLock().unlock();
+            return null;
+        }
         return () -> lock.readLock().unlock();
     }
-    public Lease exclusive() { lock.writeLock().lock();return () -> lock.writeLock().unlock(); }
-    public Runnable activity(Runnable action) { return activity(action,() -> {}); }
-    public Runnable activity(Runnable action,Runnable discarded) {
-        long acceptedGeneration=generation;
+
+    public Lease exclusive() {
+        lock.writeLock().lock();
+        return () -> lock.writeLock().unlock();
+    }
+
+    public Runnable activity(Runnable action) {
+        return activity(action, () -> {});
+    }
+
+    public Runnable activity(Runnable action, Runnable discarded) {
+        long acceptedGeneration = generation;
         return () -> {
             while (true) {
                 lock.readLock().lock();
@@ -30,8 +56,17 @@ public final class MaintenanceGate {
                 if (Thread.currentThread().isInterrupted()) return;
                 java.util.concurrent.locks.LockSupport.parkNanos(25_000_000);
             }
-            try { if (acceptedGeneration==generation) action.run();else discarded.run(); } finally { lock.readLock().unlock(); }
+            try {
+                if (acceptedGeneration == generation) action.run();
+                else discarded.run();
+            } finally {
+                lock.readLock().unlock();
+            }
         };
     }
-    public interface Lease extends AutoCloseable { @Override void close(); }
+
+    public interface Lease extends AutoCloseable {
+        @Override
+        void close();
+    }
 }

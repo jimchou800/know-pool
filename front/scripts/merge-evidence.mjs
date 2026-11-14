@@ -1,63 +1,31 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import assert from 'node:assert/strict';
+import { mergeReports } from './consumer-evidence.mjs';
 
-const first = JSON.parse(
-  await readFile('artifacts/contract-consumer-01.json', 'utf8'),
-);
-const second = JSON.parse(
-  await readFile('artifacts/contract-consumer-02.json', 'utf8'),
-);
-const third = JSON.parse(
-  await readFile('artifacts/contract-consumer-03.json', 'utf8'),
-);
-const sixth = JSON.parse(
-  await readFile('artifacts/contract-consumer-06.json', 'utf8'),
-);
-const seventh = JSON.parse(
-  await readFile('artifacts/contract-consumer-07.json', 'utf8'),
-);
-const eighth = JSON.parse(
-  await readFile('artifacts/contract-consumer-08.json', 'utf8'),
-);
-assert.equal(first.contractSha256, second.contractSha256);
-assert.equal(first.implementationSha256, second.implementationSha256);
-assert.equal(second.contractSha256, third.contractSha256);
-assert.equal(second.implementationSha256, third.implementationSha256);
-assert.equal(third.contractSha256, sixth.contractSha256);
-assert.equal(third.implementationSha256, sixth.implementationSha256);
-assert.equal(sixth.contractSha256, seventh.contractSha256);
-assert.equal(sixth.implementationSha256, seventh.implementationSha256);
-assert.equal(seventh.contractSha256, eighth.contractSha256);
-assert.equal(seventh.implementationSha256, eighth.implementationSha256);
-const tests = [
-  ...first.tests,
-  ...second.tests,
-  ...third.tests,
-  ...sixth.tests,
-  ...seventh.tests,
-  ...eighth.tests,
+const fragments = [
+  '01',
+  '02',
+  '03',
+  '06',
+  '07',
+  '08-answers-client',
+  '08-answers-history-client',
+  '08-cleanup-cleanup',
+  '08-knowledge-bases-indexing-contract',
+  '08-knowledge-bases-rebuild',
+  '08-knowledge-bases-retry',
+  '08-maintenance-backup-restore',
+  '08-maintenance-migration',
+  '08-search-client',
+  '08-settings-runtime',
 ];
-assert.equal(
-  new Set(tests.map((test) => test.name)).size,
-  tests.length,
-  '消费证据测试名称必须全局唯一',
+const reports = await Promise.all(
+  fragments.map(async (fragment) =>
+    JSON.parse(
+      await readFile(`artifacts/contract-consumer-${fragment}.json`, 'utf8'),
+    ),
+  ),
 );
 await writeFile(
   'artifacts/contract-consumer.json',
-  JSON.stringify(
-    {
-      ...third,
-      scope: [
-        ...first.scope,
-        ...second.scope,
-        ...third.scope,
-        ...sixth.scope,
-        ...seventh.scope,
-        ...eighth.scope,
-      ],
-      tests,
-    },
-    null,
-    2,
-  ),
+  JSON.stringify(mergeReports(reports), null, 2),
 );

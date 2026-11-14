@@ -16,20 +16,27 @@ public final class TaskCancellationController {
     private final SearchRequests searches;
     private final cn.knowpool.questions.Questions questions;
 
-    public TaskCancellationController(ConnectionTests tasks, Indexes indexes, SearchRequests searches,cn.knowpool.questions.Questions questions) {
-        this.tasks = tasks; this.indexes = indexes; this.searches = searches;this.questions=questions;
+    public TaskCancellationController(
+            ConnectionTests tasks,
+            Indexes indexes,
+            SearchRequests searches,
+            cn.knowpool.questions.Questions questions) {
+        this.tasks = tasks;
+        this.indexes = indexes;
+        this.searches = searches;
+        this.questions = questions;
     }
 
     @PostMapping("/api/v1/tasks/{taskId}/cancel")
     public Object cancel(@PathVariable String taskId, HttpServletRequest request) throws java.io.IOException {
         if (!request.getParameterMap().isEmpty() || request.getInputStream().read() != -1)
-            throw ApiFailure.invalid(null,"取消操作不接受查询参数或请求正文。");
+            throw ApiFailure.invalid(null, "取消操作不接受查询参数或请求正文。");
         var task = tasks.get(taskId);
         return switch (task.kind()) {
             case "index_file", "rebuild_knowledge_base" -> indexes.cancel(taskId);
             case "search" -> searches.cancel(taskId);
             case "question" -> questions.cancel(taskId).path("task");
-            default -> throw new ApiFailure(409,"CONFLICT","此任务类型不允许取消。",null);
+            default -> throw new ApiFailure(409, "CONFLICT", "此任务类型不允许取消。", null);
         };
     }
 }

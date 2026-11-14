@@ -42,7 +42,11 @@ it('按证据版本读取原文并定位源行，关闭返回触发点', async (
   const open = wrapper.get('button');
   await open.trigger('click');
   await flushPromises();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await vi.waitFor(() => {
+    expect(wrapper.get('[aria-label="对应版本原文"]').text()).toContain(
+      '证据正文',
+    );
+  });
   expect(requests[0].url).toBe(
     `/files/${item.fileId}/versions/${item.contentVersionId}/preview`,
   );

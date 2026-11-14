@@ -1033,8 +1033,12 @@ it('发布下线复查公开错误实际消费，保留原状态且不自动创�
   }
 });
 afterAll(() => {
-  execFileSync('python', ['scripts/settings-evidence.py', '08'], {
-    input: JSON.stringify(observations),
-    encoding: 'utf8',
-  });
+  execFileSync(
+    'python',
+    ['scripts/settings-evidence.py', '08', 'knowledge-bases-indexing-contract'],
+    {
+      input: JSON.stringify(observations),
+      encoding: 'utf8',
+    },
+  );
 });

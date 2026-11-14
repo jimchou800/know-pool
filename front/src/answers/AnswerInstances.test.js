@@ -167,7 +167,7 @@ it('删除期间旧任务查询迟到成功不得复活记录', async () => {
     }),
   );
   const { w } = await ready((r) => {
-    if (r.url === `/conversations/${id}`)
+    if (r.method === 'get' && r.url === `/conversations/${id}`)
       return { ...first, activeTask: running.task, lastTask: running.task };
     if (r.url === `/question-tasks/${otherId}`)
       return new Promise((done) => {

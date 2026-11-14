@@ -1307,7 +1307,7 @@ class ModelSettingsTest {
         if (cookie != null) request.header("Cookie", cookie);
         if (token != null) request.header("X-CSRF-Token", token);
         if (body != null) request.header("Content-Type", "application/json");
-        HttpResponse<String> response=observed(
+        HttpResponse<String> response = observed(
                 http.send(
                         request.method(
                                         method,
@@ -1317,7 +1317,7 @@ class ModelSettingsTest {
                                 .build(),
                         HttpResponse.BodyHandlers.ofString()),
                 body);
-        RuntimeTestFixtures.allowSavedModel(http,base,path,method,body,cookie,token,response.statusCode());
+        RuntimeTestFixtures.allowSavedModel(http, base, path, method, body, cookie, token, response.statusCode());
         return response;
     }
 

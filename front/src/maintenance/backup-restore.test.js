@@ -36,7 +36,7 @@ const maintenanceTask = (kind, state = 'queued') => ({
   finishedAt: state === 'queued' ? null : time,
   failure: ['failed', 'interrupted'].includes(state)
     ? {
-        code: 'MAINTENANCE_FAILED',
+        code: 'VERIFICATION_FAILED',
         message: '固定备份恢复故障',
         retryable: true,
       }
@@ -332,8 +332,12 @@ it('恢复接口拒绝缺少风险确认与串类型响应', async () => {
   await expect(api.list()).rejects.toThrow('不符合');
 });
 afterAll(() =>
-  execFileSync('python', ['scripts/settings-evidence.py', '08'], {
-    input: JSON.stringify(observations),
-    encoding: 'utf8',
-  }),
+  execFileSync(
+    'python',
+    ['scripts/settings-evidence.py', '08', 'maintenance-backup-restore'],
+    {
+      input: JSON.stringify(observations),
+      encoding: 'utf8',
+    },
+  ),
 );

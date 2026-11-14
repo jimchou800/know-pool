@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
@@ -147,7 +148,10 @@ def self_check():
 self_check()
 ticket = sys.argv[1] if len(sys.argv) > 1 else '06'
 assert ticket in ('06', '07', '08')
+suite = sys.argv[2] if len(sys.argv) > 2 else ''
+assert re.fullmatch(r'[a-z0-9-]+', suite) if ticket == '08' else not suite
 domain = {'06': '设置', '07': '知识库', '08': '索引与管理检索'}[ticket]
+domain += ':' + suite if suite else ''
 tests = []
 for index, item in enumerate(json.load(sys.stdin)):
     name = item['operationId']
@@ -188,9 +192,12 @@ for index, item in enumerate(json.load(sys.stdin)):
     if '$ref' in response_definition:
         pointer = response_definition['$ref']
         response_definition = verification.resolve(document, pointer)
-    schema = response_definition['content']['application/json']['schema']
-    validate_response(schema, item['response'])
-    reached(schema, pointer + '/content/application~1json/schema', item['response'], found)
+    if 'content' in response_definition:
+        schema = response_definition['content']['application/json']['schema']
+        validate_response(schema, item['response'])
+        reached(schema, pointer + '/content/application~1json/schema', item['response'], found)
+    else:
+        assert status == '204' and item['response'] in ('', None), '无正文响应不得携带数据。'
     if 'requestBody' in definition:
         request = json.loads(item['body']) if item['body'] is not None else None
         schema = definition['requestBody']['content']['application/json']['schema']
@@ -233,6 +240,6 @@ report = {'timestamp': datetime.now(timezone.utc).isoformat(),
           'contractSha256': hashlib.sha256((root / 'docs/agents/api/openapi.yaml').read_bytes()).hexdigest(),
           'implementationSha256': verification.snapshot()[0],
           'scope': list(dict.fromkeys(test['operationIds'][0] for test in tests)), 'tests': tests}
-output = root / f'front/artifacts/contract-consumer-{ticket}.json'
+output = root / f'front/artifacts/contract-consumer-{ticket}{"-" + suite if suite else ""}.json'
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')

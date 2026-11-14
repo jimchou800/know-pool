@@ -74,7 +74,7 @@ const terminal = (state = 'failed') => ({
   failure:
     state === 'succeeded'
       ? null
-      : { code: 'MIGRATION_FAILED', message: '固定阶段失败', retryable: true },
+      : { code: 'COPY_FAILED', message: '固定阶段失败', retryable: true },
 });
 it('四操作实际请求与完整预检维护响应、同键终态和显式恢复消费', async () => {
   const s = await setup(() => ({ httpStatus: 200, body: preflight })),
@@ -449,8 +449,12 @@ it('拒绝畸形响应、错误任务身份与非法调用参数', async () => {
   await expect(api.list()).rejects.toThrow('不符合');
 });
 afterAll(() =>
-  execFileSync('python', ['scripts/settings-evidence.py', '08'], {
-    input: JSON.stringify(observations),
-    encoding: 'utf8',
-  }),
+  execFileSync(
+    'python',
+    ['scripts/settings-evidence.py', '08', 'maintenance-migration'],
+    {
+      input: JSON.stringify(observations),
+      encoding: 'utf8',
+    },
+  ),
 );

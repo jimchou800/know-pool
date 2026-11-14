@@ -6,8 +6,6 @@ import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -17,15 +15,18 @@ import tools.jackson.databind.json.JsonMapper;
 
 @Service
 public final class ConnectionTests {
-    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     private cn.knowpool.infrastructure.RuntimeSettings runtime;
+
     private static final String COST_WARNING = "连接测试可能已产生费用，请勿自动重新提交。";
     private final ApplicationData data;
     private final JsonMapper json;
     private final ConnectionProbe probe;
-    private final cn.knowpool.infrastructure.AdjustableCapacity capacity = new cn.knowpool.infrastructure.AdjustableCapacity(() -> runtime==null?17:(int)runtime.number("queueCapacity")+1);
-    private final ThreadPoolExecutor executor =
-            new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>(), runnable -> {
+    private final cn.knowpool.infrastructure.AdjustableCapacity capacity =
+            new cn.knowpool.infrastructure.AdjustableCapacity(
+                    () -> runtime == null ? 17 : (int) runtime.number("queueCapacity") + 1);
+    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(
+            1, 1, 0, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>(), runnable -> {
                 Thread thread = new Thread(runnable, "connection-test");
                 thread.setDaemon(true);
                 return thread;
@@ -122,7 +123,7 @@ public final class ConnectionTests {
                 if (!accepted) capacity.release();
             }
         });
-        if (pending.snapshot() != null) executor.execute(data.gate().activity(() -> run(pending),capacity::release));
+        if (pending.snapshot() != null) executor.execute(data.gate().activity(() -> run(pending), capacity::release));
         return pending.task();
     }
 

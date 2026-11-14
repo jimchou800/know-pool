@@ -142,7 +142,8 @@ it('删除前真实影响失败禁止确认，网络未知同键恢复即通知�
     });
   await w.get('button').trigger('click');
   await flushPromises();
-  expect(w.text()).toContain('固定断线');
+  expect(w.text()).toContain('请求未完成');
+  expect(w.text()).not.toContain('固定断线');
   expect(
     w.findAll('button').some((item) => item.text() === '确认删除知识库'),
   ).toBe(false);
@@ -218,8 +219,12 @@ it('全局失败清理显式重试显示新任务不恢复对象，不在页面�
   w.unmount();
 });
 afterAll(() =>
-  execFileSync('python', ['scripts/settings-evidence.py', '08'], {
-    input: JSON.stringify(observations),
-    encoding: 'utf8',
-  }),
+  execFileSync(
+    'python',
+    ['scripts/settings-evidence.py', '08', 'cleanup-cleanup'],
+    {
+      input: JSON.stringify(observations),
+      encoding: 'utf8',
+    },
+  ),
 );

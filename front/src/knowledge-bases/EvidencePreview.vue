@@ -127,8 +127,8 @@ onBeforeUnmount(() => {
         {{ error }}<button @click="preview">重试原文预览</button>
       </p>
       <component
-        v-if="content && renderer"
         :is="renderer"
+        v-if="content && renderer"
         v-bind="rendererProps"
       />
     </section>

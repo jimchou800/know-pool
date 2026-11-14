@@ -82,7 +82,9 @@ public final class DatasetRepository {
     }
 
     private static Dataset find(JdbcClient jdbc, String id) {
-        return jdbc.sql(SELECT + "WHERE id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='dataset' AND x.id=d.id)")
+        return jdbc.sql(
+                        SELECT
+                                + "WHERE id=? AND NOT EXISTS(SELECT 1 FROM deleted_resources x WHERE x.kind='dataset' AND x.id=d.id)")
                 .param(id)
                 .query((row, index) -> new Dataset(
                         row.getString("id"),

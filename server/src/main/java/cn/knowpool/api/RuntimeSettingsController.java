@@ -10,10 +10,28 @@ import tools.jackson.databind.JsonNode;
 public final class RuntimeSettingsController {
     private final RuntimeSettings settings;
     private final KnowledgeBases bases;
-    public RuntimeSettingsController(RuntimeSettings settings,KnowledgeBases bases) { this.settings=settings;this.bases=bases; }
+
+    public RuntimeSettingsController(RuntimeSettings settings, KnowledgeBases bases) {
+        this.settings = settings;
+        this.bases = bases;
+    }
+
     @GetMapping("/api/v1/settings/runtime")
-    public JsonNode get(HttpServletRequest request) { noQuery(request);return settings.get(); }
+    public JsonNode get(HttpServletRequest request) {
+        noQuery(request);
+        return settings.get();
+    }
+
     @PutMapping("/api/v1/settings/runtime")
-    public JsonNode update(@RequestBody JsonNode body,HttpServletRequest request) { noQuery(request);return settings.update(body,() -> bases.runtimeInputChanged(body.path("chunkHardLimitCodePoints").asLong())); }
-    private static void noQuery(HttpServletRequest request) { if (!request.getParameterMap().isEmpty()) throw ApiFailure.invalid(null,"此操作不接受查询参数。"); }
+    public JsonNode update(@RequestBody JsonNode body, HttpServletRequest request) {
+        noQuery(request);
+        return settings.update(
+                body,
+                () -> bases.runtimeInputChanged(
+                        body.path("chunkHardLimitCodePoints").asLong()));
+    }
+
+    private static void noQuery(HttpServletRequest request) {
+        if (!request.getParameterMap().isEmpty()) throw ApiFailure.invalid(null, "此操作不接受查询参数。");
+    }
 }

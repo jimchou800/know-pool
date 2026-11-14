@@ -12,7 +12,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -25,17 +24,20 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public final class KnowledgeBases {
-    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     private cn.knowpool.infrastructure.RuntimeSettings runtime;
+
     private final ApplicationData data;
     private final ModelSettingsService settings;
     private final VectorCollections vectors;
     private final JsonMapper json;
     private final FileService files;
-    private final cn.knowpool.infrastructure.AdjustableCapacity capacity = new cn.knowpool.infrastructure.AdjustableCapacity(() -> runtime==null?17:(int)runtime.number("queueCapacity")+1);
+    private final cn.knowpool.infrastructure.AdjustableCapacity capacity =
+            new cn.knowpool.infrastructure.AdjustableCapacity(
+                    () -> runtime == null ? 17 : (int) runtime.number("queueCapacity") + 1);
     private final AtomicBoolean stopping = new AtomicBoolean();
-    private final ThreadPoolExecutor executor =
-            new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>(), runnable -> {
+    private final ThreadPoolExecutor executor = new ThreadPoolExecutor(
+            1, 1, 0, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>(), runnable -> {
                 Thread thread = new Thread(runnable, "knowledge-base-create");
                 thread.setDaemon(true);
                 return thread;
@@ -168,13 +170,16 @@ public final class KnowledgeBases {
             if (!committed && acquired.get()) capacity.release();
         }
         if (pending.vector() != null) {
-            executor.execute(data.gate().activity(() -> {
-                try {
-                    initialize(pending);
-                } finally {
-                    capacity.release();
-                }
-            },capacity::release));
+            executor.execute(data.gate()
+                    .activity(
+                            () -> {
+                                try {
+                                    initialize(pending);
+                                } finally {
+                                    capacity.release();
+                                }
+                            },
+                            capacity::release));
         }
         return new ConnectionTests.Accepted(pending.task());
     }
@@ -210,7 +215,9 @@ public final class KnowledgeBases {
                 jdbc.sql("UPDATE knowledge_base_creations SET ownership='owned',phase='created' WHERE task_id=?")
                         .param(task.id())
                         .update();
-                jdbc.sql("INSERT OR IGNORE INTO owned_vector_collections VALUES(?,?,?)").params(task.knowledgeBaseId(),collection,endpoint).update();
+                jdbc.sql("INSERT OR IGNORE INTO owned_vector_collections VALUES(?,?,?)")
+                        .params(task.knowledgeBaseId(), collection, endpoint)
+                        .update();
                 return null;
             });
             JsonNode actual = vectors.request(endpoint, secret, collection, "GET", null);
@@ -334,16 +341,20 @@ public final class KnowledgeBases {
         ModelSettingsService.VectorConnection current = settings.vectorConnection();
         if (!pending.isEmpty()) {
             capacity.acquireUninterruptibly();
-            executor.execute(data.gate().activity(() -> {
-                try {
-                    for (String[] item : pending) {
-                        if (stopping.get()) return;
-                        if (item[1].equals(current.endpoint())) cleanup(item[0], item[1], current.secret(), item[2]);
-                    }
-                } finally {
-                    capacity.release();
-                }
-            },capacity::release));
+            executor.execute(data.gate()
+                    .activity(
+                            () -> {
+                                try {
+                                    for (String[] item : pending) {
+                                        if (stopping.get()) return;
+                                        if (item[1].equals(current.endpoint()))
+                                            cleanup(item[0], item[1], current.secret(), item[2]);
+                                    }
+                                } finally {
+                                    capacity.release();
+                                }
+                            },
+                            capacity::release));
         }
     }
 
@@ -361,7 +372,11 @@ public final class KnowledgeBases {
     }
 
     public void refreshProcessing(JdbcClient jdbc, String id) {
-        if (jdbc.sql("SELECT COUNT(*) FROM knowledge_bases WHERE id=? AND visible=1").param(id).query(Integer.class).single()==0) return;
+        if (jdbc.sql("SELECT COUNT(*) FROM knowledge_bases WHERE id=? AND visible=1")
+                        .param(id)
+                        .query(Integer.class)
+                        .single()
+                == 0) return;
         ObjectNode value = (ObjectNode) get(jdbc, id);
         String state = jdbc.sql(
                         """
@@ -386,21 +401,71 @@ public final class KnowledgeBases {
 
     public void restoreIndexFailures() {
         data.write(jdbc -> {
-            for (String kb:jdbc.sql("SELECT id FROM knowledge_bases WHERE visible=1").query(String.class).list()) {
-                ObjectNode base=(ObjectNode)get(jdbc,kb);String config=base.path("targetConfigVersionId").asText();
-                for (String file:includedFiles(kb)) {
+            for (String kb : jdbc.sql("SELECT id FROM knowledge_bases WHERE visible=1")
+                    .query(String.class)
+                    .list()) {
+                ObjectNode base = (ObjectNode) get(jdbc, kb);
+                String config = base.path("targetConfigVersionId").asText();
+                for (String file : includedFiles(kb)) {
                     FileService.SourceFile source;
-                    try { source=files.sourceFiles(jdbc,"file",file).getFirst(); } catch (ApiFailure missing) { if (missing.status()!=404) throw missing;continue; }
-                    if (excluded(jdbc,kb,file) || !hasSource(jdbc,kb,source)) continue;
-                    JsonNode previous=jdbc.sql("SELECT t.payload FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.file_id=?").params(kb,file).query(String.class).optional().map(json::readTree).orElse(null);
-                    if (previous!=null && previous.path("state").asText().equals("cancelled")) continue;
-                    String id=UUID.randomUUID().toString(),now=Instant.now().toString();
-                    ConnectionTests.Task task=new ConnectionTests.Task(id,"index_file","failed","completed",now,null,now,kb,file,source.contentVersionId(),config,null,0,0,null,new ConnectionTests.Failure("INDEX_REBUILD_REQUIRED","恢复后的向量引用未通过核查，请显式重试重建；可能产生嵌入费用。",true),List.of("恢复不会自动调用嵌入服务；显式重试才重建索引。"),null);
-                    jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'index_file','failed',?,'internal','restore_index_check',?,'')").params(id,json.writeValueAsString(task),id).update();TaskEvents.record(jdbc,json,json.valueToTree(task));
-                    jdbc.sql("INSERT INTO knowledge_base_files VALUES(?,?,?,?,?) ON CONFLICT(knowledge_base_id,file_id) DO UPDATE SET content_version_id=excluded.content_version_id,config_version_id=excluded.config_version_id,task_id=excluded.task_id").params(kb,file,source.contentVersionId(),config,id).update();
+                    try {
+                        source = files.sourceFiles(jdbc, "file", file).getFirst();
+                    } catch (ApiFailure missing) {
+                        if (missing.status() != 404) throw missing;
+                        continue;
+                    }
+                    if (excluded(jdbc, kb, file) || !hasSource(jdbc, kb, source)) continue;
+                    JsonNode previous = jdbc.sql(
+                                    "SELECT t.payload FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.file_id=?")
+                            .params(kb, file)
+                            .query(String.class)
+                            .optional()
+                            .map(json::readTree)
+                            .orElse(null);
+                    if (previous != null && previous.path("state").asText().equals("cancelled")) continue;
+                    String id = UUID.randomUUID().toString(),
+                            now = Instant.now().toString();
+                    ConnectionTests.Task task = new ConnectionTests.Task(
+                            id,
+                            "index_file",
+                            "failed",
+                            "completed",
+                            now,
+                            null,
+                            now,
+                            kb,
+                            file,
+                            source.contentVersionId(),
+                            config,
+                            null,
+                            0,
+                            0,
+                            null,
+                            new ConnectionTests.Failure(
+                                    "INDEX_REBUILD_REQUIRED", "恢复后的向量引用未通过核查，请显式重试重建；可能产生嵌入费用。", true),
+                            List.of("恢复不会自动调用嵌入服务；显式重试才重建索引。"),
+                            null);
+                    jdbc.sql(
+                                    "INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'index_file','failed',?,'internal','restore_index_check',?,'')")
+                            .params(id, json.writeValueAsString(task), id)
+                            .update();
+                    TaskEvents.record(jdbc, json, json.valueToTree(task));
+                    jdbc.sql(
+                                    "INSERT INTO knowledge_base_files VALUES(?,?,?,?,?) ON CONFLICT(knowledge_base_id,file_id) DO UPDATE SET content_version_id=excluded.content_version_id,config_version_id=excluded.config_version_id,task_id=excluded.task_id")
+                            .params(kb, file, source.contentVersionId(), config, id)
+                            .update();
                 }
-                jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=?").param(kb).update();jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=?").param(kb).update();
-                base.put("availability","unavailable").put("availabilityReason","恢复后索引尚未通过核查，请显式重建；可能产生嵌入费用。");jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(base),kb).update();updateCounts(jdbc,kb);
+                jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=?")
+                        .param(kb)
+                        .update();
+                jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=?")
+                        .param(kb)
+                        .update();
+                base.put("availability", "unavailable").put("availabilityReason", "恢复后索引尚未通过核查，请显式重建；可能产生嵌入费用。");
+                jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
+                        .params(json.writeValueAsString(base), kb)
+                        .update();
+                updateCounts(jdbc, kb);
             }
             return null;
         });
@@ -420,29 +485,47 @@ public final class KnowledgeBases {
         return data.read(jdbc -> {
             get(jdbc, id);
             return jdbc.sql("SELECT payload FROM processing_config_history WHERE id=? AND knowledge_base_id=?")
-                    .params(version, id).query(String.class).optional().map(json::readTree)
+                    .params(version, id)
+                    .query(String.class)
+                    .optional()
+                    .map(json::readTree)
                     .orElseGet(() -> {
                         JsonNode current = config(id);
-                        if (!current.path("id").asText().equals(version)) throw new ApiFailure(404, "NOT_FOUND", "处理配置版本不存在。", null);
+                        if (!current.path("id").asText().equals(version))
+                            throw new ApiFailure(404, "NOT_FOUND", "处理配置版本不存在。", null);
                         return current;
                     });
         });
     }
 
     String collection(String id, String version) {
-        return data.read(jdbc -> jdbc.sql("SELECT collection_name FROM processing_config_history WHERE id=? AND knowledge_base_id=?")
-                .params(version, id).query(String.class).optional().orElse("kp_" + id.replace("-", "")));
+        return data.read(jdbc -> jdbc.sql(
+                        "SELECT collection_name FROM processing_config_history WHERE id=? AND knowledge_base_id=?")
+                .params(version, id)
+                .query(String.class)
+                .optional()
+                .orElse("kp_" + id.replace("-", "")));
     }
 
     public void runtimeInputChanged(long limit) {
-        List<String> ids=data.read(jdbc -> jdbc.sql("SELECT id FROM knowledge_bases WHERE visible=1 ORDER BY id").query(String.class).list());
-        for (String id:ids) {
-            ObjectNode input=(ObjectNode)config(id).path("input").deepCopy();
-            updateConfig(id,"runtime",UUID.randomUUID().toString(),input);
+        List<String> ids = data.read(jdbc -> jdbc.sql("SELECT id FROM knowledge_bases WHERE visible=1 ORDER BY id")
+                .query(String.class)
+                .list());
+        for (String id : ids) {
+            ObjectNode input = (ObjectNode) config(id).path("input").deepCopy();
+            updateConfig(id, "runtime", UUID.randomUUID().toString(), input);
             data.write(jdbc -> {
-                ObjectNode current=(ObjectNode)config(id);current.put("runtimeChunkHardLimitCodePoints",limit);
-                jdbc.sql("UPDATE knowledge_bases SET config=? WHERE id=?").params(json.writeValueAsString(current),id).update();
-                jdbc.sql("UPDATE processing_config_history SET payload=? WHERE id=?").params(json.writeValueAsString(current),current.path("id").asText()).update();return null;
+                ObjectNode current = (ObjectNode) config(id);
+                current.put("runtimeChunkHardLimitCodePoints", limit);
+                jdbc.sql("UPDATE knowledge_bases SET config=? WHERE id=?")
+                        .params(json.writeValueAsString(current), id)
+                        .update();
+                jdbc.sql("UPDATE processing_config_history SET payload=? WHERE id=?")
+                        .params(
+                                json.writeValueAsString(current),
+                                current.path("id").asText())
+                        .update();
+                return null;
             });
         }
     }
@@ -452,157 +535,431 @@ public final class KnowledgeBases {
         return data.write(jdbc -> {
             ObjectNode base = (ObjectNode) get(jdbc, id);
             String operation = "updateProcessingConfig:" + id;
-            var previous = jdbc.sql("SELECT payload,request_fingerprint FROM tasks WHERE session_id=? AND operation=? AND idempotency_key=?")
-                    .params(session, operation, validKey).query((row, n) -> new String[]{row.getString(1), row.getString(2)}).list();
+            var previous = jdbc.sql(
+                            "SELECT payload,request_fingerprint FROM tasks WHERE session_id=? AND operation=? AND idempotency_key=?")
+                    .params(session, operation, validKey)
+                    .query((row, n) -> new String[] {row.getString(1), row.getString(2)})
+                    .list();
             if (!previous.isEmpty()) {
-                if (!json.readTree(previous.getFirst()[1]).equals(input)) throw new ApiFailure(409, "CONFLICT", "同一幂等键不能修改不同配置。", null);
+                if (!json.readTree(previous.getFirst()[1]).equals(input))
+                    throw new ApiFailure(409, "CONFLICT", "同一幂等键不能修改不同配置。", null);
                 return new ConnectionTests.Accepted(json.readValue(previous.getFirst()[0], ConnectionTests.Task.class));
             }
             JsonNode embedding = input.path("embedding");
-            var model = settings.historical(embedding.path("modelConfigVersionId").asText());
-            if (model.endpoint() == null || !model.endpoint().equals(embedding.at("/modelSnapshot/endpoint").asText())
-                    || !model.model().equals(embedding.at("/modelSnapshot/model").asText()))
+            var model =
+                    settings.historical(embedding.path("modelConfigVersionId").asText());
+            if (model.endpoint() == null
+                    || !model.endpoint()
+                            .equals(embedding.at("/modelSnapshot/endpoint").asText())
+                    || !model.model()
+                            .equals(embedding.at("/modelSnapshot/model").asText()))
                 throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "嵌入快照与已保存版本不匹配。", "/embedding/modelSnapshot");
-            if (settings.vectorConnection().endpoint() == null) throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "请先设置向量连接。", null);
-            if (jdbc.sql("SELECT COUNT(*) FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE t.state IN ('queued','running')")
-                    .query(Integer.class).single() >= (runtime==null?17:runtime.number("queueCapacity"))) throw new ApiFailure(429, "QUEUE_FULL", "配置重建队列已满。", null);
-            requireIndexCapacity(jdbc,jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=?").param(id).query(Long.class).single());
+            if (settings.vectorConnection().endpoint() == null)
+                throw new ApiFailure(422, "MODEL_CONFIG_INVALID", "请先设置向量连接。", null);
+            if (jdbc.sql(
+                                    "SELECT COUNT(*) FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE t.state IN ('queued','running')")
+                            .query(Integer.class)
+                            .single()
+                    >= (runtime == null ? 17 : runtime.number("queueCapacity")))
+                throw new ApiFailure(429, "QUEUE_FULL", "配置重建队列已满。", null);
+            requireIndexCapacity(
+                    jdbc,
+                    jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=?")
+                            .param(id)
+                            .query(Long.class)
+                            .single());
             JsonNode oldConfig = config(id);
-            jdbc.sql("INSERT OR IGNORE INTO processing_config_history VALUES(?,?,?,?)").params(oldConfig.path("id").asText(), id,
-                    json.writeValueAsString(oldConfig), "kp_" + id.replace("-", "")).update();
-            String taskId = UUID.randomUUID().toString(), version = UUID.randomUUID().toString(), now = Instant.now().toString();
-            ObjectNode config = json.createObjectNode().put("id", version).put("knowledgeBaseId", id).put("createdAt", now)
-                    .put("parserRuleVersion", DocumentSources.RULE_VERSION).put("chunkRuleVersion", ChunkPlans.RULE_VERSION)
+            jdbc.sql("INSERT OR IGNORE INTO processing_config_history VALUES(?,?,?,?)")
+                    .params(
+                            oldConfig.path("id").asText(),
+                            id,
+                            json.writeValueAsString(oldConfig),
+                            "kp_" + id.replace("-", ""))
+                    .update();
+            String taskId = UUID.randomUUID().toString(),
+                    version = UUID.randomUUID().toString(),
+                    now = Instant.now().toString();
+            ObjectNode config = json.createObjectNode()
+                    .put("id", version)
+                    .put("knowledgeBaseId", id)
+                    .put("createdAt", now)
+                    .put("parserRuleVersion", DocumentSources.RULE_VERSION)
+                    .put("chunkRuleVersion", ChunkPlans.RULE_VERSION)
                     .put("lengthMeterVersion", "unicode-code-points-1");
             config.set("input", input);
-            jdbc.sql("INSERT INTO processing_config_history VALUES(?,?,?,?)").params(version, id, json.writeValueAsString(config), "kp_" + id.replace("-", "") + "_" + version.replace("-", "")).update();
-            for (String payload : jdbc.sql("SELECT payload FROM tasks WHERE state IN ('queued','running') AND kind IN ('index_file','rebuild_knowledge_base') AND json_extract(payload,'$.knowledgeBaseId')=?").param(id).query(String.class).list()) {
+            jdbc.sql("INSERT INTO processing_config_history VALUES(?,?,?,?)")
+                    .params(
+                            version,
+                            id,
+                            json.writeValueAsString(config),
+                            "kp_" + id.replace("-", "") + "_" + version.replace("-", ""))
+                    .update();
+            for (String payload : jdbc.sql(
+                            "SELECT payload FROM tasks WHERE state IN ('queued','running') AND kind IN ('index_file','rebuild_knowledge_base') AND json_extract(payload,'$.knowledgeBaseId')=?")
+                    .param(id)
+                    .query(String.class)
+                    .list()) {
                 ObjectNode cancelled = (ObjectNode) json.readTree(payload);
-                cancelled.put("state", "cancelled").put("phase", "completed").put("finishedAt", now).putNull("failure").putNull("resultResourceId");
+                cancelled
+                        .put("state", "cancelled")
+                        .put("phase", "completed")
+                        .put("finishedAt", now)
+                        .putNull("failure")
+                        .putNull("resultResourceId");
                 cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, cancelled);
-                jdbc.sql("UPDATE tasks SET state='cancelled',payload=? WHERE id=?").params(json.writeValueAsString(cancelled), cancelled.path("id").asText()).update();
+                jdbc.sql("UPDATE tasks SET state='cancelled',payload=? WHERE id=?")
+                        .params(
+                                json.writeValueAsString(cancelled),
+                                cancelled.path("id").asText())
+                        .update();
             }
-            base.put("targetConfigVersionId", version).put("processingState", "queued").put("updatedAt", now);
-            jdbc.sql("UPDATE knowledge_bases SET config=?,payload=? WHERE id=?").params(json.writeValueAsString(config), json.writeValueAsString(base), id).update();
-            ConnectionTests.Task parent = new ConnectionTests.Task(taskId, "rebuild_knowledge_base", "queued", "queued", now, null, null,
-                    id, null, null, version, null, 0, 0, null, null, List.of(), null);
-            jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'rebuild_knowledge_base','queued',?,?,?,?,?)")
-                    .params(taskId, json.writeValueAsString(parent), session, operation, validKey, json.writeValueAsString(input)).update();
-            jdbc.sql("INSERT INTO processing_rebuilds(task_id,knowledge_base_id,config_version_id) VALUES(?,?,?)").params(taskId, id, version).update();
+            base.put("targetConfigVersionId", version)
+                    .put("processingState", "queued")
+                    .put("updatedAt", now);
+            jdbc.sql("UPDATE knowledge_bases SET config=?,payload=? WHERE id=?")
+                    .params(json.writeValueAsString(config), json.writeValueAsString(base), id)
+                    .update();
+            ConnectionTests.Task parent = new ConnectionTests.Task(
+                    taskId,
+                    "rebuild_knowledge_base",
+                    "queued",
+                    "queued",
+                    now,
+                    null,
+                    null,
+                    id,
+                    null,
+                    null,
+                    version,
+                    null,
+                    0,
+                    0,
+                    null,
+                    null,
+                    List.of(),
+                    null);
+            jdbc.sql(
+                            "INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'rebuild_knowledge_base','queued',?,?,?,?,?)")
+                    .params(
+                            taskId,
+                            json.writeValueAsString(parent),
+                            session,
+                            operation,
+                            validKey,
+                            json.writeValueAsString(input))
+                    .update();
+            jdbc.sql("INSERT INTO processing_rebuilds(task_id,knowledge_base_id,config_version_id) VALUES(?,?,?)")
+                    .params(taskId, id, version)
+                    .update();
             cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(parent));
-            for (String file : jdbc.sql("SELECT file_id FROM knowledge_base_files WHERE knowledge_base_id=?").param(id).query(String.class).list()) {
+            for (String file : jdbc.sql("SELECT file_id FROM knowledge_base_files WHERE knowledge_base_id=?")
+                    .param(id)
+                    .query(String.class)
+                    .list()) {
                 var source = files.sourceFiles(jdbc, "file", file).getFirst();
                 String childId = UUID.randomUUID().toString();
-                ConnectionTests.Task child = new ConnectionTests.Task(childId, "index_file", "queued", "queued", now, null, null,
-                        id, file, source.contentVersionId(), version, null, 0, 0, null, null, List.of(), null);
-                jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'index_file','queued',?,'internal','index_file',?,'')")
-                        .params(childId, json.writeValueAsString(child), childId).update();
-                jdbc.sql("UPDATE knowledge_base_files SET task_id=?,content_version_id=?,config_version_id=? WHERE knowledge_base_id=? AND file_id=?")
-                        .params(childId, source.contentVersionId(), version, id, file).update();
+                ConnectionTests.Task child = new ConnectionTests.Task(
+                        childId,
+                        "index_file",
+                        "queued",
+                        "queued",
+                        now,
+                        null,
+                        null,
+                        id,
+                        file,
+                        source.contentVersionId(),
+                        version,
+                        null,
+                        0,
+                        0,
+                        null,
+                        null,
+                        List.of(),
+                        null);
+                jdbc.sql(
+                                "INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'index_file','queued',?,'internal','index_file',?,'')")
+                        .params(childId, json.writeValueAsString(child), childId)
+                        .update();
+                jdbc.sql(
+                                "UPDATE knowledge_base_files SET task_id=?,content_version_id=?,config_version_id=? WHERE knowledge_base_id=? AND file_id=?")
+                        .params(childId, source.contentVersionId(), version, id, file)
+                        .update();
                 cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(child));
             }
             return new ConnectionTests.Accepted(parent);
         });
     }
 
-    public List<String> deletionBases(String kind,String id,List<String> fileIds) {
+    public List<String> deletionBases(String kind, String id, List<String> fileIds) {
         return data.read(jdbc -> {
-            if (kind.equals("knowledge_base")) { get(jdbc,id);return List.of(id); }
-            var result=new java.util.TreeSet<String>();
-            if (kind.equals("dataset")) result.addAll(jdbc.sql("SELECT DISTINCT knowledge_base_id FROM knowledge_base_sources WHERE type='dataset' AND resource_id=?").param(id).query(String.class).list());
-            if (!fileIds.isEmpty()) result.addAll(jdbc.sql("SELECT DISTINCT knowledge_base_id FROM knowledge_base_sources WHERE type='file' AND resource_id IN (:ids) UNION SELECT knowledge_base_id FROM knowledge_base_files WHERE file_id IN (:ids) UNION SELECT knowledge_base_id FROM effective_files WHERE file_id IN (:ids) UNION SELECT knowledge_base_id FROM knowledge_base_exclusions WHERE file_id IN (:ids)").param("ids",fileIds).query(String.class).list());
+            if (kind.equals("knowledge_base")) {
+                get(jdbc, id);
+                return List.of(id);
+            }
+            var result = new java.util.TreeSet<String>();
+            if (kind.equals("dataset"))
+                result.addAll(jdbc.sql(
+                                "SELECT DISTINCT knowledge_base_id FROM knowledge_base_sources WHERE type='dataset' AND resource_id=?")
+                        .param(id)
+                        .query(String.class)
+                        .list());
+            if (!fileIds.isEmpty())
+                result.addAll(jdbc.sql(
+                                "SELECT DISTINCT knowledge_base_id FROM knowledge_base_sources WHERE type='file' AND resource_id IN (:ids) UNION SELECT knowledge_base_id FROM knowledge_base_files WHERE file_id IN (:ids) UNION SELECT knowledge_base_id FROM effective_files WHERE file_id IN (:ids) UNION SELECT knowledge_base_id FROM knowledge_base_exclusions WHERE file_id IN (:ids)")
+                        .param("ids", fileIds)
+                        .query(String.class)
+                        .list());
             return List.copyOf(result);
         });
     }
 
-    public List<String> includedFiles(String kb) { return data.read(jdbc -> { get(jdbc,kb);return jdbc.sql("SELECT file_id FROM knowledge_base_files WHERE knowledge_base_id=? ORDER BY file_id").param(kb).query(String.class).list(); }); }
-
-    public JsonNode deletionTargets(String kind,String id,List<String> fileIds,List<String> baseIds) {
-        var targets=json.createArrayNode();
-        data.read(jdbc -> {
-            for (String kb:baseIds) {
-                jdbc.sql("SELECT r.id,json_extract(t.payload,'$.targetConfigVersionId'),json_extract(t.payload,'$.fileId') FROM index_runs r JOIN tasks t ON t.id=r.task_id WHERE json_extract(t.payload,'$.knowledgeBaseId')=?")
-                        .param(kb).query((row,n) -> {
-                            if (kind.equals("knowledge_base") || fileIds.contains(row.getString(3))) targets.addObject().put("type","index").put("indexId",row.getString(1)).put("collection",collection(kb,row.getString(2)));
-                            return true;
-                        }).list();
-                if (kind.equals("knowledge_base")) jdbc.sql("SELECT collection_name,endpoint FROM owned_vector_collections WHERE knowledge_base_id=?")
-                        .param(kb).query((row,n) -> { targets.addObject().put("type","collection").put("collection",row.getString(1)).put("endpoint",row.getString(2));return true; }).list();
-                if (kind.equals("knowledge_base")) jdbc.sql("SELECT DISTINCT h.collection_name FROM processing_config_history h WHERE h.knowledge_base_id=? AND NOT EXISTS(SELECT 1 FROM owned_vector_collections c WHERE c.knowledge_base_id=h.knowledge_base_id AND c.collection_name=h.collection_name)")
-                        .param(kb).query((row,n) -> { targets.addObject().put("type","unknown_collection").put("collection",row.getString(1));return true; }).list();
-            }
-            return null;
-        });return targets;
-    }
-
-    public void deleteLinks(JdbcClient jdbc,String kind,String id,List<String> fileIds,List<String> baseIds) {
-        for (String kb:baseIds) {
-            if (kind.equals("knowledge_base")) {
-                jdbc.sql("DELETE FROM knowledge_base_sources WHERE knowledge_base_id=?").param(kb).update();jdbc.sql("DELETE FROM knowledge_base_exclusions WHERE knowledge_base_id=?").param(kb).update();
-                jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=?").param(kb).update();jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=?").param(kb).update();jdbc.sql("DELETE FROM knowledge_base_files WHERE knowledge_base_id=?").param(kb).update();
-                jdbc.sql("UPDATE knowledge_bases SET visible=0,name_key=? WHERE id=?").params("deleted:"+kb,kb).update();jdbc.sql("INSERT OR IGNORE INTO deleted_resources VALUES('knowledge_base',?)").param(kb).update();
-            } else {
-                if (kind.equals("dataset")) jdbc.sql("DELETE FROM knowledge_base_sources WHERE knowledge_base_id=? AND type='dataset' AND resource_id=?").params(kb,id).update();
-                for (String file:fileIds) {
-                    jdbc.sql("DELETE FROM knowledge_base_sources WHERE knowledge_base_id=? AND type='file' AND resource_id=?").params(kb,file).update();
-                    jdbc.sql("DELETE FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
-                    jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();jdbc.sql("DELETE FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
-                }
-                updateCounts(jdbc,kb);
-            }
-        }
-    }
-
-    public JsonNode retryFiles(String kb,String file,String session,String key) {
-        String id=ModelSettingsService.identifier(kb,"knowledgeBaseId"),validKey=ModelSettingsService.identifier(key,"Idempotency-Key");
-        String selected=file==null?null:ModelSettingsService.identifier(file,"fileId"),operation=selected==null?"retryFailedKnowledgeBaseFiles:"+id:"retryKnowledgeBaseFile:"+id+":"+selected;
-        return data.write(jdbc -> {
-            get(jdbc,id);
-            JsonNode replay=jdbc.sql("SELECT payload FROM index_retry_requests WHERE session_id=? AND operation=? AND idempotency_key=?")
-                    .params(session,operation,validKey).query(String.class).optional().map(json::readTree).orElse(null);
-            if (replay!=null) return replay;
-            if (selected!=null) files.sourceFiles(jdbc,"file",selected);
-            List<String> candidates=selected==null?jdbc.sql("SELECT DISTINCT json_extract(payload,'$.fileId') FROM tasks WHERE kind='index_file' AND state IN ('failed','interrupted') AND json_extract(payload,'$.knowledgeBaseId')=? ORDER BY json_extract(payload,'$.fileId')")
-                    .param(id).query(String.class).list():List.of(selected);
-            var items=json.createArrayNode();for (String candidate:candidates) items.add(retryFile(jdbc,id,candidate));
-            ObjectNode result=json.createObjectNode();result.set("items",items);
-            jdbc.sql("INSERT INTO index_retry_requests VALUES(?,?,?,?)").params(session,operation,validKey,json.writeValueAsString(result)).update();return result;
+    public List<String> includedFiles(String kb) {
+        return data.read(jdbc -> {
+            get(jdbc, kb);
+            return jdbc.sql("SELECT file_id FROM knowledge_base_files WHERE knowledge_base_id=? ORDER BY file_id")
+                    .param(kb)
+                    .query(String.class)
+                    .list();
         });
     }
 
-    private JsonNode retryFile(JdbcClient jdbc,String kb,String file) {
-        ObjectNode result=json.createObjectNode().put("fileId",file).put("outcome","ineligible").putNull("taskId").put("reason","资料已成功、已取消、过时或不再属于有效范围，未重新处理。");
-        FileService.SourceFile source;
-        try { source=files.sourceFiles(jdbc,"file",file).getFirst(); } catch (ApiFailure missing) { if (missing.status()!=404) throw missing;return result; }
-        if (excluded(jdbc,kb,file) || !hasSource(jdbc,kb,source)) return result;
-        JsonNode current=jdbc.sql("SELECT t.payload FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.file_id=?")
-                .params(kb,file).query(String.class).optional().map(json::readTree).orElse(null);
-        String config=get(jdbc,kb).path("targetConfigVersionId").asText();
-        if (current==null || !current.path("targetContentVersionId").asText().equals(source.contentVersionId()) || !current.path("targetConfigVersionId").asText().equals(config)) return result;
-        String state=current.path("state").asText();
-        if (List.of("queued","running").contains(state)) return result.put("outcome","already_active").put("taskId",current.path("id").asText()).put("reason","已有对应排队或执行中任务，未重复创建。");
-        if (!List.of("failed","interrupted").contains(state)) return result;
-        JsonNode parent=jdbc.sql("SELECT t.payload FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE r.knowledge_base_id=? AND r.config_version_id=?")
-                .params(kb,config).query(String.class).optional().map(json::readTree).orElse(null);
-        if (parent!=null && parent.path("state").asText().equals("cancelled")) return result;
-        requireIndexCapacity(jdbc,1);
-        String now=Instant.now().toString(),taskId=UUID.randomUUID().toString();
-        if (parent!=null && List.of("failed","interrupted").contains(parent.path("state").asText())) {
-            String parentId=UUID.randomUUID().toString();
-            ConnectionTests.Task replacement=new ConnectionTests.Task(parentId,"rebuild_knowledge_base","queued","queued",now,null,null,kb,null,null,config,parent.path("id").asText(),0,0,null,null,List.of("显式重试仅继续当前目标配置，成功文件不重复嵌入。"),null);
-            insertRetry(jdbc,replacement);
-            jdbc.sql("UPDATE processing_rebuilds SET task_id=?,ready=0 WHERE task_id=?").params(parentId,parent.path("id").asText()).update();
-        }
-        ConnectionTests.Task task=new ConnectionTests.Task(taskId,"index_file","queued","queued",now,null,null,kb,file,source.contentVersionId(),config,current.path("id").asText(),0,0,null,null,List.of("显式重试可能再次调用嵌入服务并产生费用。"),null);
-        insertRetry(jdbc,task);
-        jdbc.sql("UPDATE knowledge_base_files SET task_id=? WHERE knowledge_base_id=? AND file_id=?").params(taskId,kb,file).update();refreshProcessing(jdbc,kb);
-        return result.put("outcome","enqueued").put("taskId",taskId).putNull("reason");
+    public JsonNode deletionTargets(String kind, String id, List<String> fileIds, List<String> baseIds) {
+        var targets = json.createArrayNode();
+        data.read(jdbc -> {
+            for (String kb : baseIds) {
+                jdbc.sql(
+                                "SELECT r.id,json_extract(t.payload,'$.targetConfigVersionId'),json_extract(t.payload,'$.fileId') FROM index_runs r JOIN tasks t ON t.id=r.task_id WHERE json_extract(t.payload,'$.knowledgeBaseId')=?")
+                        .param(kb)
+                        .query((row, n) -> {
+                            if (kind.equals("knowledge_base") || fileIds.contains(row.getString(3)))
+                                targets.addObject()
+                                        .put("type", "index")
+                                        .put("indexId", row.getString(1))
+                                        .put("collection", collection(kb, row.getString(2)));
+                            return true;
+                        })
+                        .list();
+                if (kind.equals("knowledge_base"))
+                    jdbc.sql("SELECT collection_name,endpoint FROM owned_vector_collections WHERE knowledge_base_id=?")
+                            .param(kb)
+                            .query((row, n) -> {
+                                targets.addObject()
+                                        .put("type", "collection")
+                                        .put("collection", row.getString(1))
+                                        .put("endpoint", row.getString(2));
+                                return true;
+                            })
+                            .list();
+                if (kind.equals("knowledge_base"))
+                    jdbc.sql(
+                                    "SELECT DISTINCT h.collection_name FROM processing_config_history h WHERE h.knowledge_base_id=? AND NOT EXISTS(SELECT 1 FROM owned_vector_collections c WHERE c.knowledge_base_id=h.knowledge_base_id AND c.collection_name=h.collection_name)")
+                            .param(kb)
+                            .query((row, n) -> {
+                                targets.addObject()
+                                        .put("type", "unknown_collection")
+                                        .put("collection", row.getString(1));
+                                return true;
+                            })
+                            .list();
+            }
+            return null;
+        });
+        return targets;
     }
 
-    private void insertRetry(JdbcClient jdbc,ConnectionTests.Task task) {
-        jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,?,?,?,'internal','explicit_index_retry',?,'')")
-                .params(task.id(),task.kind(),task.state(),json.writeValueAsString(task),task.id()).update();
-        cn.knowpool.infrastructure.TaskEvents.record(jdbc,json,json.valueToTree(task));
+    public void deleteLinks(JdbcClient jdbc, String kind, String id, List<String> fileIds, List<String> baseIds) {
+        for (String kb : baseIds) {
+            if (kind.equals("knowledge_base")) {
+                jdbc.sql("DELETE FROM knowledge_base_sources WHERE knowledge_base_id=?")
+                        .param(kb)
+                        .update();
+                jdbc.sql("DELETE FROM knowledge_base_exclusions WHERE knowledge_base_id=?")
+                        .param(kb)
+                        .update();
+                jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=?")
+                        .param(kb)
+                        .update();
+                jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=?")
+                        .param(kb)
+                        .update();
+                jdbc.sql("DELETE FROM knowledge_base_files WHERE knowledge_base_id=?")
+                        .param(kb)
+                        .update();
+                jdbc.sql("UPDATE knowledge_bases SET visible=0,name_key=? WHERE id=?")
+                        .params("deleted:" + kb, kb)
+                        .update();
+                jdbc.sql("INSERT OR IGNORE INTO deleted_resources VALUES('knowledge_base',?)")
+                        .param(kb)
+                        .update();
+            } else {
+                if (kind.equals("dataset"))
+                    jdbc.sql(
+                                    "DELETE FROM knowledge_base_sources WHERE knowledge_base_id=? AND type='dataset' AND resource_id=?")
+                            .params(kb, id)
+                            .update();
+                for (String file : fileIds) {
+                    jdbc.sql(
+                                    "DELETE FROM knowledge_base_sources WHERE knowledge_base_id=? AND type='file' AND resource_id=?")
+                            .params(kb, file)
+                            .update();
+                    jdbc.sql("DELETE FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?")
+                            .params(kb, file)
+                            .update();
+                    jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=? AND file_id=?")
+                            .params(kb, file)
+                            .update();
+                    jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=? AND file_id=?")
+                            .params(kb, file)
+                            .update();
+                    jdbc.sql("DELETE FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?")
+                            .params(kb, file)
+                            .update();
+                }
+                updateCounts(jdbc, kb);
+            }
+        }
+    }
+
+    public JsonNode retryFiles(String kb, String file, String session, String key) {
+        String id = ModelSettingsService.identifier(kb, "knowledgeBaseId"),
+                validKey = ModelSettingsService.identifier(key, "Idempotency-Key");
+        String selected = file == null ? null : ModelSettingsService.identifier(file, "fileId"),
+                operation =
+                        selected == null
+                                ? "retryFailedKnowledgeBaseFiles:" + id
+                                : "retryKnowledgeBaseFile:" + id + ":" + selected;
+        return data.write(jdbc -> {
+            get(jdbc, id);
+            JsonNode replay = jdbc.sql(
+                            "SELECT payload FROM index_retry_requests WHERE session_id=? AND operation=? AND idempotency_key=?")
+                    .params(session, operation, validKey)
+                    .query(String.class)
+                    .optional()
+                    .map(json::readTree)
+                    .orElse(null);
+            if (replay != null) return replay;
+            if (selected != null) files.sourceFiles(jdbc, "file", selected);
+            List<String> candidates = selected == null
+                    ? jdbc.sql(
+                                    "SELECT DISTINCT json_extract(payload,'$.fileId') FROM tasks WHERE kind='index_file' AND state IN ('failed','interrupted') AND json_extract(payload,'$.knowledgeBaseId')=? ORDER BY json_extract(payload,'$.fileId')")
+                            .param(id)
+                            .query(String.class)
+                            .list()
+                    : List.of(selected);
+            var items = json.createArrayNode();
+            for (String candidate : candidates) items.add(retryFile(jdbc, id, candidate));
+            ObjectNode result = json.createObjectNode();
+            result.set("items", items);
+            jdbc.sql("INSERT INTO index_retry_requests VALUES(?,?,?,?)")
+                    .params(session, operation, validKey, json.writeValueAsString(result))
+                    .update();
+            return result;
+        });
+    }
+
+    private JsonNode retryFile(JdbcClient jdbc, String kb, String file) {
+        ObjectNode result = json.createObjectNode()
+                .put("fileId", file)
+                .put("outcome", "ineligible")
+                .putNull("taskId")
+                .put("reason", "资料已成功、已取消、过时或不再属于有效范围，未重新处理。");
+        FileService.SourceFile source;
+        try {
+            source = files.sourceFiles(jdbc, "file", file).getFirst();
+        } catch (ApiFailure missing) {
+            if (missing.status() != 404) throw missing;
+            return result;
+        }
+        if (excluded(jdbc, kb, file) || !hasSource(jdbc, kb, source)) return result;
+        JsonNode current = jdbc.sql(
+                        "SELECT t.payload FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.file_id=?")
+                .params(kb, file)
+                .query(String.class)
+                .optional()
+                .map(json::readTree)
+                .orElse(null);
+        String config = get(jdbc, kb).path("targetConfigVersionId").asText();
+        if (current == null
+                || !current.path("targetContentVersionId").asText().equals(source.contentVersionId())
+                || !current.path("targetConfigVersionId").asText().equals(config)) return result;
+        String state = current.path("state").asText();
+        if (List.of("queued", "running").contains(state))
+            return result.put("outcome", "already_active")
+                    .put("taskId", current.path("id").asText())
+                    .put("reason", "已有对应排队或执行中任务，未重复创建。");
+        if (!List.of("failed", "interrupted").contains(state)) return result;
+        JsonNode parent = jdbc.sql(
+                        "SELECT t.payload FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE r.knowledge_base_id=? AND r.config_version_id=?")
+                .params(kb, config)
+                .query(String.class)
+                .optional()
+                .map(json::readTree)
+                .orElse(null);
+        if (parent != null && parent.path("state").asText().equals("cancelled")) return result;
+        requireIndexCapacity(jdbc, 1);
+        String now = Instant.now().toString(), taskId = UUID.randomUUID().toString();
+        if (parent != null
+                && List.of("failed", "interrupted")
+                        .contains(parent.path("state").asText())) {
+            String parentId = UUID.randomUUID().toString();
+            ConnectionTests.Task replacement = new ConnectionTests.Task(
+                    parentId,
+                    "rebuild_knowledge_base",
+                    "queued",
+                    "queued",
+                    now,
+                    null,
+                    null,
+                    kb,
+                    null,
+                    null,
+                    config,
+                    parent.path("id").asText(),
+                    0,
+                    0,
+                    null,
+                    null,
+                    List.of("显式重试仅继续当前目标配置，成功文件不重复嵌入。"),
+                    null);
+            insertRetry(jdbc, replacement);
+            jdbc.sql("UPDATE processing_rebuilds SET task_id=?,ready=0 WHERE task_id=?")
+                    .params(parentId, parent.path("id").asText())
+                    .update();
+        }
+        ConnectionTests.Task task = new ConnectionTests.Task(
+                taskId,
+                "index_file",
+                "queued",
+                "queued",
+                now,
+                null,
+                null,
+                kb,
+                file,
+                source.contentVersionId(),
+                config,
+                current.path("id").asText(),
+                0,
+                0,
+                null,
+                null,
+                List.of("显式重试可能再次调用嵌入服务并产生费用。"),
+                null);
+        insertRetry(jdbc, task);
+        jdbc.sql("UPDATE knowledge_base_files SET task_id=? WHERE knowledge_base_id=? AND file_id=?")
+                .params(taskId, kb, file)
+                .update();
+        refreshProcessing(jdbc, kb);
+        return result.put("outcome", "enqueued").put("taskId", taskId).putNull("reason");
+    }
+
+    private void insertRetry(JdbcClient jdbc, ConnectionTests.Task task) {
+        jdbc.sql(
+                        "INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,?,?,?,'internal','explicit_index_retry',?,'')")
+                .params(task.id(), task.kind(), task.state(), json.writeValueAsString(task), task.id())
+                .update();
+        cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(task));
     }
 
     public Page list(int limit, String cursor) {
@@ -640,38 +997,54 @@ public final class KnowledgeBases {
 
     public JsonNode publish(String id) {
         return data.write(jdbc -> {
-            ObjectNode value = (ObjectNode)get(jdbc,id);
-            int searchable = searchableCount(jdbc,id);
-            if (searchable == 0) throw new ApiFailure(422,"INVALID_STATE","至少需要一份有效关联、未被排除且已完成索引的资料才能发布。",null);
+            ObjectNode value = (ObjectNode) get(jdbc, id);
+            int searchable = searchableCount(jdbc, id);
+            if (searchable == 0) throw new ApiFailure(422, "INVALID_STATE", "至少需要一份有效关联、未被排除且已完成索引的资料才能发布。", null);
             if (value.path("publicationState").asText().equals("published")) return value;
             String now = Instant.now().toString();
-            value.put("publicationState","published").put("publishedAt",now).put("updatedAt",now).put("searchableFileCount",searchable);
-            jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(value),id).update();
+            value.put("publicationState", "published")
+                    .put("publishedAt", now)
+                    .put("updatedAt", now)
+                    .put("searchableFileCount", searchable);
+            jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
+                    .params(json.writeValueAsString(value), id)
+                    .update();
             return value;
         });
     }
 
     public JsonNode offline(String id) {
         return data.write(jdbc -> {
-            ObjectNode value = (ObjectNode)get(jdbc,id);
+            ObjectNode value = (ObjectNode) get(jdbc, id);
             String state = value.path("publicationState").asText();
-            if (state.equals("unpublished")) throw new ApiFailure(409,"INVALID_STATE","尚未发布的知识库不能主动下线。",null);
+            if (state.equals("unpublished")) throw new ApiFailure(409, "INVALID_STATE", "尚未发布的知识库不能主动下线。", null);
             if (state.equals("offline")) return value;
             String now = Instant.now().toString();
-            value.put("publicationState","offline").put("offlineAt",now).put("offlineReason","manual").put("updatedAt",now);
-            jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(value),id).update();
+            value.put("publicationState", "offline")
+                    .put("offlineAt", now)
+                    .put("offlineReason", "manual")
+                    .put("updatedAt", now);
+            jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
+                    .params(json.writeValueAsString(value), id)
+                    .update();
             return value;
         });
     }
 
     private int searchableCount(JdbcClient jdbc, String kb) {
-        List<String> ids = jdbc.sql("SELECT file_id FROM effective_files WHERE knowledge_base_id=?").param(kb).query(String.class).list();
-        var current = files.currentFiles(jdbc,ids);
+        List<String> ids = jdbc.sql("SELECT file_id FROM effective_files WHERE knowledge_base_id=?")
+                .param(kb)
+                .query(String.class)
+                .list();
+        var current = files.currentFiles(jdbc, ids);
         int count = 0;
         for (String id : ids) {
             var file = current.get(id);
-            if (file != null && file.available() && !excluded(jdbc,kb,id)
-                    && hasSource(jdbc,kb,new FileService.SourceFile(id,file.datasetId(),file.contentVersionId()))) count++;
+            if (file != null
+                    && file.available()
+                    && !excluded(jdbc, kb, id)
+                    && hasSource(jdbc, kb, new FileService.SourceFile(id, file.datasetId(), file.contentVersionId())))
+                count++;
         }
         return count;
     }
@@ -685,13 +1058,15 @@ public final class KnowledgeBases {
 
     @org.springframework.context.event.EventListener
     public void contentCommitted(FileService.ContentCommitted event) {
-        contentCommitted(event,null);
+        contentCommitted(event, null);
     }
 
-    private void requireIndexCapacity(JdbcClient jdbc,long added) {
-        long active=jdbc.sql("SELECT COUNT(*) FROM tasks WHERE kind='index_file' AND state IN ('queued','running')").query(Long.class).single();
-        long maximum=runtime==null?17:runtime.number("queueCapacity")+runtime.number("indexConcurrency");
-        if (active+added>maximum) throw new ApiFailure(429,"QUEUE_FULL","索引等待队列已满，请稍后重试。",null);
+    private void requireIndexCapacity(JdbcClient jdbc, long added) {
+        long active = jdbc.sql("SELECT COUNT(*) FROM tasks WHERE kind='index_file' AND state IN ('queued','running')")
+                .query(Long.class)
+                .single();
+        long maximum = runtime == null ? 17 : runtime.number("queueCapacity") + runtime.number("indexConcurrency");
+        if (active + added > maximum) throw new ApiFailure(429, "QUEUE_FULL", "索引等待队列已满，请稍后重试。", null);
     }
 
     private void contentCommitted(FileService.ContentCommitted event, String targetBase) {
@@ -703,7 +1078,7 @@ public final class KnowledgeBases {
                 .list();
         for (String kb : ids) {
             if (targetBase != null && !targetBase.equals(kb)) continue;
-            if (excluded(jdbc,kb,event.fileId())) continue;
+            if (excluded(jdbc, kb, event.fileId())) continue;
             for (String payload : jdbc.sql(
                             "SELECT payload FROM tasks WHERE kind='index_file' AND state IN ('queued','running') AND json_extract(payload,'$.knowledgeBaseId')=? AND json_extract(payload,'$.fileId')=?")
                     .params(kb, event.fileId())
@@ -719,7 +1094,7 @@ public final class KnowledgeBases {
                         .params(json.writeValueAsString(old), old.path("id").asText())
                         .update();
             }
-            requireIndexCapacity(jdbc,1);
+            requireIndexCapacity(jdbc, 1);
             String config = get(jdbc, kb).path("targetConfigVersionId").asText(),
                     taskId = UUID.randomUUID().toString();
             ConnectionTests.Task task = new ConnectionTests.Task(
@@ -792,13 +1167,13 @@ public final class KnowledgeBases {
         ObjectNode kb = (ObjectNode) get(jdbc, id);
         String config = kb.path("targetConfigVersionId").asText();
         for (FileService.SourceFile file : included) {
-            if (excluded(jdbc,id,file.id())) continue;
+            if (excluded(jdbc, id, file.id())) continue;
             if (jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?")
                             .params(id, file.id())
                             .query(Integer.class)
                             .single()
                     > 0) continue;
-            requireIndexCapacity(jdbc,1);
+            requireIndexCapacity(jdbc, 1);
             String taskId = UUID.randomUUID().toString();
             ConnectionTests.Task task = new ConnectionTests.Task(
                     taskId,
@@ -863,105 +1238,195 @@ public final class KnowledgeBases {
 
     private boolean excluded(JdbcClient jdbc, String kb, String file) {
         return jdbc.sql("SELECT COUNT(*) FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?")
-                .params(kb,file).query(Integer.class).single() > 0;
+                        .params(kb, file)
+                        .query(Integer.class)
+                        .single()
+                > 0;
     }
 
     private boolean hasSource(JdbcClient jdbc, String kb, FileService.SourceFile file) {
-        return jdbc.sql("SELECT COUNT(*) FROM knowledge_base_sources WHERE knowledge_base_id=? AND ((type='file' AND resource_id=?) OR (type='dataset' AND resource_id=?))")
-                .params(kb,file.id(),file.datasetId()).query(Integer.class).single() > 0;
+        return jdbc.sql(
+                                "SELECT COUNT(*) FROM knowledge_base_sources WHERE knowledge_base_id=? AND ((type='file' AND resource_id=?) OR (type='dataset' AND resource_id=?))")
+                        .params(kb, file.id(), file.datasetId())
+                        .query(Integer.class)
+                        .single()
+                > 0;
     }
 
     public void removeSource(String kb, String sourceId) {
-        String valid = ModelSettingsService.identifier(sourceId,"sourceId");
+        String valid = ModelSettingsService.identifier(sourceId, "sourceId");
         data.write(jdbc -> {
-            get(jdbc,kb);
+            get(jdbc, kb);
             JsonNode source = jdbc.sql("SELECT payload FROM knowledge_base_sources WHERE id=? AND knowledge_base_id=?")
-                    .params(valid,kb).query(String.class).optional().map(json::readTree)
-                    .orElseThrow(() -> new ApiFailure(404,"NOT_FOUND","关联来源不存在。",null));
-            List<FileService.SourceFile> affected = files.sourceFiles(jdbc,source.path("type").asText(),source.path("resourceId").asText());
-            jdbc.sql("DELETE FROM knowledge_base_sources WHERE id=? AND knowledge_base_id=?").params(valid,kb).update();
-            for (var file : affected) if (!hasSource(jdbc,kb,file)) detach(jdbc,kb,file.id());
-            updateCounts(jdbc,kb);
+                    .params(valid, kb)
+                    .query(String.class)
+                    .optional()
+                    .map(json::readTree)
+                    .orElseThrow(() -> new ApiFailure(404, "NOT_FOUND", "关联来源不存在。", null));
+            List<FileService.SourceFile> affected = files.sourceFiles(
+                    jdbc,
+                    source.path("type").asText(),
+                    source.path("resourceId").asText());
+            jdbc.sql("DELETE FROM knowledge_base_sources WHERE id=? AND knowledge_base_id=?")
+                    .params(valid, kb)
+                    .update();
+            for (var file : affected) if (!hasSource(jdbc, kb, file)) detach(jdbc, kb, file.id());
+            updateCounts(jdbc, kb);
             return null;
         });
     }
 
     public JsonNode exclude(String kb, String fileId) {
-        String file = ModelSettingsService.identifier(fileId,"fileId");
+        String file = ModelSettingsService.identifier(fileId, "fileId");
         return data.write(jdbc -> {
-            get(jdbc,kb); files.sourceFiles(jdbc,"file",file);
-            JsonNode exclusion = jdbc.sql("SELECT payload FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?")
-                    .params(kb,file).query(String.class).optional().map(json::readTree).orElse(null);
+            get(jdbc, kb);
+            files.sourceFiles(jdbc, "file", file);
+            JsonNode exclusion = jdbc.sql(
+                            "SELECT payload FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?")
+                    .params(kb, file)
+                    .query(String.class)
+                    .optional()
+                    .map(json::readTree)
+                    .orElse(null);
             if (exclusion != null) return exclusion;
-            ObjectNode value = json.createObjectNode().put("knowledgeBaseId",kb).put("fileId",file).put("createdAt",Instant.now().toString());
-            jdbc.sql("INSERT INTO knowledge_base_exclusions VALUES(?,?,?)").params(kb,file,json.writeValueAsString(value)).update();
-            detach(jdbc,kb,file); updateCounts(jdbc,kb);
+            ObjectNode value = json.createObjectNode()
+                    .put("knowledgeBaseId", kb)
+                    .put("fileId", file)
+                    .put("createdAt", Instant.now().toString());
+            jdbc.sql("INSERT INTO knowledge_base_exclusions VALUES(?,?,?)")
+                    .params(kb, file, json.writeValueAsString(value))
+                    .update();
+            detach(jdbc, kb, file);
+            updateCounts(jdbc, kb);
             return value;
         });
     }
 
     public void include(String kb, String fileId) {
-        String file = ModelSettingsService.identifier(fileId,"fileId");
+        String file = ModelSettingsService.identifier(fileId, "fileId");
         data.write(jdbc -> {
-            get(jdbc,kb);
-            var source = files.sourceFiles(jdbc,"file",file).getFirst();
-            if (jdbc.sql("DELETE FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update() == 0)
-                throw new ApiFailure(404,"NOT_FOUND","排除记录不存在。",null);
-            if (hasSource(jdbc,kb,source)) {
-                var event = new FileService.ContentCommitted(jdbc,file,source.datasetId(),source.contentVersionId());
-                contentCommitted(event,kb);
+            get(jdbc, kb);
+            var source = files.sourceFiles(jdbc, "file", file).getFirst();
+            if (jdbc.sql("DELETE FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id=?")
+                            .params(kb, file)
+                            .update()
+                    == 0) throw new ApiFailure(404, "NOT_FOUND", "排除记录不存在。", null);
+            if (hasSource(jdbc, kb, source)) {
+                var event = new FileService.ContentCommitted(jdbc, file, source.datasetId(), source.contentVersionId());
+                contentCommitted(event, kb);
             }
-            updateCounts(jdbc,kb);
+            updateCounts(jdbc, kb);
             return null;
         });
     }
 
     public Page exclusions(String kb, int limit, String cursor) {
         return data.read(jdbc -> {
-            get(jdbc,kb);
-            List<JsonNode> rows = jdbc.sql("SELECT payload FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id>? ORDER BY file_id LIMIT ?")
-                    .params(kb,after(cursor),limit+1).query(String.class).list().stream().map(json::readTree).toList();
-            return page(rows,limit,"fileId");
+            get(jdbc, kb);
+            List<JsonNode> rows = jdbc
+                    .sql(
+                            "SELECT payload FROM knowledge_base_exclusions WHERE knowledge_base_id=? AND file_id>? ORDER BY file_id LIMIT ?")
+                    .params(kb, after(cursor), limit + 1)
+                    .query(String.class)
+                    .list()
+                    .stream()
+                    .map(json::readTree)
+                    .toList();
+            return page(rows, limit, "fileId");
         });
     }
 
     private void detach(JdbcClient jdbc, String kb, String file) {
         String now = Instant.now().toString();
-        for (String payload : jdbc.sql("SELECT payload FROM tasks WHERE kind='index_file' AND state IN ('queued','running') AND json_extract(payload,'$.knowledgeBaseId')=? AND json_extract(payload,'$.fileId')=?")
-                .params(kb,file).query(String.class).list()) {
+        for (String payload : jdbc.sql(
+                        "SELECT payload FROM tasks WHERE kind='index_file' AND state IN ('queued','running') AND json_extract(payload,'$.knowledgeBaseId')=? AND json_extract(payload,'$.fileId')=?")
+                .params(kb, file)
+                .query(String.class)
+                .list()) {
             ObjectNode task = (ObjectNode) json.readTree(payload);
-            task.put("state","cancelled").put("phase","completed").put("finishedAt",now).putNull("failure").putNull("resultResourceId");
-            cn.knowpool.infrastructure.TaskEvents.record(jdbc,json,task);
-            jdbc.sql("UPDATE tasks SET state='cancelled',payload=? WHERE id=?").params(json.writeValueAsString(task),task.path("id").asText()).update();
+            task.put("state", "cancelled")
+                    .put("phase", "completed")
+                    .put("finishedAt", now)
+                    .putNull("failure")
+                    .putNull("resultResourceId");
+            cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, task);
+            jdbc.sql("UPDATE tasks SET state='cancelled',payload=? WHERE id=?")
+                    .params(json.writeValueAsString(task), task.path("id").asText())
+                    .update();
         }
         var targets = json.createArrayNode();
-        jdbc.sql("SELECT r.id,json_extract(t.payload,'$.targetConfigVersionId') FROM index_runs r JOIN tasks t ON t.id=r.task_id WHERE json_extract(t.payload,'$.knowledgeBaseId')=? AND json_extract(t.payload,'$.fileId')=?")
-                .params(kb,file).query((row,n) -> {
-                    targets.addObject().put("indexId",row.getString(1)).put("collection",collection(kb,row.getString(2)));
+        jdbc.sql(
+                        "SELECT r.id,json_extract(t.payload,'$.targetConfigVersionId') FROM index_runs r JOIN tasks t ON t.id=r.task_id WHERE json_extract(t.payload,'$.knowledgeBaseId')=? AND json_extract(t.payload,'$.fileId')=?")
+                .params(kb, file)
+                .query((row, n) -> {
+                    targets.addObject()
+                            .put("indexId", row.getString(1))
+                            .put("collection", collection(kb, row.getString(2)));
                     return true;
-                }).list();
+                })
+                .list();
         if (!targets.isEmpty()) {
             String id = UUID.randomUUID().toString();
-            ConnectionTests.Task cleanup = new ConnectionTests.Task(id,"cleanup","queued","queued",now,null,null,kb,file,null,null,null,0,0,(long)targets.size(),null,List.of(),null);
-            jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'cleanup','queued',?,'internal','cleanup',?,'')")
-                    .params(id,json.writeValueAsString(cleanup),id).update();
-            jdbc.sql("INSERT INTO index_cleanup VALUES(?,?,?)").params(id,json.writeValueAsString(targets),settings.vectorConnection().endpoint()).update();
-            cn.knowpool.infrastructure.TaskEvents.record(jdbc,json,json.valueToTree(cleanup));
+            ConnectionTests.Task cleanup = new ConnectionTests.Task(
+                    id,
+                    "cleanup",
+                    "queued",
+                    "queued",
+                    now,
+                    null,
+                    null,
+                    kb,
+                    file,
+                    null,
+                    null,
+                    null,
+                    0,
+                    0,
+                    (long) targets.size(),
+                    null,
+                    List.of(),
+                    null);
+            jdbc.sql(
+                            "INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'cleanup','queued',?,'internal','cleanup',?,'')")
+                    .params(id, json.writeValueAsString(cleanup), id)
+                    .update();
+            jdbc.sql("INSERT INTO index_cleanup VALUES(?,?,?)")
+                    .params(
+                            id,
+                            json.writeValueAsString(targets),
+                            settings.vectorConnection().endpoint())
+                    .update();
+            cn.knowpool.infrastructure.TaskEvents.record(jdbc, json, json.valueToTree(cleanup));
         }
-        jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
-        jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
-        jdbc.sql("DELETE FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?").params(kb,file).update();
+        jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=? AND file_id=?")
+                .params(kb, file)
+                .update();
+        jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=? AND file_id=?")
+                .params(kb, file)
+                .update();
+        jdbc.sql("DELETE FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?")
+                .params(kb, file)
+                .update();
     }
 
     private void updateCounts(JdbcClient jdbc, String kb) {
-        ObjectNode value = (ObjectNode) get(jdbc,kb);
-        int included = jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=?").param(kb).query(Integer.class).single();
-        int searchable = searchableCount(jdbc,kb);
-        value.put("includedFileCount",included).put("searchableFileCount",searchable).put("updatedAt",Instant.now().toString());
+        ObjectNode value = (ObjectNode) get(jdbc, kb);
+        int included = jdbc.sql("SELECT COUNT(*) FROM knowledge_base_files WHERE knowledge_base_id=?")
+                .param(kb)
+                .query(Integer.class)
+                .single();
+        int searchable = searchableCount(jdbc, kb);
+        value.put("includedFileCount", included)
+                .put("searchableFileCount", searchable)
+                .put("updatedAt", Instant.now().toString());
         if (searchable == 0 && value.path("publicationState").asText().equals("published"))
-            value.put("publicationState","offline").put("offlineAt",Instant.now().toString()).put("offlineReason","no_searchable_files");
-        jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(value),kb).update();
-        refreshProcessing(jdbc,kb);
+            value.put("publicationState", "offline")
+                    .put("offlineAt", Instant.now().toString())
+                    .put("offlineReason", "no_searchable_files");
+        jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
+                .params(json.writeValueAsString(value), kb)
+                .update();
+        refreshProcessing(jdbc, kb);
     }
 
     public Page tasks(String id, int limit, String cursor) {
@@ -982,79 +1447,156 @@ public final class KnowledgeBases {
 
     public Page switches(String kb, int limit, String cursor) {
         return data.read(jdbc -> {
-            get(jdbc,kb);
-            List<JsonNode> rows = jdbc.sql("SELECT s.*,json_extract(t.payload,'$.targetConfigVersionId') AS previous_config FROM index_switches s LEFT JOIN index_runs r ON r.id=s.previous_index_id LEFT JOIN tasks t ON t.id=r.task_id WHERE s.knowledge_base_id=? AND s.id>? ORDER BY s.id LIMIT ?")
-                    .params(kb,after(cursor),limit+1).query((row,n) -> {
-                        ObjectNode value = json.createObjectNode().put("id",row.getString("id")).put("knowledgeBaseId",kb).put("fileId",row.getString("file_id"))
-                                .put("toContentVersionId",row.getString("content_id")).put("toIndexVersionId",row.getString("index_id"))
-                                .put("toConfigVersionId",row.getString("config_id")).put("taskId",row.getString("task_id")).put("switchedAt",row.getString("switched_at"));
-                        value.put("fromContentVersionId",row.getString("previous_content_id")).put("fromIndexVersionId",row.getString("previous_index_id")).put("fromConfigVersionId",row.getString("previous_config"));
-                        return (JsonNode)value;
-                    }).list();
-            return page(rows,limit,"id");
+            get(jdbc, kb);
+            List<JsonNode> rows = jdbc.sql(
+                            "SELECT s.*,json_extract(t.payload,'$.targetConfigVersionId') AS previous_config FROM index_switches s LEFT JOIN index_runs r ON r.id=s.previous_index_id LEFT JOIN tasks t ON t.id=r.task_id WHERE s.knowledge_base_id=? AND s.id>? ORDER BY s.id LIMIT ?")
+                    .params(kb, after(cursor), limit + 1)
+                    .query((row, n) -> {
+                        ObjectNode value = json.createObjectNode()
+                                .put("id", row.getString("id"))
+                                .put("knowledgeBaseId", kb)
+                                .put("fileId", row.getString("file_id"))
+                                .put("toContentVersionId", row.getString("content_id"))
+                                .put("toIndexVersionId", row.getString("index_id"))
+                                .put("toConfigVersionId", row.getString("config_id"))
+                                .put("taskId", row.getString("task_id"))
+                                .put("switchedAt", row.getString("switched_at"));
+                        value.put("fromContentVersionId", row.getString("previous_content_id"))
+                                .put("fromIndexVersionId", row.getString("previous_index_id"))
+                                .put("fromConfigVersionId", row.getString("previous_config"));
+                        return (JsonNode) value;
+                    })
+                    .list();
+            return page(rows, limit, "id");
         });
     }
 
     public Page files(String id, int limit, String cursor) {
         return data.read(jdbc -> {
-            get(jdbc,id);
+            get(jdbc, id);
             var candidates = new java.util.TreeSet<String>();
-            for (String payload : jdbc.sql("SELECT payload FROM knowledge_base_sources WHERE knowledge_base_id=?").param(id).query(String.class).list()) {
+            for (String payload : jdbc.sql("SELECT payload FROM knowledge_base_sources WHERE knowledge_base_id=?")
+                    .param(id)
+                    .query(String.class)
+                    .list()) {
                 JsonNode source = json.readTree(payload);
-                for (var file : files.sourceFiles(jdbc,source.path("type").asText(),source.path("resourceId").asText())) candidates.add(file.id());
+                for (var file : files.sourceFiles(
+                        jdbc,
+                        source.path("type").asText(),
+                        source.path("resourceId").asText())) candidates.add(file.id());
             }
-            candidates.addAll(jdbc.sql("SELECT file_id FROM knowledge_base_exclusions WHERE knowledge_base_id=?").param(id).query(String.class).list());
+            candidates.addAll(jdbc.sql("SELECT file_id FROM knowledge_base_exclusions WHERE knowledge_base_id=?")
+                    .param(id)
+                    .query(String.class)
+                    .list());
             String after = after(cursor);
-            List<JsonNode> rows = candidates.stream().filter(file -> file.compareTo(after)>0).limit((long)limit+1)
-                    .map(file -> fileState(jdbc,id,file)).toList();
-            return page(rows,limit,"fileId");
+            List<JsonNode> rows = candidates.stream()
+                    .filter(file -> file.compareTo(after) > 0)
+                    .limit((long) limit + 1)
+                    .map(file -> fileState(jdbc, id, file))
+                    .toList();
+            return page(rows, limit, "fileId");
         });
     }
 
     public Page fileKnowledgeBases(String fileId, int limit, String cursor) {
-        String file = ModelSettingsService.identifier(fileId,"fileId");
+        String file = ModelSettingsService.identifier(fileId, "fileId");
         return data.read(jdbc -> {
-            var source = files.sourceFiles(jdbc,"file",file).getFirst();
-            List<String> ids = jdbc.sql("SELECT b.id FROM knowledge_bases b WHERE b.visible=1 AND b.id>? AND (EXISTS(SELECT 1 FROM knowledge_base_sources s WHERE s.knowledge_base_id=b.id AND ((s.type='file' AND s.resource_id=?) OR (s.type='dataset' AND s.resource_id=?))) OR EXISTS(SELECT 1 FROM knowledge_base_exclusions e WHERE e.knowledge_base_id=b.id AND e.file_id=?)) ORDER BY b.id LIMIT ?")
-                    .params(after(cursor),file,source.datasetId(),file,limit+1).query(String.class).list();
-            return page(ids.stream().map(id -> fileState(jdbc,id,file)).toList(),limit,"knowledgeBaseId");
+            var source = files.sourceFiles(jdbc, "file", file).getFirst();
+            List<String> ids = jdbc.sql(
+                            "SELECT b.id FROM knowledge_bases b WHERE b.visible=1 AND b.id>? AND (EXISTS(SELECT 1 FROM knowledge_base_sources s WHERE s.knowledge_base_id=b.id AND ((s.type='file' AND s.resource_id=?) OR (s.type='dataset' AND s.resource_id=?))) OR EXISTS(SELECT 1 FROM knowledge_base_exclusions e WHERE e.knowledge_base_id=b.id AND e.file_id=?)) ORDER BY b.id LIMIT ?")
+                    .params(after(cursor), file, source.datasetId(), file, limit + 1)
+                    .query(String.class)
+                    .list();
+            return page(ids.stream().map(id -> fileState(jdbc, id, file)).toList(), limit, "knowledgeBaseId");
         });
     }
 
     private JsonNode fileState(JdbcClient jdbc, String kb, String file) {
-        var sourceFile = files.sourceFiles(jdbc,"file",file).getFirst();
+        var sourceFile = files.sourceFiles(jdbc, "file", file).getFirst();
         var matching = json.createArrayNode();
-        for (String payload : jdbc.sql("SELECT payload FROM knowledge_base_sources WHERE knowledge_base_id=? AND ((type='file' AND resource_id=?) OR (type='dataset' AND resource_id=?)) ORDER BY id")
-                .params(kb,file,sourceFile.datasetId()).query(String.class).list()) matching.add(json.readTree(payload));
-        boolean excluded = excluded(jdbc,kb,file), included = !excluded && !matching.isEmpty();
-        ObjectNode value = json.createObjectNode().put("knowledgeBaseId",kb).put("fileId",file)
-                .put("excluded",excluded).put("included",included).put("latestContentVersionId",sourceFile.contentVersionId())
-                .put("updateState","not_included").put("usingPreviousVersion",false);
-        value.set("sources",matching);
-        for (String field : List.of("effectiveContentVersionId","effectiveIndexVersionId","targetContentVersionId","targetConfigVersionId","failure","effectiveConfigVersionId","task")) value.putNull(field);
+        for (String payload : jdbc.sql(
+                        "SELECT payload FROM knowledge_base_sources WHERE knowledge_base_id=? AND ((type='file' AND resource_id=?) OR (type='dataset' AND resource_id=?)) ORDER BY id")
+                .params(kb, file, sourceFile.datasetId())
+                .query(String.class)
+                .list()) matching.add(json.readTree(payload));
+        boolean excluded = excluded(jdbc, kb, file), included = !excluded && !matching.isEmpty();
+        ObjectNode value = json.createObjectNode()
+                .put("knowledgeBaseId", kb)
+                .put("fileId", file)
+                .put("excluded", excluded)
+                .put("included", included)
+                .put("latestContentVersionId", sourceFile.contentVersionId())
+                .put("updateState", "not_included")
+                .put("usingPreviousVersion", false);
+        value.set("sources", matching);
+        for (String field : List.of(
+                "effectiveContentVersionId",
+                "effectiveIndexVersionId",
+                "targetContentVersionId",
+                "targetConfigVersionId",
+                "failure",
+                "effectiveConfigVersionId",
+                "task")) value.putNull(field);
         if (!included) return value;
-        jdbc.sql("SELECT content_version_id,config_version_id,task_id FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?")
-                .params(kb,file).query((row,n) -> {
-                    value.put("targetContentVersionId",row.getString(1)).put("targetConfigVersionId",row.getString(2));
-                    JsonNode task = json.readTree(jdbc.sql("SELECT payload FROM tasks WHERE id=?").param(row.getString(3)).query(String.class).single());
-                    value.set("task",task); value.set("failure",task.path("failure"));
+        jdbc.sql(
+                        "SELECT content_version_id,config_version_id,task_id FROM knowledge_base_files WHERE knowledge_base_id=? AND file_id=?")
+                .params(kb, file)
+                .query((row, n) -> {
+                    value.put("targetContentVersionId", row.getString(1))
+                            .put("targetConfigVersionId", row.getString(2));
+                    JsonNode task = json.readTree(jdbc.sql("SELECT payload FROM tasks WHERE id=?")
+                            .param(row.getString(3))
+                            .query(String.class)
+                            .single());
+                    value.set("task", task);
+                    value.set("failure", task.path("failure"));
                     String state = task.path("state").asText();
-                    value.put("updateState",state.equals("succeeded") ? "ready" : state.equals("running") ? "processing" : state.equals("queued") ? "queued" : "failed");
+                    value.put(
+                            "updateState",
+                            state.equals("succeeded")
+                                    ? "ready"
+                                    : state.equals("running")
+                                            ? "processing"
+                                            : state.equals("queued") ? "queued" : "failed");
                     return true;
-                }).list();
-        jdbc.sql("SELECT content_version_id,config_version_id,index_id FROM effective_files WHERE knowledge_base_id=? AND file_id=?")
-                .params(kb,file).query((row,n) -> {
-                    value.put("effectiveContentVersionId",row.getString(1)).put("effectiveConfigVersionId",row.getString(2)).put("effectiveIndexVersionId",row.getString(3))
-                            .put("usingPreviousVersion",!row.getString(1).equals(value.path("targetContentVersionId").asText()) || !row.getString(2).equals(value.path("targetConfigVersionId").asText()));
+                })
+                .list();
+        jdbc.sql(
+                        "SELECT content_version_id,config_version_id,index_id FROM effective_files WHERE knowledge_base_id=? AND file_id=?")
+                .params(kb, file)
+                .query((row, n) -> {
+                    value.put("effectiveContentVersionId", row.getString(1))
+                            .put("effectiveConfigVersionId", row.getString(2))
+                            .put("effectiveIndexVersionId", row.getString(3))
+                            .put(
+                                    "usingPreviousVersion",
+                                    !row.getString(1)
+                                                    .equals(value.path("targetContentVersionId")
+                                                            .asText())
+                                            || !row.getString(2)
+                                                    .equals(value.path("targetConfigVersionId")
+                                                            .asText()));
                     return true;
-                }).list();
-        if (!value.path("targetConfigVersionId").isNull() && !value.path("targetConfigVersionId").equals(value.path("effectiveConfigVersionId"))) {
-            jdbc.sql("SELECT t.payload FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE r.knowledge_base_id=? AND r.config_version_id=?")
-                    .params(kb,value.path("targetConfigVersionId").asText()).query(String.class).optional().ifPresent(payload -> {
-                        JsonNode parent=json.readTree(payload);String state=parent.path("state").asText();
-                        if (List.of("queued","running").contains(state) && value.at("/task/state").asText().equals("succeeded")) value.put("updateState","processing");
-                        if (List.of("failed","cancelled","interrupted").contains(state)) {
-                            value.put("updateState","failed");if (value.path("failure").isNull()) value.set("failure",parent.path("failure").deepCopy());
+                })
+                .list();
+        if (!value.path("targetConfigVersionId").isNull()
+                && !value.path("targetConfigVersionId").equals(value.path("effectiveConfigVersionId"))) {
+            jdbc.sql(
+                            "SELECT t.payload FROM processing_rebuilds r JOIN tasks t ON t.id=r.task_id WHERE r.knowledge_base_id=? AND r.config_version_id=?")
+                    .params(kb, value.path("targetConfigVersionId").asText())
+                    .query(String.class)
+                    .optional()
+                    .ifPresent(payload -> {
+                        JsonNode parent = json.readTree(payload);
+                        String state = parent.path("state").asText();
+                        if (List.of("queued", "running").contains(state)
+                                && value.at("/task/state").asText().equals("succeeded"))
+                            value.put("updateState", "processing");
+                        if (List.of("failed", "cancelled", "interrupted").contains(state)) {
+                            value.put("updateState", "failed");
+                            if (value.path("failure").isNull())
+                                value.set("failure", parent.path("failure").deepCopy());
                         }
                     });
         }

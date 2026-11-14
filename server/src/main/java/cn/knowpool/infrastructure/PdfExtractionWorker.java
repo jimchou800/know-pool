@@ -36,21 +36,30 @@ public final class PdfExtractionWorker {
             Files.write(input, bytes);
             var command = new ArrayList<String>();
             command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
-            command.addAll(List.of("-Xms16m", "-Xmx128m", "-XX:-HeapDumpOnOutOfMemoryError", "-XX:-CreateCoredumpOnCrash"));
+            command.addAll(
+                    List.of("-Xms16m", "-Xmx128m", "-XX:-HeapDumpOnOutOfMemoryError", "-XX:-CreateCoredumpOnCrash"));
             var source = new ApplicationHome(KnowledgePoolApplication.class).getSource();
             if (source != null && source.isFile()) {
                 command.addAll(List.of("-jar", source.getAbsolutePath()));
             } else {
-                command.addAll(List.of("-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")), KnowledgePoolApplication.class.getName()));
+                command.addAll(List.of(
+                        "-cp",
+                        System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
+                        KnowledgePoolApplication.class.getName()));
             }
-            command.addAll(List.of(INTERNAL_MODE, input.toString(), output.toString(), Long.toString(limits.maxExtractedCodePoints())));
-            Process process = new ProcessBuilder(command).redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            command.addAll(List.of(
+                    INTERNAL_MODE,
+                    input.toString(),
+                    output.toString(),
+                    Long.toString(limits.maxExtractedCodePoints())));
+            Process process = new ProcessBuilder(command)
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
             try {
                 if (!process.waitFor(limits.parseTimeoutSeconds(), TimeUnit.SECONDS) || process.exitValue() == 3)
                     throw new ApiFailure(422, "RESOURCE_LIMIT", "PDF全文提取超过时间、内存或文字量限制。", null);
-                if (process.exitValue() != 0)
-                    throw new ApiFailure(422, "PARSING_FAILED", "PDF损坏或无法可靠提取文字。", null);
+                if (process.exitValue() != 0) throw new ApiFailure(422, "PARSING_FAILED", "PDF损坏或无法可靠提取文字。", null);
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
                 throw new IOException("PDF全文提取已中断。", failure);
@@ -58,8 +67,11 @@ public final class PdfExtractionWorker {
                 process.destroyForcibly();
                 boolean interrupted = false;
                 while (process.isAlive()) {
-                    try { process.waitFor(); }
-                    catch (InterruptedException failure) { interrupted = true; }
+                    try {
+                        process.waitFor();
+                    } catch (InterruptedException failure) {
+                        interrupted = true;
+                    }
                 }
                 if (interrupted) Thread.currentThread().interrupt();
             }
@@ -70,13 +82,19 @@ public final class PdfExtractionWorker {
                 if (totalPages < 1 || totalPages > 100000) throw new IOException("PDF页面总量超过可控范围。");
                 while (stream.available() > 0) {
                     int pageNumber = stream.readInt();
-                    if (pageNumber < 1 || pageNumber > 100000 || pageNumber <= pages.size()) throw new IOException("PDF页码映射不合法。");
+                    if (pageNumber < 1 || pageNumber > 100000 || pageNumber <= pages.size())
+                        throw new IOException("PDF页码映射不合法。");
                     while (pages.size() < pageNumber - 1) pages.add("");
                     int length = stream.readInt();
-                    if (length < 0 || length > stream.available() || length > 4L * Math.min(Integer.MAX_VALUE / 4, limits.maxExtractedCodePoints()))
+                    if (length < 0
+                            || length > stream.available()
+                            || length > 4L * Math.min(Integer.MAX_VALUE / 4, limits.maxExtractedCodePoints()))
                         throw new IOException("PDF全文提取输出不完整。");
                     byte[] page = stream.readNBytes(length);
-                    String text = StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(page)).toString();
+                    String text = StandardCharsets.UTF_8
+                            .newDecoder()
+                            .decode(java.nio.ByteBuffer.wrap(page))
+                            .toString();
                     count += text.codePointCount(0, text.length());
                     if (count > limits.maxExtractedCodePoints())
                         throw new ApiFailure(422, "RESOURCE_LIMIT", "PDF全文提取文字超过限制。", null);
@@ -89,10 +107,14 @@ public final class PdfExtractionWorker {
                 throw new ApiFailure(422, "PARSING_FAILED", "PDF没有可提取文字，不支持扫描识别。", null);
             return List.copyOf(pages);
         } finally {
-            try { if (input != null) Files.deleteIfExists(input); }
-            finally {
-                try { if (output != null) Files.deleteIfExists(output); }
-                finally { CAPACITY.release(); }
+            try {
+                if (input != null) Files.deleteIfExists(input);
+            } finally {
+                try {
+                    if (output != null) Files.deleteIfExists(output);
+                } finally {
+                    CAPACITY.release();
+                }
             }
         }
     }
@@ -107,8 +129,11 @@ public final class PdfExtractionWorker {
             Extractor extractor = new Extractor(Long.parseLong(args[3]), output);
             extractor.writeText(document, extractor.writer());
             return 0;
-        } catch (LimitReached | OutOfMemoryError failure) { return 3; }
-        catch (IOException | RuntimeException failure) { return 2; }
+        } catch (LimitReached | OutOfMemoryError failure) {
+            return 3;
+        } catch (IOException | RuntimeException failure) {
+            return 2;
+        }
     }
 
     private static final class Extractor extends PDFTextStripper {
@@ -130,34 +155,44 @@ public final class PdfExtractionWorker {
             setPageEnd("");
         }
 
-        @Override protected void processTextPosition(org.apache.pdfbox.text.TextPosition position) {
+        @Override
+        protected void processTextPosition(org.apache.pdfbox.text.TextPosition position) {
             String text = position.getUnicode();
             positions += text.codePointCount(0, text.length());
             if (positions > maximum) throw new LimitReached();
-            if (text.indexOf('\ufffd') >= 0 || !Float.isFinite(position.getXDirAdj()) || !Float.isFinite(position.getYDirAdj())
+            if (text.indexOf('\ufffd') >= 0
+                    || !Float.isFinite(position.getXDirAdj())
+                    || !Float.isFinite(position.getYDirAdj())
                     || position.getDir() != 0) throw new IllegalArgumentException("PDF文字顺序或编码无法可靠恢复。");
             super.processTextPosition(position);
         }
 
-        @Override protected void startPage(PDPage value) throws IOException {
+        @Override
+        protected void startPage(PDPage value) throws IOException {
             super.startPage(value);
             page.setLength(0);
         }
 
         private Writer writer() {
             return new Writer() {
-                @Override public void write(char[] buffer, int offset, int length) {
+                @Override
+                public void write(char[] buffer, int offset, int length) {
                     String text = new String(buffer, offset, length);
                     count += text.codePointCount(0, text.length());
                     if (count > maximum) throw new LimitReached();
                     page.append(text);
                 }
-                @Override public void flush() {}
-                @Override public void close() {}
+
+                @Override
+                public void flush() {}
+
+                @Override
+                public void close() {}
             };
         }
 
-        @Override protected void endPage(PDPage value) throws IOException {
+        @Override
+        protected void endPage(PDPage value) throws IOException {
             super.endPage(value);
             byte[] bytes = page.toString().getBytes(StandardCharsets.UTF_8);
             output.writeInt(getCurrentPageNo());
@@ -168,6 +203,9 @@ public final class PdfExtractionWorker {
 
     private static final class LimitReached extends RuntimeException {
         private static final long serialVersionUID = 1L;
-        private LimitReached() { super(null, null, false, false); }
+
+        private LimitReached() {
+            super(null, null, false, false);
+        }
     }
 }

@@ -227,14 +227,14 @@ onBeforeUnmount(() => {
             route.path === '/datasets' || route.path.startsWith('/datasets/')
           "
           ><Datasets
-            :key="status?.dataDirectory"
             v-if="status && !loading"
+            :key="status?.dataDirectory"
             :client="client"
             :writable="writable"
         /></template>
         <CleanupTasks
-          :key="status?.dataDirectory"
           v-else-if="route.path === '/tasks' && status && !loading"
+          :key="status?.dataDirectory"
           :client="client"
           :writable="writable"
         />
@@ -246,25 +246,25 @@ onBeforeUnmount(() => {
           @status-change="refreshStatus"
         />
         <KnowledgeBases
-          :key="status?.dataDirectory"
           v-else-if="
             (route.path === '/knowledge-bases' ||
               route.path.startsWith('/knowledge-bases/')) &&
             status &&
             !loading
           "
+          :key="status?.dataDirectory"
           :client="client"
           :writable="writable"
         />
         <Search
-          :key="status?.dataDirectory"
           v-else-if="route.path === '/search' && status && !loading"
+          :key="status?.dataDirectory"
           :client="client"
           :writable="writable"
         />
         <Answers
-          :key="status?.dataDirectory"
           v-else-if="route.path === '/answers' && status && !loading"
+          :key="status?.dataDirectory"
           :client="client"
           :initial-id="
             typeof route.query.conversation === 'string'

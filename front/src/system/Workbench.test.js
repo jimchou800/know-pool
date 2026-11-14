@@ -86,7 +86,7 @@ async function setup(adapter) {
   await router.push('/');
   wrapper = mount(Workbench, {
     props: {
-      client: createSystemClient((config) =>
+      client: createSystemClient(async (config) =>
         config.url === '/settings/runtime'
           ? { data: fixedRuntime, status: 200, headers: {}, config }
           : config.url === '/conversations'

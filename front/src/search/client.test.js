@@ -401,8 +401,12 @@ it('实例管理与取消所有公开错误真实消费，不自动重发删除�
   }
 });
 afterAll(() => {
-  execFileSync('python', ['scripts/settings-evidence.py', '08'], {
-    input: JSON.stringify(observations),
-    encoding: 'utf8',
-  });
+  execFileSync(
+    'python',
+    ['scripts/settings-evidence.py', '08', 'search-client'],
+    {
+      input: JSON.stringify(observations),
+      encoding: 'utf8',
+    },
+  );
 });

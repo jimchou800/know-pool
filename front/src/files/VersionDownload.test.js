@@ -1,7 +1,15 @@
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import VersionDownload from './VersionDownload.vue';
 import { id, otherId } from '../../test-fixtures/knowledge-bases';
+const originalUrl = URL;
+beforeEach(() => {
+  class TestURL extends originalUrl {}
+  TestURL.createObjectURL = vi.fn();
+  TestURL.revokeObjectURL = vi.fn();
+  vi.stubGlobal('URL', TestURL);
+});
+afterEach(() => vi.unstubAllGlobals());
 const response = () => ({
   status: 200,
   data: new ArrayBuffer(1),

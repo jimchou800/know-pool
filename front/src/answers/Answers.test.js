@@ -33,7 +33,7 @@ it('空白问答不保存，首问前手名与费用确认后展示终态回答�
   );
   expect(s.requests.every((r) => r.method === 'get')).toBe(true);
   await w.get('#name-first').setValue('手动问答名');
-  await button(w, '提交首问').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain(answer.text);
   expect(w.text()).toContain('手动问答名');
@@ -92,7 +92,7 @@ it('校验失败不渲染草稿，事件断线仅查询原任务不重提', asyn
         }
       : failed,
   );
-  await button(w, '提交首问').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain('回答未通过');
   expect(w.text()).not.toContain(answer.text);
@@ -117,11 +117,11 @@ it('部分缺口和矛盾分别展示，费用未同意不受理', async () => {
     body: { ...accepted, questionTask: value },
   }));
   await w.findAll('input[type=checkbox]').at(-1).setValue(false);
-  await button(w, '提交首问').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(s.requests.filter((r) => r.method === 'post')).toHaveLength(0);
   await w.findAll('input[type=checkbox]').at(-1).setValue(true);
-  await button(w, '提交首问').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain('缺少依据的问题：未覆盖子问题');
   expect(w.text()).toContain('资料矛盾：来源条件不同');
@@ -159,7 +159,7 @@ it('取消确认隔离旧查询迟到响应，取消后不出现回答', async (
             resolve = done;
           }),
   );
-  await button(w, '提交首问').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   await button(w, '取消本次问答').trigger('click');
   await button(w, '确认取消问答').trigger('click');
@@ -185,7 +185,7 @@ it('无依据终态明确展示且没有引用入口', async () => {
     httpStatus: 202,
     body: { ...accepted, questionTask: value },
   }));
-  await button(w, '提交首问').trigger('click');
+  await w.get('form').trigger('submit');
   await flushPromises();
   expect(w.text()).toContain('资料中没有足够依据');
   expect(button(w, '查看引用原文')).toBeUndefined();

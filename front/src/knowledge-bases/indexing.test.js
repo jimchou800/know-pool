@@ -190,11 +190,23 @@ it('同任务重新跟踪后旧查询不能覆盖新跟踪结果', async () => {
     props: { client: s.client, knowledgeBaseId: id },
   });
   await flushPromises();
-  await wrapper.findAll('li')[0].find('button').trigger('click');
+  await wrapper
+    .findAll('li')[0]
+    .findAll('button')
+    .find((button) => button.text() === '跟踪处理任务')
+    .trigger('click');
   await flushPromises();
-  await wrapper.findAll('li')[1].find('button').trigger('click');
+  await wrapper
+    .findAll('li')[1]
+    .findAll('button')
+    .find((button) => button.text() === '跟踪处理任务')
+    .trigger('click');
   await flushPromises();
-  await wrapper.findAll('li')[0].find('button').trigger('click');
+  await wrapper
+    .findAll('li')[0]
+    .findAll('button')
+    .find((button) => button.text() === '跟踪处理任务')
+    .trigger('click');
   await flushPromises();
   finishOld({
     ...pending,

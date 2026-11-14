@@ -63,22 +63,42 @@ class LocalApplicationTest {
     }
 
     @Test
-    @DisplayName("指定版本预览在覆盖后仍保持原始字节与媒体")
+    @DisplayName("指定版本预览保留原始字节与媒体，副本清理后明确不可用")
     void previewCapturedVersionAfterReplacement() throws Exception {
         Credentials credentials = credentials();
         String datasetId = createDataset("版本预览验收", credentials);
         byte[] original = "# 旧版原文\r\n保留😀。".getBytes(StandardCharsets.UTF_8);
-        JsonNode file = JSON.readTree(upload(datasetId, credentials,
-                new UploadPart("version.md", "text/markdown", original)).body()).at("/items/0/file");
+        JsonNode file = JSON.readTree(
+                        upload(datasetId, credentials, new UploadPart("version.md", "text/markdown", original))
+                                .body())
+                .at("/items/0/file");
         String fileId = file.path("id").asText();
         String versionId = file.at("/latestVersion/id").asText();
-        assertThat(call("PATCH", "/files/" + fileId + "/name", "{\"name\":\"version.pdf\"}", credentials).statusCode()).isEqualTo(200);
+        HttpResponse<byte[]> captured = HTTP.send(
+                request("GET", "/files/" + fileId + "/versions/" + versionId + "/preview", null, credentials)
+                        .build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        verifiedBinary(captured, original, "text/markdown", true);
+        assertThat(call("PATCH", "/files/" + fileId + "/name", "{\"name\":\"version.pdf\"}", credentials)
+                        .statusCode())
+                .isEqualTo(200);
         upload(datasetId, credentials, new UploadPart("version.pdf", "application/pdf", textPdf()));
-        HttpResponse<byte[]> response = HTTP.send(request("GET", "/files/" + fileId + "/versions/"
-                + versionId + "/preview", null, credentials).build(), HttpResponse.BodyHandlers.ofByteArray());
-        verifiedBinary(response, original, "text/markdown", true);
-        assertError(call("GET", "/files/" + fileId + "/versions/" + UUID.randomUUID() + "/preview",
-                null, credentials), 404, "NOT_FOUND");
+        HttpResponse<byte[]> response = HTTP.send(
+                request("GET", "/files/" + fileId + "/versions/" + versionId + "/preview", null, credentials)
+                        .build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        if (response.statusCode() == 200) verifiedBinary(response, original, "text/markdown", true);
+        else {
+            assertThat(response.statusCode()).isEqualTo(410);
+            JsonNode unavailable = JSON.readTree(response.body());
+            assertThat(fields(unavailable))
+                    .containsExactlyInAnyOrder("requestId", "code", "message", "fieldErrors", "retryable");
+            assertThat(unavailable.path("code").asText()).isEqualTo("CONTENT_UNAVAILABLE");
+        }
+        assertError(
+                call("GET", "/files/" + fileId + "/versions/" + UUID.randomUUID() + "/preview", null, credentials),
+                404,
+                "NOT_FOUND");
     }
 
     @Test
@@ -312,10 +332,11 @@ class LocalApplicationTest {
         byte[] original = Files.readAllBytes(database);
         try {
             Files.writeString(database, "用于故障注入的损坏数据库");
-            HttpResponse<String> failure = get("/system/status", cookie, null);
+            assertThat(get("/system/status", cookie, null).statusCode()).isEqualTo(200);
+            HttpResponse<String> failure = get("/datasets", cookie, null);
             assertError(failure, 500, "INTERNAL_ERROR");
             assertThat(failure.body()).doesNotContain(dataDirectory.toString(), "SQLException", "用于故障");
-            record("存储故障返回统一错误", "getSystemStatus", failure, List.of("#/paths/~1system~1status/get/responses/500"));
+            record("存储故障返回统一错误", "listDatasets", failure, List.of("#/paths/~1datasets/get/responses/500"));
         } finally {
             Files.write(database, original);
         }
@@ -1904,8 +1925,9 @@ class LocalApplicationTest {
         base = "http://127.0.0.1:" + context.getEnvironment().getProperty("local.server.port");
         Credentials after = credentials();
         assertThat(JSON.readTree(call("GET", path, null, after).body())).isEqualTo(renamed);
-        assertThat(JSON.readTree(call("GET", path + "/versions", null, after).body()))
-                .isEqualTo(versions);
+        assertThat(versionMetadata(JSON.readTree(
+                        call("GET", path + "/versions", null, after).body())))
+                .isEqualTo(versionMetadata(versions));
         JsonNode unchanged = JSON.readTree(
                         upload(datasetId, after, new UploadPart("RENAMED.TXT", "text/plain", new byte[] {66}))
                                 .body())
@@ -1918,8 +1940,9 @@ class LocalApplicationTest {
                 .at("/items/0");
         assertThat(newFile.get("outcome").asText()).isEqualTo("created");
         assertThat(newFile.at("/file/id")).isNotEqualTo(original.get("id"));
-        assertThat(JSON.readTree(call("GET", path + "/versions", null, after).body()))
-                .isEqualTo(versions);
+        assertThat(versionMetadata(JSON.readTree(
+                        call("GET", path + "/versions", null, after).body())))
+                .isEqualTo(versionMetadata(versions));
     }
 
     @Test
@@ -1989,20 +2012,35 @@ class LocalApplicationTest {
         return builder;
     }
 
+    private static JsonNode versionMetadata(JsonNode versions) {
+        JsonNode metadata = versions.deepCopy();
+        metadata.path("items").forEach(version -> {
+            assertThat(version.path("originalAvailable").isBoolean()).isTrue();
+            ((tools.jackson.databind.node.ObjectNode) version).remove("originalAvailable");
+        });
+        return metadata;
+    }
+
     private static HttpResponse<String> call(String method, String path, String body, Credentials credentials)
             throws Exception {
         HttpResponse<String> response =
                 HTTP.send(request(method, path, body, credentials).build(), HttpResponse.BodyHandlers.ofString());
         String route = path.split("\\?", 2)[0];
-        String operation = route.startsWith("/files/")
-                ? (route.endsWith("/name")
-                        ? "renameFile"
-                        : route.endsWith("/versions")
-                                ? "listFileVersions"
-                                : route.endsWith("/latest/preview")
-                                        ? "previewLatestFile"
-                                        : route.endsWith("/latest/download") ? "downloadLatestFile" : "getFile")
-                : route.matches("/datasets/[^/]+/files") ? "listDatasetFiles" : null;
+        String operation = route.matches("/files/[^/]+/versions/[^/]+/preview")
+                ? "previewVersionFile"
+                : route.matches("/files/[^/]+/versions/[^/]+/download")
+                        ? "downloadVersionFile"
+                        : route.startsWith("/files/")
+                                ? (route.endsWith("/name")
+                                        ? "renameFile"
+                                        : route.endsWith("/versions")
+                                                ? "listFileVersions"
+                                                : route.endsWith("/latest/preview")
+                                                        ? "previewLatestFile"
+                                                        : route.endsWith("/latest/download")
+                                                                ? "downloadLatestFile"
+                                                                : "getFile")
+                                : route.matches("/datasets/[^/]+/files") ? "listDatasetFiles" : null;
         if (operation != null) verified("真实资料HTTP边界" + response.statusCode(), operation, response, null);
         return response;
     }
@@ -2014,7 +2052,9 @@ class LocalApplicationTest {
         String route = preview ? "preview" : "download";
         boolean versioned = response.request().uri().getPath().contains("/versions/");
         String operation = versioned ? "previewVersionFile" : preview ? "previewLatestFile" : "downloadLatestFile";
-        String prefix = versioned ? "#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get" : "#/paths/~1files~1{fileId}~1latest~1" + route + "/get";
+        String prefix = versioned
+                ? "#/paths/~1files~1{fileId}~1versions~1{contentVersionId}~1preview/get"
+                : "#/paths/~1files~1{fileId}~1latest~1" + route + "/get";
         String[] segments = response.request().uri().getPath().split("/");
         assertThat(segments).hasSize(versioned ? 8 : 7);
         assertThat(segments[1]).isEqualTo("api");

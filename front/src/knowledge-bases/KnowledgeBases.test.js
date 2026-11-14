@@ -208,7 +208,7 @@ for (const [kind, label, item] of [
     await flushPromises();
     expect(
       wrapper.findAll(
-        `[aria-label="${kind === 'sources' ? '关联来源' : '知识库文件'}"] li`,
+        `[aria-label="${kind === 'sources' ? '关联来源' : '知识库文件'}"] > ul > li`,
       ),
     ).toHaveLength(1);
   });

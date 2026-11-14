@@ -33,10 +33,12 @@ import tools.jackson.databind.json.JsonMapper;
 
 @Component
 public final class ConnectionProbe {
-    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     private cn.knowpool.infrastructure.RuntimeSettings runtime;
-    @org.springframework.beans.factory.annotation.Autowired(required=false)
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     private cn.knowpool.infrastructure.ModelLimits modelLimits;
+
     private static final int RESPONSE_LIMIT = 262144;
     private final JsonMapper json;
 
@@ -45,7 +47,14 @@ public final class ConnectionProbe {
     }
 
     boolean test(ConnectionTests.ProbeSnapshot snapshot) {
-        try (var modelLease=snapshot.kind().equals("vector") || modelLimits==null?null:modelLimits.acquire(snapshot.endpoint(),snapshot.model(),snapshot.kind().equals("generation")?1024:64,snapshot.kind().equals("embedding"));Transport transport = new Transport(runtime==null?5:runtime.number("modelTimeoutSeconds"))) {
+        try (var modelLease = snapshot.kind().equals("vector") || modelLimits == null
+                        ? null
+                        : modelLimits.acquire(
+                                snapshot.endpoint(),
+                                snapshot.model(),
+                                snapshot.kind().equals("generation") ? 1024 : 64,
+                                snapshot.kind().equals("embedding"));
+                Transport transport = new Transport(runtime == null ? 5 : runtime.number("modelTimeoutSeconds"))) {
             if (snapshot.kind().equals("vector")) {
                 Request.Builder request = new Request.Builder()
                         .url(base(snapshot.endpoint()) + "/collections")
@@ -68,7 +77,7 @@ public final class ConnectionProbe {
                     .maxRetries(0)
                     .logLevel(LogLevel.OFF)
                     .responseValidation(true)
-                    .timeout(Duration.ofSeconds(runtime==null?5:runtime.number("modelTimeoutSeconds")))
+                    .timeout(Duration.ofSeconds(runtime == null ? 5 : runtime.number("modelTimeoutSeconds")))
                     .build();
             OpenAIClient client = new OpenAIClientImpl(options);
             if (snapshot.kind().equals("generation")) {
@@ -128,15 +137,32 @@ public final class ConnectionProbe {
     static final class Transport implements com.openai.core.http.HttpClient {
         private final java.util.function.Consumer<byte[]> validateResponse;
 
-        Transport() { this(body -> {},5); }
-        Transport(long seconds) { this(body -> {},seconds); }
-        Transport(java.util.function.Consumer<byte[]> validateResponse) { this(validateResponse,5); }
-        Transport(java.util.function.Consumer<byte[]> validateResponse,long seconds) {
-            this.validateResponse=validateResponse;
-            long bounded=Math.min(Integer.MAX_VALUE/1000,seconds);
-            this.http=new OkHttpClient.Builder().retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false)
-                    .connectTimeout(Duration.ofSeconds(bounded)).readTimeout(Duration.ofSeconds(bounded)).writeTimeout(Duration.ofSeconds(bounded)).callTimeout(Duration.ofSeconds(bounded)).build();
+        Transport() {
+            this(body -> {}, 5);
         }
+
+        Transport(long seconds) {
+            this(body -> {}, seconds);
+        }
+
+        Transport(java.util.function.Consumer<byte[]> validateResponse) {
+            this(validateResponse, 5);
+        }
+
+        Transport(java.util.function.Consumer<byte[]> validateResponse, long seconds) {
+            this.validateResponse = validateResponse;
+            long bounded = Math.min(Integer.MAX_VALUE / 1000, seconds);
+            this.http = new OkHttpClient.Builder()
+                    .retryOnConnectionFailure(false)
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .connectTimeout(Duration.ofSeconds(bounded))
+                    .readTimeout(Duration.ofSeconds(bounded))
+                    .writeTimeout(Duration.ofSeconds(bounded))
+                    .callTimeout(Duration.ofSeconds(bounded))
+                    .build();
+        }
+
         private final OkHttpClient http;
 
         @Override

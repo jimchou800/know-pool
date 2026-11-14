@@ -116,22 +116,31 @@ public final class FileController {
             jakarta.servlet.http.HttpServletRequest request)
             throws IOException {
         query(request, java.util.Set.of());
-        return versionContent(fileId,contentVersionId,true);
+        return versionContent(fileId, contentVersionId, true);
     }
 
     @GetMapping("/api/v1/files/{fileId}/versions/{contentVersionId}/download")
-    public ResponseEntity<byte[]> downloadVersion(@PathVariable String fileId, @PathVariable String contentVersionId,
-            jakarta.servlet.http.HttpServletRequest request) throws IOException {
-        query(request,java.util.Set.of());
-        return versionContent(fileId,contentVersionId,false);
+    public ResponseEntity<byte[]> downloadVersion(
+            @PathVariable String fileId,
+            @PathVariable String contentVersionId,
+            jakarta.servlet.http.HttpServletRequest request)
+            throws IOException {
+        query(request, java.util.Set.of());
+        return versionContent(fileId, contentVersionId, false);
     }
 
-    private ResponseEntity<byte[]> versionContent(String fileId, String contentVersionId, boolean preview) throws IOException {
+    private ResponseEntity<byte[]> versionContent(String fileId, String contentVersionId, boolean preview)
+            throws IOException {
         FileService.VersionContent stored = files.versionContent(fileId, contentVersionId);
         String media = stored.version().mediaType();
         return ResponseEntity.ok()
                 .header("Content-Type", media + (media.startsWith("text/") ? ";charset=UTF-8" : ""))
-                .header("Content-Disposition", ContentDisposition.builder(preview ? "inline" : "attachment").filename(stored.version().uploadedName(), StandardCharsets.UTF_8).build().toString())
+                .header(
+                        "Content-Disposition",
+                        ContentDisposition.builder(preview ? "inline" : "attachment")
+                                .filename(stored.version().uploadedName(), StandardCharsets.UTF_8)
+                                .build()
+                                .toString())
                 .header("X-Content-Type-Options", "nosniff")
                 .header("Content-Security-Policy", "sandbox; default-src 'none'")
                 .header("Cache-Control", "no-store")

@@ -100,9 +100,7 @@ onBeforeUnmount(() => {
             names[item.knowledgeBaseId] || item.knowledgeBaseId
           }}</strong>
           <p>
-            {{
-              item.excluded ? '已排除' : item.included ? '已纳入' : '未纳入'
-            }}
+            {{ item.excluded ? '已排除' : item.included ? '已纳入' : '未纳入' }}
             · {{ states[item.updateState] }}
           </p>
           <p>

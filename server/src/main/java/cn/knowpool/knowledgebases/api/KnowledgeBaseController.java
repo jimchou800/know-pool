@@ -10,8 +10,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -65,13 +65,17 @@ public final class KnowledgeBaseController {
     }
 
     @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/processing-config/versions/{configVersionId}")
-    public JsonNode configVersion(@PathVariable String knowledgeBaseId,@PathVariable String configVersionId,HttpServletRequest request) {
-        query(request,Set.of());return service.config(identifier(knowledgeBaseId),ModelSettingsService.identifier(configVersionId,"configVersionId"));
+    public JsonNode configVersion(
+            @PathVariable String knowledgeBaseId, @PathVariable String configVersionId, HttpServletRequest request) {
+        query(request, Set.of());
+        return service.config(
+                identifier(knowledgeBaseId), ModelSettingsService.identifier(configVersionId, "configVersionId"));
     }
 
     @PutMapping(value = "/api/v1/knowledge-bases/{knowledgeBaseId}/processing-config", consumes = "application/json")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public ConnectionTests.Accepted updateConfig(@PathVariable String knowledgeBaseId, @RequestBody JsonNode input, HttpServletRequest request) {
+    public ConnectionTests.Accepted updateConfig(
+            @PathVariable String knowledgeBaseId, @RequestBody JsonNode input, HttpServletRequest request) {
         query(request, Set.of());
         processing(input);
         List<String> keys = java.util.Collections.list(request.getHeaders("Idempotency-Key"));
@@ -103,20 +107,30 @@ public final class KnowledgeBaseController {
 
     @PostMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/files/{fileId}/retry")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public JsonNode retryFile(@PathVariable String knowledgeBaseId,@PathVariable String fileId,@RequestBody(required=false) String body,HttpServletRequest request) {
-        return retry(knowledgeBaseId,fileId,body,request);
+    public JsonNode retryFile(
+            @PathVariable String knowledgeBaseId,
+            @PathVariable String fileId,
+            @RequestBody(required = false) String body,
+            HttpServletRequest request) {
+        return retry(knowledgeBaseId, fileId, body, request);
     }
 
     @PostMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/retry-failed")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public JsonNode retryFailed(@PathVariable String knowledgeBaseId,@RequestBody(required=false) String body,HttpServletRequest request) {
-        return retry(knowledgeBaseId,null,body,request);
+    public JsonNode retryFailed(
+            @PathVariable String knowledgeBaseId,
+            @RequestBody(required = false) String body,
+            HttpServletRequest request) {
+        return retry(knowledgeBaseId, null, body, request);
     }
 
-    private JsonNode retry(String kb,String file,String body,HttpServletRequest request) {
-        query(request,Set.of());if (body!=null && !body.isEmpty()) throw ApiFailure.invalid(null,"失败重试不接受正文。");
-        List<String> keys=java.util.Collections.list(request.getHeaders("Idempotency-Key"));if (keys.size()!=1) throw ApiFailure.invalid("Idempotency-Key","须提供唯一幂等键。");
-        var session=(LocalSessionFilter.Session)request.getAttribute("localSession");return service.retryFiles(kb,file,session.sessionId(),keys.getFirst());
+    private JsonNode retry(String kb, String file, String body, HttpServletRequest request) {
+        query(request, Set.of());
+        if (body != null && !body.isEmpty()) throw ApiFailure.invalid(null, "失败重试不接受正文。");
+        List<String> keys = java.util.Collections.list(request.getHeaders("Idempotency-Key"));
+        if (keys.size() != 1) throw ApiFailure.invalid("Idempotency-Key", "须提供唯一幂等键。");
+        var session = (LocalSessionFilter.Session) request.getAttribute("localSession");
+        return service.retryFiles(kb, file, session.sessionId(), keys.getFirst());
     }
 
     @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/tasks")
@@ -126,7 +140,7 @@ public final class KnowledgeBaseController {
 
     @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/index-switches")
     public KnowledgeBases.Page switches(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
-        return service.switches(identifier(knowledgeBaseId),limit(request),request.getParameter("cursor"));
+        return service.switches(identifier(knowledgeBaseId), limit(request), request.getParameter("cursor"));
     }
 
     @PostMapping(value = "/api/v1/knowledge-bases/{knowledgeBaseId}/sources", consumes = "application/json")
@@ -142,13 +156,15 @@ public final class KnowledgeBaseController {
 
     @PostMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/publish")
     public JsonNode publish(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
-        query(request,Set.of()); empty(request);
+        query(request, Set.of());
+        empty(request);
         return service.publish(identifier(knowledgeBaseId));
     }
 
     @PostMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/offline")
     public JsonNode offline(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
-        query(request,Set.of()); empty(request);
+        query(request, Set.of());
+        empty(request);
         return service.offline(identifier(knowledgeBaseId));
     }
 
@@ -158,39 +174,44 @@ public final class KnowledgeBaseController {
 
     @DeleteMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/sources/{sourceId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void removeSource(@PathVariable String knowledgeBaseId, @PathVariable String sourceId, HttpServletRequest request) {
-        query(request,Set.of()); empty(request);
-        service.removeSource(identifier(knowledgeBaseId),sourceId);
+    public void removeSource(
+            @PathVariable String knowledgeBaseId, @PathVariable String sourceId, HttpServletRequest request) {
+        query(request, Set.of());
+        empty(request);
+        service.removeSource(identifier(knowledgeBaseId), sourceId);
     }
 
     @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/exclusions")
     public KnowledgeBases.Page exclusions(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
-        return service.exclusions(identifier(knowledgeBaseId),limit(request),request.getParameter("cursor"));
+        return service.exclusions(identifier(knowledgeBaseId), limit(request), request.getParameter("cursor"));
     }
 
     @PutMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/exclusions/{fileId}")
-    public JsonNode exclude(@PathVariable String knowledgeBaseId, @PathVariable String fileId, HttpServletRequest request) {
-        query(request,Set.of()); empty(request);
-        return service.exclude(identifier(knowledgeBaseId),fileId);
+    public JsonNode exclude(
+            @PathVariable String knowledgeBaseId, @PathVariable String fileId, HttpServletRequest request) {
+        query(request, Set.of());
+        empty(request);
+        return service.exclude(identifier(knowledgeBaseId), fileId);
     }
 
     @DeleteMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/exclusions/{fileId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void include(@PathVariable String knowledgeBaseId, @PathVariable String fileId, HttpServletRequest request) {
-        query(request,Set.of()); empty(request);
-        service.include(identifier(knowledgeBaseId),fileId);
+        query(request, Set.of());
+        empty(request);
+        service.include(identifier(knowledgeBaseId), fileId);
     }
 
     @GetMapping("/api/v1/files/{fileId}/knowledge-bases")
     public KnowledgeBases.Page fileKnowledgeBases(@PathVariable String fileId, HttpServletRequest request) {
-        return service.fileKnowledgeBases(fileId,limit(request),request.getParameter("cursor"));
+        return service.fileKnowledgeBases(fileId, limit(request), request.getParameter("cursor"));
     }
 
     private static void empty(HttpServletRequest request) {
         try {
-            if (request.getInputStream().read() != -1) throw ApiFailure.invalid(null,"此操作不接受请求正文。");
+            if (request.getInputStream().read() != -1) throw ApiFailure.invalid(null, "此操作不接受请求正文。");
         } catch (java.io.IOException failure) {
-            throw ApiFailure.invalid(null,"无法读取请求正文。");
+            throw ApiFailure.invalid(null, "无法读取请求正文。");
         }
     }
 

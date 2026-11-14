@@ -85,9 +85,9 @@ onBeforeUnmount(() => {
       />
     </div>
     <RuntimeSettings
+      :key="dataDirectory"
       :client="client"
       :writable="writable"
-      :key="dataDirectory"
     />
     <Migration
       v-for="operation in ['migration', 'backup', 'restore']"
