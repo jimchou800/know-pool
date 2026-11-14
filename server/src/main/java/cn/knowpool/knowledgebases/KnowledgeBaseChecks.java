@@ -61,6 +61,7 @@ public final class KnowledgeBaseChecks {
         String valid = ModelSettingsService.identifier(key, "Idempotency-Key");
         java.util.concurrent.atomic.AtomicBoolean acquired = new java.util.concurrent.atomic.AtomicBoolean();
         Pending pending;
+        boolean stored = false;
         try {
             pending = data.write(jdbc -> {
                 JsonNode base = bases.get(kb);
@@ -129,9 +130,9 @@ public final class KnowledgeBaseChecks {
                 TaskEvents.record(jdbc, json, json.valueToTree(task));
                 return new Pending(task, model, vector, config);
             });
-        } catch (RuntimeException failure) {
-            if (acquired.get()) capacity.release();
-            throw failure;
+            stored = true;
+        } finally {
+            if (!stored && acquired.get()) capacity.release();
         }
         if (pending.model() != null) {
             try {

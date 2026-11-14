@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public final class ApiErrors {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ApiErrors.class);
+
     @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
     public ResponseEntity<Map<String, Object>> uploadSize(Exception failure, HttpServletResponse response) {
         for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
@@ -47,6 +49,13 @@ public final class ApiErrors {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> unexpected(Exception failure, HttpServletResponse response) {
+        if (response.isCommitted()) {
+            LOG.warn(
+                    "响应已提交，已结束请求。异常类型：{}；请求标识：{}",
+                    failure.getClass().getSimpleName(),
+                    response.getHeader("X-Request-Id"));
+            return null;
+        }
         return body(500, "INTERNAL_ERROR", "操作失败，请稍后重试。", List.of(), response);
     }
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
 export async function checkIndexRecovery(
@@ -77,10 +78,11 @@ export async function checkIndexRecovery(
   } finally {
     releaseEmbedding();
   }
-  await page.waitForFunction(async (id) => {
-    const reply = await fetch(`/api/v1/tasks/${id}`);
-    return !['queued', 'running'].includes((await reply.json()).state);
-  }, retryTask);
+  await expect.poll(async () => {
+    const reply = await http.get(`${root}/tasks/${retryTask}`);
+    assert.equal(reply.status(), 200);
+    return (await reply.json()).state;
+  }, { timeout: 30000 }).toBe('succeeded');
   assert.equal(
     (await (await http.get(`${root}/tasks/${retryTask}`)).json()).state,
     'succeeded',

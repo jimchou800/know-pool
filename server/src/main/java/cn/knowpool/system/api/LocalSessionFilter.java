@@ -175,7 +175,7 @@ public final class LocalSessionFilter extends OncePerRequestFilter {
                         || path.matches("/api/v1/knowledge-bases/[^/]+")
                                 && Set.of("GET", "PATCH").contains(request.getMethod())
                         || path.matches(
-                                        "/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files|tasks|exclusions|index-switches)")
+                                        "/api/v1/knowledge-bases/[^/]+/(?:processing-config|sources|files|tasks|exclusions|switches)")
                                 && request.getMethod().equals("GET")
                         || path.matches("/api/v1/knowledge-bases/[^/]+/sources")
                                 && request.getMethod().equals("POST")

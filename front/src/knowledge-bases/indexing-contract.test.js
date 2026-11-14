@@ -84,11 +84,15 @@ it('六种任务状态和进度通过真实客户端读取，不把失败当成�
 it('索引完成与失败回读实际消费生效版本及知识库依赖故障', async () => {
   const s = await setup(() => null);
   for (const failed of [false, true]) {
+    const targetVersion = failed
+      ? '00000000-0000-4000-8000-000000000073'
+      : otherId;
     const failure = failed
       ? { code: 'MODEL_UNAVAILABLE', message: '固定嵌入故障', retryable: false }
       : null;
     const terminalTask = {
       ...file.task,
+      targetContentVersionId: targetVersion,
       state: failed ? 'failed' : 'succeeded',
       phase: 'completed',
       startedAt: time,
@@ -102,6 +106,8 @@ it('索引完成与失败回读实际消费生效版本及知识库依赖故障'
     };
     const indexed = {
       ...file,
+      latestContentVersionId: targetVersion,
+      targetContentVersionId: targetVersion,
       effectiveContentVersionId: otherId,
       effectiveIndexVersionId: otherId,
       effectiveConfigVersionId: otherId,
@@ -113,6 +119,89 @@ it('索引完成与失败回读实际消费生效版本及知识库依赖故障'
     s.reply({ items: [indexed], nextCursor: null });
     expect((await s.api.files(id)).items[0]).toEqual(indexed);
     observed('listKnowledgeBaseFiles', s.requests.at(-1));
+    expect((await s.api.fileKnowledgeBases(otherId)).items[0]).toEqual(indexed);
+    observed('listFileKnowledgeBases', s.requests.at(-1));
+    const nextKnowledgeBaseId = '00000000-0000-4000-8000-000000000074';
+    const next = {
+      ...indexed,
+      knowledgeBaseId: nextKnowledgeBaseId,
+      sources: indexed.sources.map((source) => ({
+        ...source,
+        id: '00000000-0000-4000-8000-000000000174',
+        knowledgeBaseId: nextKnowledgeBaseId,
+      })),
+      task: {
+        ...terminalTask,
+        id: '00000000-0000-4000-8000-000000000274',
+        knowledgeBaseId: nextKnowledgeBaseId,
+      },
+    };
+    const firstPage = {
+      items: Array.from({ length: 20 }, (_, index) => ({
+        ...indexed,
+        knowledgeBaseId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        sources: indexed.sources.map((source) => ({
+          ...source,
+          id: `00000000-0000-4000-8000-${String(index + 101).padStart(12, '0')}`,
+          knowledgeBaseId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        })),
+        task: {
+          ...terminalTask,
+          id: `00000000-0000-4000-8000-${String(index + 201).padStart(12, '0')}`,
+          knowledgeBaseId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+        },
+      })),
+      nextCursor: '00000000-0000-4000-8000-000000000020',
+    };
+    s.reply(firstPage);
+    expect(await s.api.fileKnowledgeBases(otherId)).toEqual(firstPage);
+    observed('listFileKnowledgeBases', s.requests.at(-1));
+    s.reply({ items: [next], nextCursor: null });
+    expect(
+      (await s.api.fileKnowledgeBases(otherId, firstPage.nextCursor)).items,
+    ).toEqual([next]);
+    expect(s.requests.at(-1).params.cursor).toBe(firstPage.nextCursor);
+    observed('listFileKnowledgeBases', s.requests.at(-1));
+    if (failed) {
+      const retryTask = {
+        ...terminalTask,
+        id: '00000000-0000-4000-8000-000000000075',
+        state: 'queued',
+        phase: 'queued',
+        startedAt: null,
+        finishedAt: null,
+        retryOfTaskId: terminalTask.id,
+        attempt: 0,
+        progressCompleted: 0,
+        progressTotal: null,
+        failure: null,
+        warnings: ['显式重试可能再次调用嵌入服务并产生费用。'],
+      };
+      const retryResult = {
+        items: [
+          {
+            fileId: otherId,
+            outcome: 'enqueued',
+            taskId: retryTask.id,
+            reason: null,
+          },
+        ],
+      };
+      s.reply(retryResult);
+      expect(await s.api.retry(id, otherId, id)).toEqual(retryResult);
+      observed('retryKnowledgeBaseFile', s.requests.at(-1));
+      const retrying = {
+        ...indexed,
+        task: retryTask,
+        failure: null,
+        updateState: 'queued',
+      };
+      s.reply({ items: [retrying], nextCursor: null });
+      expect((await s.api.fileKnowledgeBases(otherId)).items[0]).toEqual(
+        retrying,
+      );
+      observed('listFileKnowledgeBases', s.requests.at(-1));
+    }
     const current = {
       ...record,
       effectiveIndexVersionId: otherId,
@@ -634,6 +723,9 @@ it('实际会话请求消费预检全部统计及配置更新原任务，保留�
     const task = {
       ...rebuild,
       state,
+      progressTotal: state === 'queued' ? null : 2,
+      progressCompleted: state === 'succeeded' ? 2 : 0,
+      resultResourceId: state === 'succeeded' ? id : null,
       phase: terminal ? 'completed' : 'queued',
       startedAt: state === 'queued' ? null : time,
       finishedAt: terminal ? time : null,
@@ -652,6 +744,14 @@ it('实际会话请求消费预检全部统计及配置更新原任务，保留�
     });
     expect(s.requests.at(-1).headers.get('Idempotency-Key')).toBe(otherId);
     observed('updateProcessingConfig', s.requests.at(-1));
+    if (state === 'succeeded') {
+      expect(await s.api.updateProcessing(id, config.input, otherId)).toEqual({
+        task,
+      });
+      expect(JSON.parse(s.requests.at(-1).data)).toEqual(config.input);
+      expect(s.requests.at(-1).headers.get('Idempotency-Key')).toBe(otherId);
+      observed('updateProcessingConfig', s.requests.at(-1));
+    }
     s.reply(task);
     expect(await s.api.task(otherId, 'rebuild_knowledge_base')).toEqual(task);
     observed('getTask', s.requests.at(-1));

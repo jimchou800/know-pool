@@ -65,7 +65,23 @@ try {
     { method: 'GET', path: '/api/v1/system/status' },
   ]);
   assert.equal(await page.evaluate(() => location.search), '');
-  assert.ok(requestURLs.every((url) => new URL(url).search === ''));
+  const bootstrapURLs = requestURLs.filter((value) => {
+    const path = new URL(value).pathname;
+    return path === '/api/v1/session' || path === '/api/v1/system/status';
+  });
+  assert.ok(
+    bootstrapURLs.every((url) => new URL(url).search === ''),
+    '启动请求包含查询参数，脱敏诊断：' +
+      JSON.stringify(
+        bootstrapURLs
+          .map((value) => new URL(value))
+          .filter((url) => url.search !== '')
+          .map((url) => ({
+            path: url.pathname,
+            queryKeys: [...new Set(url.searchParams.keys())],
+          })),
+      ),
+  );
   const cookie = (await context.cookies()).find(
     (item) => item.name === 'KNOW_POOL_SESSION',
   );

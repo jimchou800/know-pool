@@ -24,7 +24,8 @@ export async function checkRuntimeSettings(page, tests, base) {
     .getByRole('button', { name: '保存全部运行参数', exact: true })
     .click();
   const reply = await replyPromise;
-  assert.equal(reply.status(), 200);
+  const replyBody = reply.status() === 200 ? '' : await reply.text();
+  assert.equal(reply.status(), 200, `运行参数保存失败：${replyBody}`);
   assert.deepEqual(JSON.parse(reply.request().postData()), {
     ...initial,
     indexConcurrency: value,

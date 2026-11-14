@@ -10,6 +10,11 @@ import {
 } from '../../test-fixtures/answers';
 import { createAnswerClient } from './client';
 import { watchTask } from '../knowledge-bases/task-events';
+import {
+  evidenceVariants,
+  questionVariants,
+  variantInput,
+} from '../../test-fixtures/answer-variants';
 const observations = [];
 function observed(operationId, r) {
   observations.push({
@@ -23,6 +28,64 @@ function observed(operationId, r) {
     response: r.observed.data,
   });
 }
+it('同键恢复消费部分回答的完整位置、遗漏范围及无正文任务状态', async () => {
+  const s = await setup(() => null),
+    api = createAnswerClient(s.client);
+  for (const value of questionVariants()) {
+    const request = variantInput(value);
+    const firstValue = value.answer
+      ? {
+          ...value,
+          task: { ...value.task, warnings: [value.answer.warnings[0]] },
+          answer: {
+            ...value.answer,
+            historyContext: 'none',
+            omittedHistoryTurnCount: 0,
+            warnings: [value.answer.warnings[0]],
+          },
+        }
+      : value;
+    const conversation = {
+      ...accepted.conversation,
+      knowledgeBaseIds: value.selectedKnowledgeBaseIds,
+      lastTask: firstValue.task,
+      activeTask: ['queued', 'running'].includes(firstValue.task.state)
+        ? firstValue.task
+        : null,
+    };
+    const replay = { conversation, questionTask: firstValue };
+    s.reply({ httpStatus: 202, body: replay });
+    expect(await api.first(request, id)).toEqual(replay);
+    observed('submitFirstQuestion', s.requests.at(-1));
+    s.reply(value);
+    expect(await api.get(otherId, request, id)).toEqual(value);
+    observed('getQuestionTask', s.requests.at(-1));
+    if (!['queued', 'running'].includes(value.task.state)) {
+      expect(await api.cancel(otherId, request, id)).toEqual(value);
+      observed('cancelQuestionTask', s.requests.at(-1));
+    }
+    if (value.answer) {
+      expect(value.answer.scope.omitted).toHaveLength(1);
+      expect(value.answer.evidence[0].contentVersionId).toBe(
+        evidence.contentVersionId,
+      );
+      expect(value.answer.warnings).toHaveLength(2);
+    } else expect(value.answer).toBeNull();
+  }
+});
+it('引用消费保留 PDF 页码及 Markdown 段落、表格、代码位置和重命名快照', async () => {
+  const s = await setup(() => null),
+    api = createAnswerClient(s.client);
+  for (const item of evidenceVariants()) {
+    s.reply(item);
+    const result = await api.evidence(id, item);
+    expect(result).toEqual(item);
+    expect(result.filenameAtCapture).not.toBe(result.currentFilename);
+    expect(result.originalAvailable).toBe(false);
+    expect(result.location).toEqual(item.location);
+    observed('getConversationEvidence', s.requests.at(-1));
+  }
+});
 it('首问原子受理及同键恢复消费会话任务，最终引用绑定实际内容版本', async () => {
   const s = await setup(() => ({ httpStatus: 202, body: accepted })),
     api = createAnswerClient(s.client);

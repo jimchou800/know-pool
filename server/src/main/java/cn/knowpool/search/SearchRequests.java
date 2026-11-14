@@ -668,8 +668,9 @@ public final class SearchRequests {
 
     public Grounding beginGrounding(List<String> selectedIds) {
         var cache = new Indexes.QueryVectors();
+        boolean retained = false;
         try {
-            return data.write(jdbc -> {
+            Grounding grounding = data.write(jdbc -> {
                 var eligible = new java.util.ArrayList<String>();
                 var omitted = json.createArrayNode();
                 for (String kb : selectedIds) {
@@ -691,9 +692,10 @@ public final class SearchRequests {
                 }
                 return new Grounding(List.copyOf(selectedIds), eligible, omitted, cache);
             });
-        } catch (RuntimeException failure) {
-            cache.close();
-            throw failure;
+            retained = true;
+            return grounding;
+        } finally {
+            if (!retained) cache.close();
         }
     }
 

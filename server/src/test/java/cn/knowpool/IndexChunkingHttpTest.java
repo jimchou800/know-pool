@@ -2388,6 +2388,10 @@ class IndexChunkingHttpTest {
             assertThat(await(client, failedId).path("state").asText()).isEqualTo("failed");
             assertThat(calls.get() - before).isLessThanOrEqualTo(1);
             JsonNode failed = read(client, "/tasks/" + failedId);
+            assertThat(read(client, "/files/" + file + "/knowledge-bases")
+                            .at("/items/0/task/state")
+                            .asText())
+                    .isEqualTo("failed");
             String route = "/knowledge-bases/" + kb + "/files/" + file + "/retry",
                     key = UUID.randomUUID().toString();
             mode.set("blocked");
@@ -2398,6 +2402,10 @@ class IndexChunkingHttpTest {
             assertThat(result.at("/items/0/outcome").asText()).isEqualTo("enqueued");
             assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             assertThat(read(client, "/tasks/" + retry).path("retryOfTaskId").asText())
+                    .isEqualTo(failedId);
+            assertThat(read(client, "/files/" + file + "/knowledge-bases")
+                            .at("/items/0/task/retryOfTaskId")
+                            .asText())
                     .isEqualTo(failedId);
             int count = calls.get();
             assertThat(JSON.readTree(send(client, route, "POST", null, key).body()))
@@ -2426,6 +2434,10 @@ class IndexChunkingHttpTest {
             mode.set("ok");
             release.countDown();
             assertThat(await(client, retry).path("state").asText()).isEqualTo("succeeded");
+            JsonNode readyFileState = read(client, "/files/" + file + "/knowledge-bases");
+            assertThat(readyFileState.at("/items/0/task/state").asText()).isEqualTo("succeeded");
+            assertThat(readyFileState.at("/items/0/effectiveContentVersionId").isTextual())
+                    .isTrue();
             assertThat(read(client, "/tasks/" + failedId)).isEqualTo(failed);
             assertThat(JSON.readTree(send(
                                             client,
@@ -2536,6 +2548,9 @@ class IndexChunkingHttpTest {
                     oldConfig = read(client, "/knowledge-bases/" + kb + "/processing-config");
             String oldVersion = oldConfig.path("id").asText();
             String history = "/knowledge-bases/" + kb + "/processing-config/versions/";
+            String relatedFile = read(client, "/knowledge-bases/" + kb + "/files")
+                    .at("/items/0/fileId")
+                    .asText();
             assertThat(read(client, history + oldVersion)).isEqualTo(oldConfig);
             int count = inputs.size();
             String model = oldConfig.at("/input/embedding/modelConfigVersionId").asText();
@@ -2568,6 +2583,10 @@ class IndexChunkingHttpTest {
             assertThat(during.path("publicationState").asText()).isEqualTo("published");
             assertThat(during.path("effectiveConfigVersionId").asText()).isEqualTo(oldVersion);
             assertThat(during.path("targetConfigVersionId").asText()).isEqualTo(target);
+            assertThat(read(client, "/files/" + relatedFile + "/knowledge-bases")
+                            .at("/items/0/usingPreviousVersion")
+                            .asBoolean())
+                    .isTrue();
             assertThat(read(client, "/knowledge-bases/" + kb + "/files")
                             .at("/items/0/usingPreviousVersion")
                             .asBoolean())
@@ -2580,6 +2599,15 @@ class IndexChunkingHttpTest {
             release.countDown();
             assertThat(await(client, parent).path("state").asText()).isEqualTo("succeeded");
             JsonNode switched = read(client, "/knowledge-bases/" + kb);
+            JsonNode completedReplay = JSON.readTree(
+                    send(client, endpoint, "PUT", update.toString(), key).body());
+            assertThat(completedReplay.at("/task/state").asText()).isEqualTo("succeeded");
+            assertThat(completedReplay.at("/task/resultResourceId").asText()).isEqualTo(kb);
+            assertThat(completedReplay.at("/task/progressTotal").asInt()).isGreaterThan(0);
+            assertThat(read(client, "/files/" + relatedFile + "/knowledge-bases")
+                            .at("/items/0/effectiveConfigVersionId")
+                            .asText())
+                    .isEqualTo(target);
             assertThat(switched.path("publicationState").asText()).isEqualTo("offline");
             assertThat(switched.path("effectiveConfigVersionId").asText()).isEqualTo(target);
             assertThat(switched.path("effectiveIndexVersionId").asText()).isEqualTo(parent);
@@ -2589,8 +2617,7 @@ class IndexChunkingHttpTest {
                             .at("/task/id")
                             .asText())
                     .isEqualTo(parent);
-            assertThat(read(client, "/knowledge-bases/" + kb + "/index-switches")
-                            .path("items"))
+            assertThat(read(client, "/knowledge-bases/" + kb + "/switches").path("items"))
                     .anySatisfy(item -> {
                         assertThat(item.path("toConfigVersionId").asText()).isEqualTo(target);
                         assertThat(item.path("fromConfigVersionId").asText()).isEqualTo(oldVersion);
@@ -2609,6 +2636,10 @@ class IndexChunkingHttpTest {
                     .at("/task/id")
                     .asText();
             assertThat(await(client, failed).path("state").asText()).isEqualTo("failed");
+            assertThat(read(client, "/files/" + relatedFile + "/knowledge-bases")
+                            .at("/items/0/task/state")
+                            .asText())
+                    .isEqualTo("failed");
             assertThat(read(client, "/knowledge-bases/" + kb)
                             .path("publicationState")
                             .asText())
@@ -2686,16 +2717,24 @@ class IndexChunkingHttpTest {
             String empty = await(client, emptyAccepted.at("/task/id").asText())
                     .path("resultResourceId")
                     .asText();
+            String emptyKey = UUID.randomUUID().toString();
             String emptyTask = JSON.readTree(send(
                                     client,
                                     "/knowledge-bases/" + empty + "/processing-config",
                                     "PUT",
                                     update.toString(),
-                                    UUID.randomUUID().toString())
+                                    emptyKey)
                             .body())
                     .at("/task/id")
                     .asText();
             assertThat(await(client, emptyTask).path("state").asText()).isEqualTo("succeeded");
+            JsonNode emptyReplay = JSON.readTree(
+                    send(client, "/knowledge-bases/" + empty + "/processing-config", "PUT", update.toString(), emptyKey)
+                            .body());
+            assertThat(emptyReplay.at("/task/id").asText()).isEqualTo(emptyTask);
+            assertThat(emptyReplay.at("/task/state").asText()).isEqualTo("succeeded");
+            assertThat(emptyReplay.at("/task/resultResourceId").asText()).isEqualTo(empty);
+            assertThat(emptyReplay.at("/task/progressTotal").asInt()).isZero();
             JsonNode emptyBase = read(client, "/knowledge-bases/" + empty);
             assertThat(emptyBase.path("searchableFileCount").asInt()).isZero();
             assertThat(emptyBase.path("publicationState").asText()).isEqualTo("unpublished");
@@ -2798,7 +2837,7 @@ class IndexChunkingHttpTest {
                     read(client, "/knowledge-bases/" + kb + "/tasks").path("items"))
                 if (task.path("targetConfigVersionId").equals(rebuild.at("/task/targetConfigVersionId")))
                     assertThat(task.path("state").asText()).isEqualTo("cancelled");
-            assertThat(read(client, "/knowledge-bases/" + kb + "/index-switches")
+            assertThat(read(client, "/knowledge-bases/" + kb + "/switches")
                             .path("items")
                             .size())
                     .isEqualTo(1);
@@ -2867,7 +2906,7 @@ class IndexChunkingHttpTest {
                     .get(0);
             String file = old.path("fileId").asText(),
                     oldVersion = old.path("latestContentVersionId").asText();
-            JsonNode initialSwitch = read(client, "/knowledge-bases/" + first + "/index-switches")
+            JsonNode initialSwitch = read(client, "/knowledge-bases/" + first + "/switches")
                     .path("items")
                     .get(0);
             assertThat(initialSwitch.path("fromContentVersionId").isNull()).isTrue();
@@ -2921,14 +2960,14 @@ class IndexChunkingHttpTest {
                             .at("/items/0/effectiveContentVersionId")
                             .asText())
                     .isEqualTo(oldVersion);
-            JsonNode switches = read(client, "/knowledge-bases/" + successfulKb + "/index-switches");
+            JsonNode switches = read(client, "/knowledge-bases/" + successfulKb + "/switches");
             assertThat(switches.path("items")).anySatisfy(item -> {
                 assertThat(item.path("fromContentVersionId").asText()).isEqualTo(oldVersion);
                 assertThat(item.path("toContentVersionId").asText()).isEqualTo(version);
                 assertThat(item.path("toIndexVersionId")).isEqualTo(successful.path("effectiveIndexVersionId"));
                 assertThat(item.path("fromConfigVersionId")).isEqualTo(item.path("toConfigVersionId"));
             });
-            assertThat(read(client, "/knowledge-bases/" + cancelledKb + "/index-switches")
+            assertThat(read(client, "/knowledge-bases/" + cancelledKb + "/switches")
                             .path("items")
                             .size())
                     .isEqualTo(1);
@@ -2957,7 +2996,7 @@ class IndexChunkingHttpTest {
             assertThat(send(client, "/tasks/" + running + "/cancel?unknown=1", "POST", null, null)
                             .statusCode())
                     .isEqualTo(400);
-            assertThat(send(client, "/knowledge-bases/" + first + "/index-switches?limit=0", "GET", null, null)
+            assertThat(send(client, "/knowledge-bases/" + first + "/switches?limit=0", "GET", null, null)
                             .statusCode())
                     .isEqualTo(400);
             assertThat(send(
@@ -4203,6 +4242,7 @@ class IndexChunkingHttpTest {
                         "associationUnionExclusionsAndLateTasksStayConsistent",
                         "preflightAndRebuildKeepVersionsAtomic",
                         "publicContractBranchesRemainReachable",
+                        "malformedQuestionModelsNeverPublishDrafts",
                         "markdownLocationsRemainBoundToOriginalSource",
                         "pdfLocationsKeepCrossPageSourceAndBlankPages")
                 .contains(frame.getMethodName()))) {
@@ -4296,6 +4336,192 @@ class IndexChunkingHttpTest {
             GAP_OBSERVATIONS.add(item);
         }
         return response;
+    }
+
+    @Test
+    @DisplayName("问答拒绝不完整模型结构、非法引用与缺失用量，预处理失败只回退原查询")
+    void malformedQuestionModelsNeverPublishDrafts() throws Exception {
+        var mode = new java.util.concurrent.atomic.AtomicReference<>("valid");
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        HttpServer vector = indexedVector(
+                new java.util.concurrent.CopyOnWriteArrayList<>(), () -> {}, () -> {}, "4", hits -> {}, body -> {
+                    calls.incrementAndGet();
+                    String instruction = body.at("/messages/0/content").asText();
+                    JsonNode input =
+                            JSON.readTree(body.at("/messages/1/content").asText());
+                    tools.jackson.databind.node.ObjectNode result;
+                    if (instruction.contains("任务是问题预处理")) {
+                        result = JSON.createObjectNode().set("additionalQueries", JSON.createArrayNode());
+                        switch (mode.get()) {
+                            case "preprocess_unknown" -> result.put("unknown", true);
+                            case "preprocess_not_array" -> result.put("additionalQueries", "错误");
+                            case "preprocess_number" ->
+                                result.set(
+                                        "additionalQueries",
+                                        JSON.createArrayNode().add(1));
+                            case "preprocess_blank" ->
+                                result.set(
+                                        "additionalQueries",
+                                        JSON.createArrayNode().add(" "));
+                            case "preprocess_long" ->
+                                result.set(
+                                        "additionalQueries",
+                                        JSON.createArrayNode().add("长".repeat(20001)));
+                            default -> {}
+                        }
+                    } else if (instruction.contains("任务是严格审查候选回答")) {
+                        result = JSON.createObjectNode().put("supported", true);
+                        switch (mode.get()) {
+                            case "check_unknown" -> result.put("unknown", true);
+                            case "check_string" -> result.put("supported", "true");
+                            case "check_missing" -> result.remove("supported");
+                            default -> {}
+                        }
+                    } else {
+                        String id = input.at("/evidence/0/id").asText();
+                        result = JSON.createObjectNode()
+                                .put("outcome", "answered")
+                                .put("text", "固定可信回答【" + id + "】");
+                        result.set("citationEvidenceIds", JSON.createArrayNode().add(id));
+                        result.set("uncoveredQuestions", JSON.createArrayNode());
+                        result.set("contradictions", JSON.createArrayNode());
+                        switch (mode.get()) {
+                            case "draft_unknown" -> result.put("unknown", true);
+                            case "draft_outcome" -> result.put("outcome", "invalid");
+                            case "draft_text_type" -> result.put("text", 1);
+                            case "draft_text_blank" -> result.put("text", " ");
+                            case "draft_citations_type" -> result.put("citationEvidenceIds", "错误");
+                            case "draft_uncovered_type" -> result.put("uncoveredQuestions", "错误");
+                            case "draft_contradictions_type" -> result.put("contradictions", "错误");
+                            case "draft_citation_number" ->
+                                result.set(
+                                        "citationEvidenceIds",
+                                        JSON.createArrayNode().add(1));
+                            case "draft_citation_duplicate" ->
+                                result.set(
+                                        "citationEvidenceIds",
+                                        JSON.createArrayNode().add(id).add(id));
+                            case "draft_citation_unknown" ->
+                                result.set(
+                                        "citationEvidenceIds",
+                                        JSON.createArrayNode()
+                                                .add(UUID.randomUUID().toString()));
+                            case "draft_citation_empty" -> result.set("citationEvidenceIds", JSON.createArrayNode());
+                            case "draft_marker_missing" -> result.put("text", "未给出引用标记的回答");
+                            case "draft_uncovered_number" ->
+                                result.set(
+                                        "uncoveredQuestions",
+                                        JSON.createArrayNode().add(1));
+                            case "draft_uncovered_blank" ->
+                                result.set(
+                                        "uncoveredQuestions",
+                                        JSON.createArrayNode().add(" "));
+                            case "draft_uncovered_long" ->
+                                result.set(
+                                        "uncoveredQuestions",
+                                        JSON.createArrayNode().add("长".repeat(20001)));
+                            case "draft_partial_empty" -> result.put("outcome", "partial");
+                            case "draft_answered_gap" ->
+                                result.set(
+                                        "uncoveredQuestions",
+                                        JSON.createArrayNode().add("未覆盖事实"));
+                            default -> {}
+                        }
+                    }
+                    var response = (tools.jackson.databind.node.ObjectNode) chatResponse(result, "stop", true);
+                    if (!instruction.contains("任务是问题预处理")) {
+                        var usage = (tools.jackson.databind.node.ObjectNode) response.path("usage");
+                        switch (mode.get()) {
+                            case "usage_prompt_missing" -> usage.remove("prompt_tokens");
+                            case "usage_prompt_type" -> usage.put("prompt_tokens", "4");
+                            case "usage_prompt_negative" -> usage.put("prompt_tokens", -1);
+                            case "usage_prompt_excess" -> usage.put("prompt_tokens", 9007199254740991L);
+                            case "usage_completion_missing" -> usage.remove("completion_tokens");
+                            case "usage_completion_type" -> usage.put("completion_tokens", "4");
+                            case "usage_completion_negative" -> usage.put("completion_tokens", -1);
+                            case "usage_completion_excess" -> usage.put("completion_tokens", 9007199254740991L);
+                            default -> {}
+                        }
+                    }
+                    return response;
+                });
+        Path directory = Files.createTempDirectory(Path.of("target"), "question-boundaries-")
+                .toAbsolutePath();
+        try (var app = start(directory)) {
+            Client client = client(app);
+            String config = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            generation(client, vector.getAddress().getPort());
+            String kb = createIndexedBase(client, config, "模型边界依据库", "固定原文支持的事实。");
+            assertThat(send(client, "/knowledge-bases/" + kb + "/publish", "POST", null, null)
+                            .statusCode())
+                    .isEqualTo(200);
+            for (String scenario : java.util.List.of(
+                    "preprocess_unknown",
+                    "preprocess_not_array",
+                    "preprocess_number",
+                    "preprocess_blank",
+                    "preprocess_long",
+                    "check_unknown",
+                    "check_string",
+                    "check_missing",
+                    "draft_unknown",
+                    "draft_outcome",
+                    "draft_text_type",
+                    "draft_text_blank",
+                    "draft_citations_type",
+                    "draft_uncovered_type",
+                    "draft_contradictions_type",
+                    "draft_citation_number",
+                    "draft_citation_duplicate",
+                    "draft_citation_unknown",
+                    "draft_citation_empty",
+                    "draft_marker_missing",
+                    "draft_uncovered_number",
+                    "draft_uncovered_blank",
+                    "draft_uncovered_long",
+                    "draft_partial_empty",
+                    "draft_answered_gap",
+                    "usage_prompt_missing",
+                    "usage_prompt_type",
+                    "usage_prompt_negative",
+                    "usage_prompt_excess",
+                    "usage_completion_missing",
+                    "usage_completion_type",
+                    "usage_completion_negative",
+                    "usage_completion_excess")) {
+                mode.set(scenario);
+                calls.set(0);
+                String body = JSON.createObjectNode()
+                        .put("question", "固定事实是什么")
+                        .set("knowledgeBaseIds", JSON.createArrayNode().add(kb))
+                        .toString();
+                var accepted = send(
+                        client,
+                        "/conversations/first-question",
+                        "POST",
+                        body,
+                        UUID.randomUUID().toString());
+                assertThat(accepted.statusCode()).as(scenario).isEqualTo(202);
+                String id = JSON.readTree(accepted.body())
+                        .at("/questionTask/task/id")
+                        .asText();
+                JsonNode terminal = await(client, id), actual = read(client, "/question-tasks/" + id);
+                assertThat(calls.get()).as(scenario).isLessThanOrEqualTo(3);
+                if (scenario.startsWith("preprocess_")) {
+                    assertThat(terminal.path("state").asText()).as(scenario).isEqualTo("succeeded");
+                    assertThat(actual.at("/answer/warnings").isEmpty())
+                            .as(scenario)
+                            .isFalse();
+                } else {
+                    assertThat(terminal.path("state").asText()).as(scenario).isEqualTo("failed");
+                    assertThat(actual.path("answer").isNull()).as(scenario).isTrue();
+                    assertThat(actual.toString()).as(scenario).doesNotContain("固定可信回答");
+                }
+            }
+            gapsPassed = true;
+        } finally {
+            vector.stop(0);
+        }
     }
 
     private Client client(ConfigurableApplicationContext app) throws Exception {

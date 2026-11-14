@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { checkIndexRecovery } from './check-index-recovery.mjs';
 
@@ -23,11 +24,14 @@ export async function checkConfigurationRebuild(
     return reply.json();
   };
   const waitTask = async (id) => {
-    await page.waitForFunction(async (taskId) => {
-      const reply = await fetch(`/api/v1/tasks/${taskId}`);
-      return !['queued', 'running'].includes((await reply.json()).state);
-    }, id);
-    return (await http.get(`${root}/tasks/${id}`)).json();
+    let task;
+    await expect.poll(async () => {
+      const reply = await http.get(`${root}/tasks/${id}`);
+      assert.equal(reply.status(), 200);
+      task = await reply.json();
+      return ['queued', 'running'].includes(task.state);
+    }, { timeout: 30000 }).toBe(false);
+    return task;
   };
   const publish = await http.post(`${path}/publish`, { headers });
   assert.equal(publish.status(), 200);

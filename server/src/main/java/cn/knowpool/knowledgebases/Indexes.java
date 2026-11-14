@@ -830,9 +830,10 @@ public final class Indexes {
         if (!actual.isArray() || actual.size() != expected.size()) return false;
         for (int i = 0; i < expected.size(); i++) {
             JsonNode value = actual.get(i);
+            float component = value.floatValue(Float.NaN);
             if (!value.isNumber()
-                    || !Float.isFinite(value.floatValue())
-                    || Float.compare(value.floatValue() + 0.0f, expected.get(i).floatValue() + 0.0f) != 0) return false;
+                    || !Float.isFinite(component)
+                    || Float.compare(component + 0.0f, expected.get(i).floatValue(Float.NaN) + 0.0f) != 0) return false;
         }
         return true;
     }
@@ -1226,7 +1227,7 @@ public final class Indexes {
     public JsonNode decorateEvidence(JsonNode value) {
         var state = files.referenceState(
                 value.path("fileId").asText(), value.path("contentVersionId").asText());
-        ObjectNode item = (ObjectNode) value;
+        if (!(value instanceof ObjectNode item)) throw new ApiFailure(500, "INTEGRITY_FAILED", "引用证据结构无效。", null);
         if (state.filename() == null) item.putNull("currentFilename");
         else item.put("currentFilename", state.filename());
         item.put("originalAvailable", state.originalAvailable());

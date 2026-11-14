@@ -58,7 +58,7 @@ export async function checkKnowledgeBases(page, tests) {
       return;
     }
     const pointCollection =
-      /^\/collections\/(kp_[a-f0-9]{32})\/points(?:\/query)?$/.exec(
+      /^\/collections\/(kp_[a-f0-9]{32}(?:_[a-f0-9]{32})?)\/points(?:\/query)?$/.exec(
         pathname,
       )?.[1];
     if (pointCollection) {
@@ -104,7 +104,9 @@ export async function checkKnowledgeBases(page, tests) {
       }
       return;
     }
-    const name = /^\/collections\/(kp_[a-f0-9]{32})$/.exec(request.url)?.[1];
+    const name = /^\/collections\/(kp_[a-f0-9]{32}(?:_[a-f0-9]{32})?)$/.exec(
+      pathname,
+    )?.[1];
     if (!name) {
       response.statusCode = 400;
       response.end(JSON.stringify({ status: 'error', result: null }));
@@ -240,77 +242,6 @@ export async function checkKnowledgeBases(page, tests) {
       return (await accepted.json()).task;
     };
     await start('空库联调');
-    await checkPublication(page, tests, {
-      http,
-      base,
-      headers,
-      datasetId: dataset.id,
-      knowledgeBaseId: resource,
-      gateEmbedding: () => {
-        embeddingGate = new Promise((resolve) => {
-          releaseEmbedding = resolve;
-        });
-      },
-      releaseEmbedding: () => {
-        releaseEmbedding?.();
-        embeddingGate = undefined;
-      },
-      rejectEmbedding: (value) => {
-        rejectEmbedding = value;
-      },
-    });
-    await checkMultiSearch(page, tests, {
-      http,
-      base,
-      headers,
-      datasetId: dataset.id,
-      knowledgeBaseId: resource,
-      noMatches: (value) => {
-        noMatches = value;
-      },
-      gateEmbedding: () => {
-        embeddingGate = new Promise((resolve) => {
-          releaseEmbedding = resolve;
-        });
-      },
-      releaseEmbedding: () => {
-        releaseEmbedding?.();
-        embeddingGate = undefined;
-      },
-    });
-    await checkSearchInstances(page, tests, {
-      http,
-      base,
-      headers,
-      knowledgeBaseId: resource,
-      gateEmbedding: () => {
-        embeddingGate = new Promise((resolve) => {
-          releaseEmbedding = resolve;
-        });
-      },
-      releaseEmbedding: () => {
-        releaseEmbedding?.();
-        embeddingGate = undefined;
-      },
-    });
-    await checkGroundedAnswer(page, tests, {
-      http,
-      base,
-      headers,
-      knowledgeBaseId: resource,
-      noMatches: (value) => {
-        noMatches = value;
-      },
-      gateEmbedding: () => {
-        embeddingGate = new Promise((resolve) => {
-          releaseEmbedding = resolve;
-        });
-      },
-      releaseEmbedding: () => {
-        releaseEmbedding?.();
-        embeddingGate = undefined;
-      },
-    });
     for (const width of [1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 1000 });
       assert.equal(
@@ -829,6 +760,77 @@ export async function checkKnowledgeBases(page, tests) {
         '未发布单库索引生效后检索真实切片与版本位置；无命中和嵌入故障分别展示',
       ],
       tasks: { initialAccepted: !!accepted.id },
+    });
+    await checkPublication(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+      rejectEmbedding: (value) => {
+        rejectEmbedding = value;
+      },
+    });
+    await checkMultiSearch(page, tests, {
+      http,
+      base,
+      headers,
+      datasetId: dataset.id,
+      knowledgeBaseId: resource,
+      noMatches: (value) => {
+        noMatches = value;
+      },
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+    });
+    await checkSearchInstances(page, tests, {
+      http,
+      base,
+      headers,
+      knowledgeBaseId: resource,
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
+    });
+    await checkGroundedAnswer(page, tests, {
+      http,
+      base,
+      headers,
+      knowledgeBaseId: resource,
+      noMatches: (value) => {
+        noMatches = value;
+      },
+      gateEmbedding: () => {
+        embeddingGate = new Promise((resolve) => {
+          releaseEmbedding = resolve;
+        });
+      },
+      releaseEmbedding: () => {
+        releaseEmbedding?.();
+        embeddingGate = undefined;
+      },
     });
     await checkDeletionCleanup(page, tests, {
       http,

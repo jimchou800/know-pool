@@ -6,10 +6,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public final class MaintenanceGate {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     private volatile boolean paused;
-    private volatile long generation;
+    private final java.util.concurrent.atomic.AtomicLong generation = new java.util.concurrent.atomic.AtomicLong();
 
     public void invalidateQueuedActivities() {
-        generation++;
+        generation.incrementAndGet();
     }
 
     public boolean paused() {
@@ -47,7 +47,7 @@ public final class MaintenanceGate {
     }
 
     public Runnable activity(Runnable action, Runnable discarded) {
-        long acceptedGeneration = generation;
+        long acceptedGeneration = generation.get();
         return () -> {
             while (true) {
                 lock.readLock().lock();
@@ -57,7 +57,7 @@ public final class MaintenanceGate {
                 java.util.concurrent.locks.LockSupport.parkNanos(25_000_000);
             }
             try {
-                if (acceptedGeneration == generation) action.run();
+                if (acceptedGeneration == generation.get()) action.run();
                 else discarded.run();
             } finally {
                 lock.readLock().unlock();

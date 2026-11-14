@@ -664,9 +664,10 @@ public final class FileService {
     private Path cleanupPath(String version, String relative) {
         Path target = data.directory().resolve(relative).toAbsolutePath().normalize();
         Path root = data.directory().resolve("files/versions").toAbsolutePath().normalize();
+        Path filename = target.getFileName();
         if (!root.equals(target.getParent())
-                || target.getFileName() == null
-                || !target.getFileName().toString().equals(version)) throw new IllegalStateException("旧内容版本清理路径无效。");
+                || filename == null
+                || !filename.toString().equals(version)) throw new IllegalStateException("旧内容版本清理路径无效。");
         return target;
     }
 

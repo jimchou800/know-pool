@@ -22,7 +22,7 @@ public final class UploadBoundary {
     }
 
     @EventListener
-    public void started(WebServerInitializedEvent event) {
+    public synchronized void started(WebServerInitializedEvent event) {
         if (event.getWebServer() instanceof org.springframework.boot.tomcat.TomcatWebServer server) {
             connector = server.getTomcat().getConnector();
             for (var child : server.getTomcat().getHost().findChildren())

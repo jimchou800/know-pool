@@ -238,7 +238,7 @@ public final class Questions {
 
     public synchronized Page conversations(int limit, String cursor) {
         String[] after = cursor(cursor);
-        String time = after == null ? "9999" : after[0], id = after == null ? "~" : after[1];
+        String time = after.length == 0 ? "9999" : after[0], id = after.length == 0 ? "~" : after[1];
         List<JsonNode> rows = data.read(jdbc -> jdbc
                 .sql(
                         "SELECT payload FROM conversations WHERE json_extract(payload,'$.updatedAt')<? OR (json_extract(payload,'$.updatedAt')=? AND id<?) ORDER BY json_extract(payload,'$.updatedAt') DESC,id DESC LIMIT ?")
@@ -254,7 +254,7 @@ public final class Questions {
     public synchronized Page turns(String conversation, int limit, String cursor) {
         String valid = conversation(conversation).path("id").asText();
         String[] after = cursor(cursor);
-        String time = after == null ? "" : after[0], id = after == null ? "" : after[1];
+        String time = after.length == 0 ? "" : after[0], id = after.length == 0 ? "" : after[1];
         List<JsonNode> rows = data.read(jdbc -> jdbc
                 .sql(
                         "SELECT payload FROM question_tasks WHERE conversation_id=? AND (json_extract(payload,'$.task.createdAt')>? OR (json_extract(payload,'$.task.createdAt')=? AND id>?)) ORDER BY json_extract(payload,'$.task.createdAt'),id LIMIT ?")
@@ -290,7 +290,7 @@ public final class Questions {
     }
 
     private String[] cursor(String cursor) {
-        if (cursor == null) return null;
+        if (cursor == null) return new String[0];
         try {
             JsonNode values = json.readTree(java.util.Base64.getUrlDecoder().decode(cursor));
             if (!values.isArray()

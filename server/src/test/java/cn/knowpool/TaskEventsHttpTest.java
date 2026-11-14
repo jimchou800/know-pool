@@ -186,7 +186,7 @@ class TaskEventsHttpTest {
                 KnowledgePoolApplication.class,
                 "--server.port=0",
                 "--know-pool.data-directory=" + directory,
-                "--logging.file.name=target/test-task-events-capacity.log")) {
+                "--logging.file.name=" + directory.resolve("events.log"))) {
             captureRoutes(app);
             String base = "http://127.0.0.1:" + app.getEnvironment().getProperty("local.server.port") + "/api/v1";
             var session = http.send(
@@ -322,6 +322,8 @@ class TaskEventsHttpTest {
             stub.stop(0);
             stubExecutor.shutdownNow();
         }
+        assertThat(Files.readString(directory.resolve("events.log")))
+                .doesNotContain("Failure in @ExceptionHandler", "No converter");
     }
 
     private HttpResponse<InputStream> open(String path, String cookie) throws Exception {

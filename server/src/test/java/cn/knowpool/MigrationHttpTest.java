@@ -155,10 +155,15 @@ class MigrationHttpTest {
             app = start(source);
             client = client(app);
             assertThat(app.getBean(ApplicationData.class).directory()).isEqualTo(target);
-            token = call(client, "POST", "/maintenance/migration/preflight", paths(target, third), null)
-                    .body()
-                    .path("token")
-                    .asText();
+            Reply restartedPreflight =
+                    call(client, "POST", "/maintenance/migration/preflight", paths(target, third), null);
+            assertThat(restartedPreflight.status())
+                    .as(restartedPreflight.body().toString())
+                    .isEqualTo(200);
+            assertThat(restartedPreflight.body().path("allowed").asBoolean())
+                    .as(restartedPreflight.body().toString())
+                    .isTrue();
+            token = restartedPreflight.body().path("token").asText();
             assertThat(await(client, submit(client, token)).at("/task/state").asText())
                     .isEqualTo("succeeded");
             app.close();
@@ -386,7 +391,7 @@ class MigrationHttpTest {
                 "/maintenance/migration",
                 "{\"preflightToken\":\"" + token + "\",\"confirmed\":true}",
                 null);
-        assertThat(response.status()).isEqualTo(202);
+        assertThat(response.status()).as(response.body().toString()).isEqualTo(202);
         return response.body().at("/task/id").asText();
     }
 

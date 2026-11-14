@@ -9,6 +9,10 @@ import {
 } from '../../test-fixtures/knowledge-bases';
 import { accepted, questionTask, answer } from '../../test-fixtures/answers';
 import { createAnswerClient } from './client';
+import {
+  questionVariants,
+  variantInput,
+} from '../../test-fixtures/answer-variants';
 const observations = [];
 const cleanup = {
   task: {
@@ -37,6 +41,43 @@ function observe(operationId, r) {
     response: r.observed.data,
   });
 }
+it('历史与同键追问恢复保留每轮部分范围、位置快照及中断信息', async () => {
+  const s = await setup(() => null),
+    api = createAnswerClient(s.client);
+  for (const value of questionVariants()) {
+    s.reply({
+      items: [{ id: otherId, questionTask: value }],
+      nextCursor: null,
+    });
+    expect((await api.turns(id)).items[0].questionTask).toEqual(value);
+    observe('listConversationTurns', s.requests.at(-1));
+    const { question, knowledgeBaseIds } = variantInput(value);
+    s.reply({ httpStatus: 202, body: value });
+    expect(
+      await api.submit(id, { question, knowledgeBaseIds }, otherId),
+    ).toEqual(value);
+    observe('submitQuestion', s.requests.at(-1));
+    const conversation = {
+      ...accepted.conversation,
+      activeTask: ['queued', 'running'].includes(value.task.state)
+        ? value.task
+        : null,
+      lastTask: value.task,
+    };
+    s.reply({ items: [conversation], nextCursor: null });
+    expect((await api.list()).items[0]).toEqual(conversation);
+    observe('listConversations', s.requests.at(-1));
+    s.reply(conversation);
+    expect(await api.getConversation(id)).toEqual(conversation);
+    observe('getConversation', s.requests.at(-1));
+    expect(await api.rename(id, conversation.name)).toEqual(conversation);
+    observe('renameConversation', s.requests.at(-1));
+    expect(await api.scope(id, conversation.knowledgeBaseIds)).toEqual(
+      conversation,
+    );
+    observe('updateConversationScope', s.requests.at(-1));
+  }
+});
 it('会话分页读取手名允许重名，范围保存为空不改写历史，追问复用显式原范围与同键', async () => {
   const s = await setup(() => null),
     api = createAnswerClient(s.client),

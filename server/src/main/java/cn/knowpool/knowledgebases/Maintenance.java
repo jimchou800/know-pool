@@ -147,7 +147,11 @@ public final class Maintenance {
                 || !token.allowed()
                 || !token.operation().equals("migration")) throw conflict("预检已过期、未通过或不属于当前会话，请重新预检。");
         List<String> reasons = pathReasons(token.source(), token.target(), true);
-        if (!token.source().equals(data.directory()) || !reasons.isEmpty()) throw conflict("目录状态已变化，请重新预检。");
+        if (!token.source().equals(data.directory()) || !reasons.isEmpty()) {
+            org.slf4j.LoggerFactory.getLogger(Maintenance.class)
+                    .warn("维护提交复核未通过，活动目录一致：{}；核查原因：{}", token.source().equals(data.directory()), reasons);
+            throw conflict("目录状态已变化，请重新预检。");
+        }
         return enqueue(
                 token.source(),
                 token.target(),
@@ -468,8 +472,9 @@ public final class Maintenance {
                     for (Entry entry : originals) {
                         if (stopping) throw new IOException("备份已停止。");
                         Path destination = inside(target.resolve("data"), entry.path());
-                        Files.createDirectories(destination.getParent());
-                        safePath(destination.getParent());
+                        Path parent = Objects.requireNonNull(destination.getParent(), "备份目标必须包含父目录。");
+                        Files.createDirectories(parent);
+                        safePath(parent);
                         copied.add(
                                 new Entry("data" + java.io.File.separator + entry.path(), entry.size(), entry.hash()));
                         stored.set("manifest", json.valueToTree(copied));
@@ -776,8 +781,9 @@ public final class Maintenance {
                             for (Entry entry : entries) {
                                 if (stopping) throw new IOException("维护已停止。");
                                 Path from = inside(copySource, entry.path()), to = inside(target, entry.path());
-                                Files.createDirectories(to.getParent());
-                                safePath(to.getParent());
+                                Path parent = Objects.requireNonNull(to.getParent(), "迁移目标必须包含父目录。");
+                                Files.createDirectories(parent);
+                                safePath(parent);
                                 if (Files.exists(to)) throw new IOException("目标文件已存在。");
                                 String temporaryName =
                                         "migration-copy-" + task.path("id").asText() + ".part";
@@ -1001,6 +1007,7 @@ public final class Maintenance {
 
     private List<String> pathReasons(Path source, Path target, boolean empty) {
         List<String> reasons = new ArrayList<>();
+        String stage = "路径安全";
         try {
             safePath(source);
             safePath(target);
@@ -1014,12 +1021,26 @@ public final class Maintenance {
                     if (items.findAny().isPresent()) reasons.add("目标目录必须为空或不存在。");
                 }
             if (!reasons.isEmpty()) return reasons;
+            stage = "目标写入权限";
             Path parent = target;
             while (parent != null && !Files.exists(parent)) parent = parent.getParent();
             if (parent == null || !Files.isWritable(parent)) reasons.add("目标目录不可写。");
+            stage = "源目录清单";
             long bytes = manifest(source).stream().mapToLong(Entry::size).sum();
+            stage = "剩余磁盘空间";
             if (parent != null && Files.getFileStore(parent).getUsableSpace() < bytes) reasons.add("目标磁盘剩余空间不足。");
         } catch (IOException | RuntimeException failure) {
+            Path failedName = failure instanceof FileSystemException pathFailure && pathFailure.getFile() != null
+                    ? Path.of(pathFailure.getFile()).getFileName()
+                    : null;
+            org.slf4j.LoggerFactory.getLogger(Maintenance.class)
+                    .warn(
+                            "维护路径核查失败，阶段：{}；异常类型：{}；临时数据库文件：{}",
+                            stage,
+                            failure.getClass().getSimpleName(),
+                            failedName != null
+                                    && Set.of("application.sqlite-wal", "application.sqlite-shm")
+                                            .contains(failedName.toString()));
             reasons.add("目录不可访问或包含不允许的链接。");
         }
         return reasons;
@@ -1065,7 +1086,7 @@ public final class Maintenance {
     private List<Entry> manifest(Path root) throws IOException {
         List<Entry> entries = new ArrayList<>();
         {
-            for (Path file : tree(root)) {
+            for (Path file : tree(root, true)) {
                 safePath(file);
                 if (Files.isDirectory(file)) continue;
                 String relative = root.relativize(file).toString();
@@ -1162,6 +1183,26 @@ public final class Maintenance {
     }
 
     private static List<Path> tree(Path root) throws IOException {
+        return tree(root, false);
+    }
+
+    private static boolean databaseTemporary(Path root, Path file) {
+        Path name = file.getFileName();
+        return root.equals(file.getParent())
+                && name != null
+                && Set.of("application.sqlite-wal", "application.sqlite-shm").contains(name.toString());
+    }
+
+    private static boolean disappearedDatabaseTemporary(Path root, Path file, IOException failure) {
+        return failure instanceof NoSuchFileException missing
+                && databaseTemporary(root, file)
+                && missing.getFile() != null
+                && file.toAbsolutePath()
+                        .normalize()
+                        .equals(Path.of(missing.getFile()).toAbsolutePath().normalize());
+    }
+
+    private static List<Path> tree(Path root, boolean excludeDatabaseTemporary) throws IOException {
         List<Path> paths = new ArrayList<>();
         Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
             @Override
@@ -1175,9 +1216,24 @@ public final class Maintenance {
             @Override
             public FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attributes)
                     throws IOException {
-                safePath(file);
+                try {
+                    safePath(file);
+                } catch (IOException failure) {
+                    if (excludeDatabaseTemporary && disappearedDatabaseTemporary(root, file, failure))
+                        return FileVisitResult.CONTINUE;
+                    throw failure;
+                }
+                // 临时数据库元数据不进入清单，仍须先通过链接及重解析路径检查。
+                if (excludeDatabaseTemporary && databaseTemporary(root, file)) return FileVisitResult.CONTINUE;
                 paths.add(file);
                 return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException failure) throws IOException {
+                if (excludeDatabaseTemporary && disappearedDatabaseTemporary(root, file, failure))
+                    return FileVisitResult.CONTINUE;
+                throw failure;
             }
         });
         return paths;

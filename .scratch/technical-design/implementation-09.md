@@ -26,6 +26,8 @@ CommonMark核心及表格扩展锁定0.32.0。早期依赖编译与解析探针�
 
 ## 历史设计归并
 
+`contract-09-draft.json` 是当时双审引用的历史草稿，保留原始字节供签认追溯，不再维护；现行唯一接口为 `docs/agents/api/openapi.yaml`。该草稿不构成第二个实现入口。
+
 2026-11-14 将 `preflight-09-backend.md`、`preflight-09-frontend.md`、`backend-09-design.md`、`frontend-09-design.md` 的有效信息归入本记录，清除独立临时设计文档。原文可通过 `git show 6e3454a:.scratch/technical-design/<原文件名>` 追溯；历史独立签认与机器证据保持原样。以下说明不替代正式规格或扩充验收结论。
 
 - 原双领域预检与设计分别由 `/root/backend08`、`/root/frontend08`、`/root/backend09`、`/root/frontend09` 提供，保留原文件名供历史签认定位；当时等待08、旧工作树及1.0.4摘要不再作为当前待办。最终技术语义以1.0.5唯一契约及09本人签认为准，纯文本续片兼容规则不能被较早前端提案覆盖。

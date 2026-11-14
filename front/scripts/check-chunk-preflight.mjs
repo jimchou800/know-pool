@@ -2,13 +2,34 @@ import assert from 'node:assert/strict';
 
 export async function checkChunkPreflight(page, tests) {
   const tasks = page.getByRole('region', { name: '处理任务', exact: true });
+  const refreshed = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      /^\/api\/v1\/knowledge-bases\/[^/]+\/tasks$/.test(
+        new URL(response.url()).pathname,
+      ),
+  );
   await tasks
     .getByRole('button', { name: '刷新处理任务', exact: true })
     .click();
-  const open = tasks
+  assert.equal((await refreshed).status(), 200);
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('button')].some(
+      (button) =>
+        button.textContent.trim() === '刷新处理任务' && !button.disabled,
+    ),
+  );
+  const first = tasks
     .getByRole('button', { name: '查看切片预检', exact: true })
     .first();
-  await open.waitFor();
+  await first.waitFor();
+  const originalTaskId = await first.evaluate(
+    (node) => node.closest('li').textContent.match(/任务：([^；\s]+)/)[1],
+  );
+  const open = tasks
+    .locator('.knowledge-files > li')
+    .filter({ hasText: `任务：${originalTaskId}；` })
+    .getByRole('button', { name: '查看切片预检', exact: true });
   await open.click();
   const report = tasks.getByRole('region', {
     name: '切片完整性预检',
@@ -37,6 +58,24 @@ export async function checkChunkPreflight(page, tests) {
   assert.equal(
     await open.evaluate((node) => document.activeElement === node),
     true,
+    JSON.stringify(
+      await open.evaluate((node) => ({
+        triggerTask: node
+          .closest('li')
+          ?.textContent.match(/任务：([^；\s]+)/)?.[1],
+        focusedTag: document.activeElement?.tagName,
+        focusedLabel: document.activeElement?.getAttribute('aria-label'),
+        focusedTask: document.activeElement
+          ?.closest('li')
+          ?.textContent.match(/任务：([^；\s]+)/)?.[1],
+        preflightButtons: [
+          ...document.querySelectorAll('.chunk-preflight > button'),
+        ].map((button) => ({
+          disabled: button.disabled,
+          focused: button === document.activeElement,
+        })),
+      })),
+    ),
   );
   const edit = page.getByRole('button', { name: '调整切片配置', exact: true });
   await edit.click();
@@ -44,7 +83,9 @@ export async function checkChunkPreflight(page, tests) {
     name: '编辑切片配置',
     exact: true,
   });
-  await editor.getByLabel('切片策略', { exact: true }).selectOption('fixed');
+  await editor
+    .getByRole('combobox', { name: /^切片策略/ })
+    .selectOption('fixed');
   await editor.getByLabel('目标重叠码点数', { exact: true }).fill('0');
   const acceptedPromise = page.waitForResponse(
     (response) =>
@@ -74,7 +115,12 @@ export async function checkChunkPreflight(page, tests) {
     const task = await response.json();
     return !['queued', 'running'].includes(task.state);
   });
-  assert.equal((await terminal.json()).state, 'succeeded');
+  const terminalTask = await terminal.json();
+  assert.equal(
+    terminalTask.state,
+    'succeeded',
+    JSON.stringify(terminalTask.failure),
+  );
   await page
     .getByRole('button', { name: '调整切片配置', exact: true })
     .waitFor({ state: 'visible' });

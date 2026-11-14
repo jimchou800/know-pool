@@ -81,7 +81,7 @@ export async function checkSettings(page, tests) {
     await form.getByLabel('基础地址').fill(values.endpoint);
     if (kind !== 'vector') await form.getByLabel('模型标识').fill(values.model);
     if (kind === 'generation') {
-      await form.getByLabel('上下文窗口词元数').fill('1024');
+      await form.getByLabel('上下文窗口词元数').fill('32768');
       await form.getByLabel('最大输出词元数').fill('16');
     }
     await form.getByLabel('密钥操作').selectOption(action);

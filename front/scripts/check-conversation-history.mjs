@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
 export async function checkConversationHistory(
@@ -99,10 +100,11 @@ export async function checkConversationHistory(
   await window()
     .getByRole('button', { name: '提交追问', exact: true })
     .waitFor({ state: 'visible' });
-  await page.waitForFunction(async (id) => {
-    const reply = await fetch(`/api/v1/question-tasks/${id}`);
-    return (await reply.json()).task.state === 'succeeded';
-  }, follow.task.id);
+  await expect.poll(async () => {
+    const reply = await http.get(`${root}/question-tasks/${follow.task.id}`);
+    assert.equal(reply.status(), 200);
+    return (await reply.json()).task.state;
+  }, { timeout: 30000 }).toBe('succeeded');
   const turns = await (
     await http.get(`${root}/conversations/${first}/turns?limit=20`)
   ).json();

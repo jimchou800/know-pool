@@ -21,4 +21,33 @@
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.search.SearchRequests"/><Field name="bases"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.search.SearchRequests"/><Field name="data"/></Match>
   <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.search.SearchRequests"/><Field name="json"/></Match>
+  <!-- 构造器注入的共享业务组件保留同一实例，按具体字段排除引用保存误报。 -->
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.api.DeletionController"/><Field name="deletions"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.api.MaintenanceController"/><Field name="maintenance"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.api.QuestionController"/><Field name="questions"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.api.RuntimeSettingsController"/><Field name="bases"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.api.TaskCancellationController"/><Field name="questions"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.api.TaskCancellationController"/><Field name="searches"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.datasets.api.FileController"/><Field name="files"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.infrastructure.RuntimeSettings"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.infrastructure.RuntimeSettings"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Deletions"/><Field name="bases"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Deletions"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Deletions"/><Field name="files"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Deletions"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Indexes"/><Field name="documentSources"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Indexes"/><Field name="files"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.KnowledgeBaseChecks"/><Field name="bases"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.KnowledgeBaseChecks"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.KnowledgeBaseChecks"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.KnowledgeBases"/><Field name="files"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Maintenance"/><Field name="bases"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Maintenance"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.knowledgebases.Maintenance"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.questions.Questions"/><Field name="data"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.questions.Questions"/><Field name="files"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.questions.Questions"/><Field name="json"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.questions.Questions"/><Field name="searches"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.search.api.SearchController"/><Field name="searches"/></Match>
+  <Match><Bug pattern="EI_EXPOSE_REP2"/><Class name="cn.knowpool.system.Generations"/><Field name="json"/></Match>
 </FindBugsFilter>

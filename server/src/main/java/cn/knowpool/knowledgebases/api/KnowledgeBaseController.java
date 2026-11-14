@@ -138,7 +138,7 @@ public final class KnowledgeBaseController {
         return service.tasks(identifier(knowledgeBaseId), limit(request), request.getParameter("cursor"));
     }
 
-    @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/index-switches")
+    @GetMapping("/api/v1/knowledge-bases/{knowledgeBaseId}/switches")
     public KnowledgeBases.Page switches(@PathVariable String knowledgeBaseId, HttpServletRequest request) {
         return service.switches(identifier(knowledgeBaseId), limit(request), request.getParameter("cursor"));
     }

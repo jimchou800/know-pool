@@ -108,7 +108,8 @@ public final class RuntimeSettings {
 
     public JsonNode update(JsonNode input, Runnable inputChanged) {
         validate(input);
-        ObjectNode next = ((ObjectNode) input).deepCopy();
+        if (!(input instanceof ObjectNode object)) throw ApiFailure.invalid("body", "运行参数须为完整对象。");
+        ObjectNode next = object.deepCopy();
         synchronized (data) {
             data.write(jdbc -> {
                 if (get().path("chunkHardLimitCodePoints").asLong()
@@ -298,20 +299,25 @@ public final class RuntimeSettings {
                         instanceof ch.qos.logback.core.rolling.SizeAndTimeBasedFileNamingAndTriggeringPolicy<?> trigger)
                     trigger.setMaxFileSize(new ch.qos.logback.core.util.FileSize(
                             value.path("logMaxFileBytes").asLong()));
-                if (appender.getFile() != null) {
+                String activeFile = appender.getFile();
+                if (activeFile != null) {
                     java.nio.file.Path
-                            active = java.nio.file.Path.of(appender.getFile()).toAbsolutePath(),
+                            active = java.nio.file.Path.of(activeFile).toAbsolutePath(),
                             directory = active.getParent();
-                    String prefix = active.getFileName().toString();
+                    java.nio.file.Path activeName = active.getFileName();
+                    if (directory == null || activeName == null) continue;
+                    String prefix = activeName.toString();
                     if (java.nio.file.Files.isDirectory(directory))
                         try (var entries = java.nio.file.Files.list(directory)) {
-                            var archives = entries.filter(file -> !file.equals(active)
-                                            && !java.nio.file.Files.isSymbolicLink(file)
-                                            && java.nio.file.Files.isRegularFile(file)
-                                            && (file.getFileName().toString().startsWith(prefix + ".")
-                                                    || file.getFileName()
-                                                            .toString()
-                                                            .startsWith(prefix + "-")))
+                            var archives = entries.filter(file -> {
+                                        java.nio.file.Path name = file.getFileName();
+                                        return name != null
+                                                && !file.equals(active)
+                                                && !java.nio.file.Files.isSymbolicLink(file)
+                                                && java.nio.file.Files.isRegularFile(file)
+                                                && (name.toString().startsWith(prefix + ".")
+                                                        || name.toString().startsWith(prefix + "-"));
+                                    })
                                     .sorted(java.util.Comparator.comparingLong((java.nio.file.Path file) ->
                                                     file.toFile().lastModified())
                                             .reversed())
