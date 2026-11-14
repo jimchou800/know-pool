@@ -57,6 +57,7 @@ export async function checkGroundedAnswer(
       JSON.stringify({
         id: 'fixed-question',
         object: 'chat.completion',
+        created: 1,
         model: body.model,
         choices: [
           {

@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,6 +32,12 @@ class MaintenanceCoverageTest {
 
     @TempDir
     Path temporary;
+
+    @BeforeEach
+    void canonicalizeTemporaryDirectory() throws Exception {
+        // 持续集成的临时目录可能使用短文件名，夹具须与应用保存的真实路径一致。
+        temporary = temporary.toRealPath();
+    }
 
     @Test
     @DisplayName("维护请求拒绝错误字段、危险路径和跨会话凭证且不改变活动目录")

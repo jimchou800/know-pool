@@ -30,6 +30,12 @@ class MigrationHttpTest {
     @TempDir
     Path temporary;
 
+    @BeforeEach
+    void canonicalizeTemporaryDirectory() throws Exception {
+        // 持续集成的临时目录可能使用短文件名，夹具须与应用保存的真实路径一致。
+        temporary = temporary.toRealPath();
+    }
+
     @Test
     @DisplayName("迁移暂停、失败恢复、清旧失败保新及固定入口多次切换")
     void migrationPathsSwitchRestartAndResidueStaySafe() throws Exception {
@@ -81,10 +87,12 @@ class MigrationHttpTest {
             assertThat(call(client, "POST", "/maintenance/migration/preflight", paths(third, target), null)
                             .status())
                     .isEqualTo(409);
-            String token = call(client, "POST", "/maintenance/migration/preflight", paths(source, target), null)
-                    .body()
-                    .path("token")
-                    .asText();
+            Reply preflight = call(client, "POST", "/maintenance/migration/preflight", paths(source, target), null);
+            assertThat(preflight.status()).as(preflight.body().toString()).isEqualTo(200);
+            assertThat(preflight.body().path("allowed").asBoolean())
+                    .as(preflight.body().toString())
+                    .isTrue();
+            String token = preflight.body().path("token").asText();
             String failed;
             try (var lease = data.gate().enter()) {
                 assertThat(lease).isNotNull();
@@ -250,15 +258,14 @@ class MigrationHttpTest {
                     .body()
                     .path("token")
                     .asText();
-            String backupId = call(
-                            client,
-                            "POST",
-                            "/maintenance/backup",
-                            "{\"preflightToken\":\"" + token + "\",\"confirmed\":true}",
-                            null)
-                    .body()
-                    .at("/task/id")
-                    .asText();
+            Reply submitted = call(
+                    client,
+                    "POST",
+                    "/maintenance/backup",
+                    "{\"preflightToken\":\"" + token + "\",\"confirmed\":true}",
+                    null);
+            assertThat(submitted.status()).as(submitted.body().toString()).isEqualTo(202);
+            String backupId = submitted.body().at("/task/id").asText();
             JsonNode backed = await(client, backupId);
             assertThat(backed.at("/task/state").asText()).isEqualTo("succeeded");
             assertThat(backed.path("configurationSwitched").asBoolean()).isFalse();
@@ -397,8 +404,9 @@ class MigrationHttpTest {
 
     private JsonNode await(Client client, String id) throws Exception {
         for (int attempt = 0; attempt < 200; attempt++) {
-            JsonNode result =
-                    call(client, "GET", "/maintenance/tasks/" + id, null, null).body();
+            Reply response = call(client, "GET", "/maintenance/tasks/" + id, null, null);
+            assertThat(response.status()).as(response.body().toString()).isEqualTo(200);
+            JsonNode result = response.body();
             if (Set.of("succeeded", "failed", "interrupted")
                     .contains(result.at("/task/state").asText())) return result;
             Thread.sleep(25);

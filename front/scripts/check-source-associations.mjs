@@ -17,6 +17,7 @@ export async function checkSourceAssociations(
     { headers, data: { type: 'dataset', resourceId: fixtureDatasetId } },
   );
   assert.equal(datasetSourceReply.status(), 201);
+  const datasetSource = await datasetSourceReply.json();
   const name = '多来源同步固定资料.txt';
   const upload = await http.post(
     `${base}/api/v1/datasets/${fixtureDatasetId}/files:upload`,
@@ -70,13 +71,24 @@ export async function checkSourceAssociations(
     name: '关联来源',
     exact: true,
   });
+  const removeSource = async (sourceRow, sourceId) => {
+    const response = page.waitForResponse(
+      (reply) =>
+        reply.request().method() === 'DELETE' &&
+        new URL(reply.url()).pathname ===
+          `/api/v1/knowledge-bases/${knowledgeBaseId}/sources/${sourceId}`,
+    );
+    await sourceRow
+      .getByRole('button', { name: '确认撤销此来源', exact: true })
+      .click();
+    assert.equal((await response).status(), 204);
+    await sourceRow.waitFor({ state: 'detached' });
+  };
   const sourceRow = sourceRegion.locator('li').filter({ hasText: name });
   await sourceRow
     .getByRole('button', { name: '撤销此来源', exact: true })
     .click();
-  await sourceRow
-    .getByRole('button', { name: '确认撤销此来源', exact: true })
-    .click();
+  await removeSource(sourceRow, explicit.id);
   await row().getByRole('button', { name: '取消排除', exact: true }).waitFor();
   const retained = await list();
   assert.equal(retained.sources.length, 1);
@@ -135,9 +147,7 @@ export async function checkSourceAssociations(
   await datasetSourceRow
     .getByRole('button', { name: '撤销此来源', exact: true })
     .click();
-  await datasetSourceRow
-    .getByRole('button', { name: '确认撤销此来源', exact: true })
-    .click();
+  await removeSource(datasetSourceRow, datasetSource.id);
   await row().getByRole('button', { name: '取消排除', exact: true }).waitFor();
   const excludedWithoutSource = await list();
   assert.deepEqual(excludedWithoutSource.sources, []);

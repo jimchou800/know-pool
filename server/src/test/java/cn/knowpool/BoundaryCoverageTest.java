@@ -516,9 +516,10 @@ class BoundaryCoverageTest {
     @Test
     @DisplayName("PDF隔离提取拒绝损坏空白加密与超限内容并清理临时文件")
     void rejectUnsafePdfExtraction(@TempDir Path directory) throws Exception {
+        Path canonicalDirectory = directory.toRealPath();
         var limits = new UploadConfiguration.Limits(1000000, 1000000, 1, 10, 1000);
-        Path extraction = directory.resolve("extraction");
-        Path occupied = directory.resolve("occupied");
+        Path extraction = canonicalDirectory.resolve("extraction");
+        Path occupied = canonicalDirectory.resolve("occupied");
         Files.writeString(occupied, "普通文件不能作为解析目录");
         assertThrows(java.io.IOException.class, () -> PdfExtractionWorker.extract(new byte[] {1}, occupied, limits));
         assertThat(Files.readString(occupied)).isEqualTo("普通文件不能作为解析目录");
@@ -533,14 +534,14 @@ class BoundaryCoverageTest {
         ApiFailure blank = assertThrows(
                 ApiFailure.class, () -> PdfExtractionWorker.extract(bytes.toByteArray(), extraction, limits));
         assertThat(blank.code()).isEqualTo("PARSING_FAILED");
-        Path encrypted = directory.resolve("encrypted.pdf");
+        Path encrypted = canonicalDirectory.resolve("encrypted.pdf");
         try (PDDocument document = new PDDocument()) {
             document.addPage(new PDPage());
             document.protect(new org.apache.pdfbox.pdmodel.encryption.StandardProtectionPolicy(
                     "所有者密码", "", new org.apache.pdfbox.pdmodel.encryption.AccessPermission()));
             document.save(encrypted.toFile());
         }
-        assertThat(PdfExtractionWorker.run(pdfArgs(encrypted, directory.resolve("encrypted.bin"), "1000")))
+        assertThat(PdfExtractionWorker.run(pdfArgs(encrypted, canonicalDirectory.resolve("encrypted.bin"), "1000")))
                 .isEqualTo(2);
         try (var files = Files.list(extraction)) {
             assertThat(files).isEmpty();

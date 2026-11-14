@@ -51,7 +51,9 @@ async function selfCheck() {
     assert.deepEqual(query.body.result.points.map((item) => item.id), ['allowed']);
     assert.equal((await send('POST', '/v1/embeddings', { model: '固定嵌入', input: ['甲', '乙'] })).body.data.length, 2);
     const messages = [{ role: 'system', content: '任务是根据本次原文作答' }, { role: 'user', content: JSON.stringify({ evidence: [{ id: 'actual', text: '实际候选原文' }], reference: '不可使用的参考答案' }) }];
-    const answer = JSON.parse((await send('POST', '/v1/chat/completions', { model: '固定生成', messages })).body.choices[0].message.content);
+    const completion = (await send('POST', '/v1/chat/completions', { model: '固定生成', messages })).body;
+    assert.ok(Number.isSafeInteger(completion.created));
+    const answer = JSON.parse(completion.choices[0].message.content);
     assert.ok(answer.text.includes('实际候选原文'));
     assert.ok(!answer.text.includes('不可使用的参考答案'));
     assert.deepEqual(answer.citationEvidenceIds, ['actual']);
@@ -89,7 +91,7 @@ export function createMockModel(modelCalls) {
           const evidence = context.evidence;
           answer = { outcome: 'answered', text: evidence.map((item) => `原文记载：${item.text}【${item.id}】`).join('\n'), citationEvidenceIds: evidence.map((item) => item.id), uncoveredQuestions: [], contradictions: [] };
         }
-        result = { id: 'fixed-evaluation', object: 'chat.completion', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(answer) }, finish_reason: 'stop' }], usage: { prompt_tokens: 16, completion_tokens: 16, total_tokens: 32 } };
+        result = { id: 'fixed-evaluation', object: 'chat.completion', created: 1, model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(answer) }, finish_reason: 'stop' }], usage: { prompt_tokens: 16, completion_tokens: 16, total_tokens: 32 } };
       } else {
         const match = /^\/collections\/(kp_[a-f0-9]{32})(?:\/points(\/query)?)?$/.exec(path);
         assert.ok(match, '向量替身收到未知路径');
