@@ -35,6 +35,7 @@ export async function checkPublication(
   };
   const open = async (id) => {
     await page.goto(`${base}/#/knowledge-bases/${id}`);
+    await page.reload();
     await page
       .getByRole('region', { name: '发布与可用性管理', exact: true })
       .waitFor();
