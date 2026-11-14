@@ -25,12 +25,17 @@ export async function checkConfigurationRebuild(
   };
   const waitTask = async (id) => {
     let task;
-    await expect.poll(async () => {
-      const reply = await http.get(`${root}/tasks/${id}`);
-      assert.equal(reply.status(), 200);
-      task = await reply.json();
-      return ['queued', 'running'].includes(task.state);
-    }, { timeout: 30000 }).toBe(false);
+    await expect
+      .poll(
+        async () => {
+          const reply = await http.get(`${root}/tasks/${id}`);
+          assert.equal(reply.status(), 200);
+          task = await reply.json();
+          return ['queued', 'running'].includes(task.state);
+        },
+        { timeout: 30000 },
+      )
+      .toBe(false);
     return task;
   };
   const publish = await http.post(`${path}/publish`, { headers });

@@ -78,11 +78,16 @@ export async function checkIndexRecovery(
   } finally {
     releaseEmbedding();
   }
-  await expect.poll(async () => {
-    const reply = await http.get(`${root}/tasks/${retryTask}`);
-    assert.equal(reply.status(), 200);
-    return (await reply.json()).state;
-  }, { timeout: 30000 }).toBe('succeeded');
+  await expect
+    .poll(
+      async () => {
+        const reply = await http.get(`${root}/tasks/${retryTask}`);
+        assert.equal(reply.status(), 200);
+        return (await reply.json()).state;
+      },
+      { timeout: 30000 },
+    )
+    .toBe('succeeded');
   assert.equal(
     (await (await http.get(`${root}/tasks/${retryTask}`)).json()).state,
     'succeeded',

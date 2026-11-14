@@ -100,11 +100,18 @@ export async function checkConversationHistory(
   await window()
     .getByRole('button', { name: '提交追问', exact: true })
     .waitFor({ state: 'visible' });
-  await expect.poll(async () => {
-    const reply = await http.get(`${root}/question-tasks/${follow.task.id}`);
-    assert.equal(reply.status(), 200);
-    return (await reply.json()).task.state;
-  }, { timeout: 30000 }).toBe('succeeded');
+  await expect
+    .poll(
+      async () => {
+        const reply = await http.get(
+          `${root}/question-tasks/${follow.task.id}`,
+        );
+        assert.equal(reply.status(), 200);
+        return (await reply.json()).task.state;
+      },
+      { timeout: 30000 },
+    )
+    .toBe('succeeded');
   const turns = await (
     await http.get(`${root}/conversations/${first}/turns?limit=20`)
   ).json();
