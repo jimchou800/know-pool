@@ -57,11 +57,11 @@ public final class ApplicationData implements AutoCloseable {
                 "jdbc:sqlite:" + directory.resolve("application.sqlite") + "?foreign_keys=on&busy_timeout="+busyTimeout);
         try {
             JdbcClient jdbc = JdbcClient.create(dataSource);
-            jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             int version = jdbc.sql("PRAGMA user_version").query(Integer.class).single();
             if (version > 17) {
                 throw new IOException("数据表版本高于当前应用，已停止业务写入。");
             }
+            jdbc.sql("PRAGMA journal_mode=WAL").query(String.class).single();
             if (version > 0 && version < 17) {
                 Path backups = directory.resolve("schema-backups");
                 Files.createDirectories(backups);
@@ -69,6 +69,8 @@ public final class ApplicationData implements AutoCloseable {
                 jdbc.sql("VACUUM INTO '" + backup.toString().replace("'", "''") + "'")
                         .update();
             }
+            // 全部升级共用外层事务，后续版本失败不能留下已提交的中间结构。
+            write(upgrade -> {
             if (version < 3) {
                 write(transaction -> {
                     if (version < 2) {
@@ -286,6 +288,8 @@ public final class ApplicationData implements AutoCloseable {
                     transaction.sql("PRAGMA user_version=17").update();return null;
                 });
             }
+            return null;
+            });
         } catch (RuntimeException | IOException failure) {
             close();
             throw new IOException("数据目录初始化失败，已停止业务写入。", failure);
