@@ -22,6 +22,10 @@ observations = json.load(sys.stdin)
 profile = sys.argv[2] if len(sys.argv) > 2 else 'settings'
 tests = []
 INDEXING_CHECKS = {
+    'archiveSafety': ({'backupRestoreSnapshotAndMaintenanceFactsStaySafe'}, {'backupPreflight','submitBackup','restorePreflight','submitRestore','getMaintenanceTask','retryMaintenanceTask'},
+        '#/x-business-constraints/maintenance', '固定资料通过SQLite一致性备份和清单校验后恢复快照，目标不能递归源，损坏备份预检拒绝；切换保留当前维护及幂等事实、取消状态和原备份，恢复前目录保留供核查。'),
+    'restoreCost': ({'backupRestoreSnapshotAndMaintenanceFactsStaySafe'}, {'submitRestore','getMaintenanceTask','retryMaintenanceTask'},
+        '#/x-business-constraints/cost', '恢复固定无向量资料不调用模型，恢复快照的取消状态保持，维护幂等重放不重新复制；缺索引重建的更多费用路径留统一验证，不能由本场景推断。'),
     'migrationSafety': ({'migrationPathsSwitchRestartAndResidueStaySafe'}, {'migrationPreflight','submitMigration','getMaintenanceTask','retryMaintenanceTask'},
         '#/x-business-constraints/maintenance', '固定本机资料及模拟向量服务验证路径边界、暂停排空、切换前失败保留旧目录及显式恢复、切换后清理失败保新与仅清残留、固定入口跨重启多次切换；向量仅访问集合核查接口，不搬迁原生数据。'),
     'deletionPublication': ({'deletionPropagationLeasesAndCleanupRetryStaySafe'}, {'deleteFile','deleteDataset','deleteKnowledgeBase'},
@@ -352,8 +356,8 @@ if profile in ('indexing', 'indexing-events', 'indexing-gaps'):
 
 
 if profile == 'maintenance':
-    selected_operations = {'migrationPreflight','submitMigration','getMaintenanceTask','retryMaintenanceTask'}
-    BEHAVIORS = {'migrationPathsSwitchRestartAndResidueStaySafe': ('迁移安全边界与固定入口恢复的代表性真实接口场景；复杂中断和外发并发矩阵留统一验证。', selected_operations)}
+    selected_operations = {'migrationPreflight','submitMigration','backupPreflight','submitBackup','restorePreflight','submitRestore','getMaintenanceTask','retryMaintenanceTask'}
+    BEHAVIORS = {'backupRestoreSnapshotAndMaintenanceFactsStaySafe': ('备份与恢复快照及维护事实保留的代表性真实接口场景；索引缺失和更完整故障矩阵留统一验证。', selected_operations), 'migrationPathsSwitchRestartAndResidueStaySafe': ('迁移安全边界与固定入口恢复的代表性真实接口场景；复杂中断和外发并发矩阵留统一验证。', selected_operations)}
 
 for index, item in enumerate(observations):
     path = item['path'].split('?', 1)[0].removeprefix('/api/v1')

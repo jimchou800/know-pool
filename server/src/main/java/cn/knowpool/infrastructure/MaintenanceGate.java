@@ -6,6 +6,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public final class MaintenanceGate {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     private volatile boolean paused;
+    private volatile long generation;
+    public void invalidateQueuedActivities() { generation++; }
     public boolean paused() { return paused; }
     public synchronized boolean pause() { if (paused) return false; paused=true; return true; }
     public void resume() { paused=false; }
@@ -17,7 +19,9 @@ public final class MaintenanceGate {
         return () -> lock.readLock().unlock();
     }
     public Lease exclusive() { lock.writeLock().lock();return () -> lock.writeLock().unlock(); }
-    public Runnable activity(Runnable action) {
+    public Runnable activity(Runnable action) { return activity(action,() -> {}); }
+    public Runnable activity(Runnable action,Runnable discarded) {
+        long acceptedGeneration=generation;
         return () -> {
             while (true) {
                 lock.readLock().lock();
@@ -26,7 +30,7 @@ public final class MaintenanceGate {
                 if (Thread.currentThread().isInterrupted()) return;
                 java.util.concurrent.locks.LockSupport.parkNanos(25_000_000);
             }
-            try { action.run(); } finally { lock.readLock().unlock(); }
+            try { if (acceptedGeneration==generation) action.run();else discarded.run(); } finally { lock.readLock().unlock(); }
         };
     }
     public interface Lease extends AutoCloseable { @Override void close(); }

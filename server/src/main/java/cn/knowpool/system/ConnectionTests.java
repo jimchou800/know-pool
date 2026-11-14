@@ -120,7 +120,7 @@ public final class ConnectionTests {
                 if (!accepted) capacity.release();
             }
         });
-        if (pending.snapshot() != null) executor.execute(data.gate().activity(() -> run(pending)));
+        if (pending.snapshot() != null) executor.execute(data.gate().activity(() -> run(pending),capacity::release));
         return pending.task();
     }
 

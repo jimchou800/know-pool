@@ -80,6 +80,18 @@ public final class SearchRequests {
         });
     }
 
+    public synchronized void restoreState() {
+        requests.clear();keys.clear();inputs.clear();instances.clear();selected.clear();scopeProgress.clear();running.clear();
+        data.read(jdbc -> {
+            for (String payload:jdbc.sql("SELECT payload FROM search_instances ORDER BY id").query(String.class).list()) {
+                ObjectNode instance=(ObjectNode)json.readTree(payload);
+                instance.putNull("currentRequestId").put("resultState",instance.path("lastSubmittedQuery").isNull()?"never_submitted":"rerun_required");
+                instances.put(instance.path("id").asText(),instance);
+            }
+            return null;
+        });
+    }
+
     public synchronized JsonNode createInstance() {
         String now=Instant.now().toString(), id=UUID.randomUUID().toString();
         ObjectNode instance=json.createObjectNode().put("id",id).put("name","新检索").put("manuallyNamed",false)
@@ -221,7 +233,7 @@ public final class SearchRequests {
                 worker.execute(data.gate().activity(() -> { try { run(id,kb,input.path("query").asText()); } finally {
                     synchronized (this) { running.remove(id); }
                     Thread.interrupted(); capacity.release();
-                } }));
+                } },capacity::release));
             } catch (java.util.concurrent.RejectedExecutionException failure) {
                 task.put("state","interrupted").put("phase","completed").put("finishedAt",Instant.now().toString());
                 task.set("failure",json.createObjectNode().put("code","TASK_INTERRUPTED").put("message","检索执行器已停止，可能已产生费用，请手动重试。").put("retryable",false));
@@ -384,7 +396,7 @@ public final class SearchRequests {
     public void releaseQuestion() { capacity.release(); }
 
     public void executeQuestion(Runnable action) {
-        worker.execute(data.gate().activity(() -> { try { action.run(); } finally { Thread.interrupted();capacity.release(); } }));
+        worker.execute(data.gate().activity(() -> { try { action.run(); } finally { Thread.interrupted();capacity.release(); } },capacity::release));
     }
 
     public Grounding beginGrounding(List<String> selectedIds) {

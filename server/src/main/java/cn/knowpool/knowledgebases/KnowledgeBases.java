@@ -3,6 +3,7 @@ package cn.knowpool.knowledgebases;
 import cn.knowpool.datasets.FileService;
 import cn.knowpool.infrastructure.ApiFailure;
 import cn.knowpool.infrastructure.ApplicationData;
+import cn.knowpool.infrastructure.TaskEvents;
 import cn.knowpool.system.ConnectionTests;
 import cn.knowpool.system.ModelSettingsService;
 import jakarta.annotation.PreDestroy;
@@ -171,7 +172,7 @@ public final class KnowledgeBases {
                 } finally {
                     capacity.release();
                 }
-            }));
+            },capacity::release));
         }
         return new ConnectionTests.Accepted(pending.task());
     }
@@ -340,7 +341,7 @@ public final class KnowledgeBases {
                 } finally {
                     capacity.release();
                 }
-            }));
+            },capacity::release));
         }
     }
 
@@ -379,6 +380,28 @@ public final class KnowledgeBases {
         jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?")
                 .params(json.writeValueAsString(value), id)
                 .update();
+    }
+
+    public void restoreIndexFailures() {
+        data.write(jdbc -> {
+            for (String kb:jdbc.sql("SELECT id FROM knowledge_bases WHERE visible=1").query(String.class).list()) {
+                ObjectNode base=(ObjectNode)get(jdbc,kb);String config=base.path("targetConfigVersionId").asText();
+                for (String file:includedFiles(kb)) {
+                    FileService.SourceFile source;
+                    try { source=files.sourceFiles(jdbc,"file",file).getFirst(); } catch (ApiFailure missing) { if (missing.status()!=404) throw missing;continue; }
+                    if (excluded(jdbc,kb,file) || !hasSource(jdbc,kb,source)) continue;
+                    JsonNode previous=jdbc.sql("SELECT t.payload FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.file_id=?").params(kb,file).query(String.class).optional().map(json::readTree).orElse(null);
+                    if (previous!=null && previous.path("state").asText().equals("cancelled")) continue;
+                    String id=UUID.randomUUID().toString(),now=Instant.now().toString();
+                    ConnectionTests.Task task=new ConnectionTests.Task(id,"index_file","failed","completed",now,null,now,kb,file,source.contentVersionId(),config,null,0,0,null,new ConnectionTests.Failure("INDEX_REBUILD_REQUIRED","恢复后的向量引用未通过核查，请显式重试重建；可能产生嵌入费用。",true),List.of("恢复不会自动调用嵌入服务；显式重试才重建索引。"),null);
+                    jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'index_file','failed',?,'internal','restore_index_check',?,'')").params(id,json.writeValueAsString(task),id).update();TaskEvents.record(jdbc,json,json.valueToTree(task));
+                    jdbc.sql("INSERT INTO knowledge_base_files VALUES(?,?,?,?,?) ON CONFLICT(knowledge_base_id,file_id) DO UPDATE SET content_version_id=excluded.content_version_id,config_version_id=excluded.config_version_id,task_id=excluded.task_id").params(kb,file,source.contentVersionId(),config,id).update();
+                }
+                jdbc.sql("DELETE FROM effective_files WHERE knowledge_base_id=?").param(kb).update();jdbc.sql("DELETE FROM staged_indexes WHERE knowledge_base_id=?").param(kb).update();
+                base.put("availability","unavailable").put("availabilityReason","恢复后索引尚未通过核查，请显式重建；可能产生嵌入费用。");jdbc.sql("UPDATE knowledge_bases SET payload=? WHERE id=?").params(json.writeValueAsString(base),kb).update();updateCounts(jdbc,kb);
+            }
+            return null;
+        });
     }
 
     public JsonNode config(String id) {

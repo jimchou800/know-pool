@@ -23,6 +23,7 @@ class MigrationHttpTest {
     private static final List<Map<String,String>> ROUTES=new ArrayList<>();
     private static boolean passed;
     private boolean recording;
+    private String behavior="migrationPathsSwitchRestartAndResidueStaySafe";
     private final HttpClient http=HttpClient.newHttpClient();
     @TempDir Path temporary;
 
@@ -80,6 +81,43 @@ class MigrationHttpTest {
         } finally { recording=false;release.countDown();app.close();vector.stop(0); }
     }
 
+    @Test @DisplayName("一致性备份恢复快照且保留当前维护幂等和取消事实")
+    void backupRestoreSnapshotAndMaintenanceFactsStaySafe() throws Exception {
+        recording=true;behavior="backupRestoreSnapshotAndMaintenanceFactsStaySafe";
+        Path source=temporary.resolve("archive-source").toAbsolutePath(),backup=temporary.resolve("archive").toAbsolutePath();
+        Files.createDirectories(source.resolve("files"));Files.writeString(source.resolve("files/fixture.txt"),"快照原文。");
+        ConfigurableApplicationContext app=start(source);
+        try {
+            Client client=client(app);ApplicationData data=app.getBean(ApplicationData.class);
+            Reply dataset=call(client,"POST","/datasets","{\"name\":\"快照数据集\",\"description\":\"原描述\"}",null);
+            assertThat(dataset.status()).isEqualTo(201);String datasetId=dataset.body().path("id").asText();
+            String cancelled=UUID.randomUUID().toString(),now=java.time.Instant.now().toString();
+            var task=JSON.createObjectNode().put("id",cancelled).put("kind","index_file").put("state","cancelled").put("phase","completed").put("createdAt",now).put("finishedAt",now).put("attempt",0).put("progressCompleted",0);
+            for (String field:List.of("startedAt","knowledgeBaseId","fileId","targetContentVersionId","targetConfigVersionId","retryOfTaskId","progressTotal","failure","resultResourceId")) task.putNull(field);task.set("warnings",JSON.createArrayNode());
+            data.write(jdbc -> { jdbc.sql("INSERT INTO tasks(id,kind,state,payload,session_id,operation,idempotency_key,request_fingerprint) VALUES(?,'index_file','cancelled',?,'internal','archive_fixture',?,'')").params(cancelled,JSON.writeValueAsString(task),cancelled).update();return null; });
+            assertThat(call(client,"POST","/maintenance/backup/preflight",JSON.writeValueAsString(Map.of("targetPath",source.resolve("recursive").toString())),null).body().path("allowed").asBoolean()).isFalse();
+            String token=call(client,"POST","/maintenance/backup/preflight",JSON.writeValueAsString(Map.of("targetPath",backup.toString())),null).body().path("token").asText();
+            String backupId=call(client,"POST","/maintenance/backup","{\"preflightToken\":\""+token+"\",\"confirmed\":true}",null).body().at("/task/id").asText();
+            JsonNode backed=await(client,backupId);assertThat(backed.at("/task/state").asText()).isEqualTo("succeeded");assertThat(backed.path("configurationSwitched").asBoolean()).isFalse();
+            byte[] originalManifest=Files.readAllBytes(backup.resolve("manifest.json"));byte[] originalDatabase=Files.readAllBytes(backup.resolve("data/application.sqlite"));
+            Files.writeString(source.resolve("files/fixture.txt"),"备份之后变化。");
+            assertThat(call(client,"PATCH","/datasets/"+datasetId,"{\"name\":\"快照数据集\",\"description\":\"新描述\"}",null).status()).isEqualTo(200);
+            Path invalid=temporary.resolve("invalid-archive");Files.createDirectories(invalid);Files.writeString(invalid.resolve("manifest.json"),"{}");
+            assertThat(call(client,"POST","/maintenance/restore/preflight",JSON.writeValueAsString(Map.of("backupPath",invalid.toString())),null).body().path("allowed").asBoolean()).isFalse();
+            token=call(client,"POST","/maintenance/restore/preflight",JSON.writeValueAsString(Map.of("backupPath",backup.toString())),null).body().path("token").asText();
+            String body="{\"preflightToken\":\""+token+"\",\"confirmed\":true,\"acknowledgePlaintextCredentials\":true,\"acknowledgeIndexRebuildCost\":true}",key=UUID.randomUUID().toString();
+            Reply accepted=call(client,"POST","/maintenance/restore",body,key);assertThat(accepted.status()).isEqualTo(202);String restoreId=accepted.body().at("/task/id").asText();
+            JsonNode restored=await(client,restoreId);assertThat(restored.at("/task/state").asText()).isEqualTo("succeeded");assertThat(restored.path("configurationSwitched").asBoolean()).isTrue();assertThat(restored.path("oldDirectoryResidue").asBoolean()).isFalse();
+            assertThat(data.directory()).isNotEqualTo(source);assertThat(Files.readString(data.directory().resolve("files/fixture.txt"))).isEqualTo("快照原文。");
+            assertThat(Files.readString(source.resolve("files/fixture.txt"))).isEqualTo("备份之后变化。");
+            assertThat(call(client,"GET","/datasets/"+datasetId,null,null).body().path("description").asText()).isEqualTo("原描述");
+            assertThat(call(client,"POST","/maintenance/restore",body,key).body().at("/task/id").asText()).isEqualTo(restoreId);
+            assertThat(data.read(jdbc -> jdbc.sql("SELECT state FROM tasks WHERE id=?").param(cancelled).query(String.class).single())).isEqualTo("cancelled");
+            assertThat(Files.readAllBytes(backup.resolve("manifest.json"))).isEqualTo(originalManifest);assertThat(Files.readAllBytes(backup.resolve("data/application.sqlite"))).isEqualTo(originalDatabase);
+            app.close();app=start(source);client=client(app);assertThat(call(client,"GET","/maintenance/tasks/"+restoreId,null,null).body().at("/task/state").asText()).isEqualTo("succeeded");passed=true;
+        } finally { recording=false;app.close(); }
+    }
+
     @Test @DisplayName("支持目录链接时预检拒绝祖先链接")
     void rejectsDirectoryLinksWhenAvailable() throws Exception {
         Path source=temporary.resolve("link-source"),outside=temporary.resolve("outside"),link=temporary.resolve("link");Files.createDirectories(outside);
@@ -111,7 +149,7 @@ class MigrationHttpTest {
         if (body!=null) request.header("Content-Type","application/json");
         var response=http.send(request.method(method,body==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
         JsonNode value=JSON.readTree(response.body());
-        if (recording && path.startsWith("/maintenance/")) { Map<String,Object> item=new LinkedHashMap<>();item.put("path",path);item.put("method",method);item.put("status",response.statusCode());item.put("contentType",response.headers().firstValue("Content-Type").orElse(""));item.put("response",value);item.put("body",body);item.put("parameters",parameters);item.put("behavior","migrationPathsSwitchRestartAndResidueStaySafe");item.put("behaviorChecks",List.of("migrationSafety"));OBSERVATIONS.add(item); }
+        if (recording && path.startsWith("/maintenance/")) { Map<String,Object> item=new LinkedHashMap<>();item.put("path",path);item.put("method",method);item.put("status",response.statusCode());item.put("contentType",response.headers().firstValue("Content-Type").orElse(""));item.put("response",value);item.put("body",body);item.put("parameters",parameters);item.put("behavior",behavior);item.put("behaviorChecks",behavior.equals("backupRestoreSnapshotAndMaintenanceFactsStaySafe")?List.of("archiveSafety","restoreCost"):List.of("migrationSafety"));OBSERVATIONS.add(item); }
         return new Reply(response.statusCode(),value);
     }
     @AfterAll static void evidence() throws Exception {
