@@ -5,6 +5,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
+import { cpus, totalmem, release } from 'node:os';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const normalize = (text) => text.replace(/[\s|\-]/gu, '');
@@ -126,6 +127,91 @@ export function createMockModel(modelCalls) {
   });
 }
 
+async function measureResources({ api, wait, modelCalls, embedding, endpoint, sample, stages, fixtures }) {
+  const measure = async (name, work) => {
+    const before = sample(), started = performance.now(), firstCall = modelCalls.length;
+    const stage = { name, before, status: 'running' };
+    stages.push(stage);
+    try { stage.result = await work(); stage.status = 'passed'; }
+    catch (error) { stage.status = 'failed'; stage.error = String(error); throw error; }
+    finally {
+      stage.elapsedMs = performance.now() - started;
+      stage.after = sample();
+      stage.cpuMilliseconds = before && stage.after ? stage.after.cpuMilliseconds - before.cpuMilliseconds : null;
+      stage.modelCalls = modelCalls.slice(firstCall).filter((call) => call.path.startsWith('/v1/')).length;
+    }
+  };
+  const upload = async (dataset, entries, expected = []) => {
+    const form = new FormData();
+    for (const [name, bytes] of entries) form.append('files', new Blob([bytes], { type: name.endsWith('.md') ? 'text/markdown' : 'text/plain' }), name);
+    const requestBytes = (await new Response(form).arrayBuffer()).byteLength;
+    const response = await api('POST', `/datasets/${dataset}/files:upload`, form, expected);
+    return { payloadBytes: entries.reduce((sum, [, bytes]) => sum + bytes.length, 0), requestBytes, response };
+  };
+  const dataset = (await api('POST', '/datasets', { name: '固定资源上传资料' })).id;
+  const single = Buffer.alloc(10 * 1024 * 1024, 'a');
+  fixtures.push({ name: 'single.txt', bytes: single.length, sha256: createHash('sha256').update(single).digest('hex') });
+  await measure('单文件默认十兆字节', async () => {
+    const result = await upload(dataset, [['single.txt', single]]);
+    assert.equal(result.response.items[0].outcome, 'created');
+    return result;
+  });
+  await measure('批量默认百兆字节以内', async () => {
+    const entries = Array.from({ length: 10 }, (_, i) => [`batch-${i}.txt`, i === 9 ? single.subarray(0, single.length - 65536) : single]);
+    const result = await upload(dataset, entries);
+    assert.ok(result.requestBytes < 100 * 1024 * 1024);
+    assert.ok(result.response.items.every((item) => item.outcome === 'created'));
+    return result;
+  });
+  await measure('百兆正文含多部分开销明确拒绝', async () => {
+    const result = await upload(dataset, Array.from({ length: 10 }, (_, i) => [`overflow-${i}.txt`, single]), [413]);
+    assert.equal(result.response.code, 'RESOURCE_LIMIT');
+    const files = await api('GET', `/datasets/${dataset}`);
+    assert.equal(files.fileCount, 11, '整体超限不得部分提交');
+    return result;
+  });
+  await measure('默认一千份小文件', async () => {
+    const result = await upload(dataset, Array.from({ length: 1000 }, (_, i) => [`small-${i}.txt`, Buffer.from(`固定资源资料${i}。`)]));
+    assert.equal(result.response.items.length, 1000);
+    assert.ok(result.response.items.every((item) => item.outcome === 'created'));
+    return result;
+  });
+  let kb;
+  await measure('一千段结构解析与索引', async () => {
+    const indexedDataset = (await api('POST', '/datasets', { name: '固定资源查询资料' })).id;
+    const bytes = Buffer.from(Array.from({ length: 1000 }, (_, i) => `固定资源第${i}段：设备维护须先断电并等待冷却。`).join('\n\n'));
+    fixtures.push({ name: 'thousand.md', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), paragraphs: 1000 });
+    const uploaded = await upload(indexedDataset, [['thousand.md', bytes]]);
+    assert.equal(uploaded.response.items[0].outcome, 'created');
+    const created = await api('POST', '/knowledge-bases', { name: '固定资源千片库', datasetIds: [indexedDataset], processing: { chunking: { strategy: 'structure', overlapCodePoints: 200, removePageHeadersFooters: false, customMetadata: {}, embeddedMetadataFields: [] }, embedding: { modelConfigVersionId: embedding.versionId, dimensions: 3, distance: 'cosine', similarityThreshold: 0.5, candidatesPerQuery: 1000, modelSnapshot: { endpoint: endpoint + '/v1', model: 'text-embedding-v4' } } } });
+    const initialized = await wait('/tasks/' + created.task.id, false);
+    assert.equal(initialized.state, 'succeeded');
+    kb = initialized.resultResourceId;
+    const deadline = Date.now() + 600000;
+    let files;
+    while (true) {
+      files = (await api('GET', `/knowledge-bases/${kb}/files?limit=100`)).items;
+      assert.ok(!files.some((file) => file.updateState === 'failed'), '千片资料索引失败');
+      if (files.length && files.every((file) => file.effectiveContentVersionId)) break;
+      if (Date.now() > deadline) throw new Error('千片资料索引等待超时');
+      await new Promise((done) => setTimeout(done, 150));
+    }
+    await api('POST', `/knowledge-bases/${kb}/publish`);
+    return { knowledgeBaseId: kb, files };
+  });
+  for (let iteration = 1; iteration <= 3; iteration++) await measure(`千候选百证据查询第${iteration}次`, async () => {
+    const firstCall = modelCalls.length;
+    const instance = await api('POST', '/search-instances');
+    const request = await api('POST', `/search-instances/${instance.id}/requests`, { query: '设备维护应如何断电？', knowledgeBaseIds: [kb] });
+    const result = await wait('/search-requests/' + request.id);
+    assert.equal(result.task.state, 'succeeded');
+    assert.equal(result.result.evidence.length, 100);
+    const queries = modelCalls.slice(firstCall).filter((call) => call.path.endsWith('/points/query'));
+    assert.ok(queries.some((call) => call.request.limit === 1000 && call.response.result.points.length === 1000), '必须实际请求并读回一千候选');
+    return { requestId: request.id, evidenceCount: result.result.evidence.length, vectorRequests: queries.map((call) => ({ limit: call.request.limit, returnedCandidates: call.response.result.points.length })) };
+  });
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args[0] === '--self-check') { await selfCheck(); return; }
@@ -160,18 +246,18 @@ async function main() {
   const base = `http://127.0.0.1:${port}/api/v1`;
   let csrf, cookie;
   const pause = () => new Promise((done) => setTimeout(done, 150));
-  const api = async (method, path, body) => {
+  const api = async (method, path, body, expected = []) => {
     const headers = { ...(cookie ? { Cookie: cookie } : {}), ...(csrf ? { 'X-CSRF-Token': csrf } : {}), ...(method === 'POST' ? { 'Idempotency-Key': randomUUID() } : {}) };
     const multipart = body instanceof FormData;
     if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
     const start = performance.now();
-    const response = await fetch(base + path, { method, headers, ...(body === undefined ? {} : { body: multipart ? body : JSON.stringify(body) }), signal: AbortSignal.timeout(60000) });
+    const response = await fetch(base + path, { method, headers, ...(body === undefined ? {} : { body: multipart ? body : JSON.stringify(body) }), signal: AbortSignal.timeout(args.includes('--resources') ? 180000 : 60000) });
     const result = await response.json();
     if (path === '/session') { csrf = result.csrfToken; cookie = response.headers.get('set-cookie').split(';')[0]; }
     // 会话和凭据仅驻内存，原始记录不保存保护头与敏感字段。
     const redact = (value) => JSON.parse(JSON.stringify(value, (key, item) => ['csrfToken', 'sessionId'].includes(key) ? '已脱敏' : key === 'credential' ? { action: item.action, value: '固定替身凭据已脱敏' } : item));
     httpCalls.push({ method, path, request: multipart ? { multipart: '固定资料文件，摘要见导入映射' } : body === undefined ? null : redact(body), status: response.status, response: redact(result), latencyMs: performance.now() - start });
-    if (!response.ok) throw new Error(`${method} ${path}：${response.status} ${JSON.stringify(result)}`);
+    if (expected.length ? !expected.includes(response.status) : !response.ok) throw new Error(`${method} ${path}：${response.status} ${JSON.stringify(result)}`);
     return result;
   };
   const wait = async (path, nested = true) => {
@@ -184,7 +270,8 @@ async function main() {
     }
     throw new Error('固定模拟任务等待超时');
   };
-  const documents = [], results = [], observations = [];
+  const documents = [], results = [], observations = [], resourceStages = [], resourceFixtures = [];
+  const sample = () => process.platform === 'win32' ? JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', `$sample=Get-Process -Id ${app.pid}; [ordered]@{workingSetBytes=$sample.WorkingSet64; peakWorkingSetBytes=$sample.PeakWorkingSet64; privateBytes=$sample.PrivateMemorySize64; cpuMilliseconds=$sample.TotalProcessorTime.TotalMilliseconds} | ConvertTo-Json -Compress`], { encoding: 'utf8', windowsHide: true })) : null;
   let resourceMeasurement = null;
   const started = performance.now();
   try {
@@ -202,7 +289,7 @@ async function main() {
     await api('PUT', '/settings/vector-store', { endpoint, credential: { action: 'clear' } });
     const embedding = await api('PUT', '/settings/models/embedding', { endpoint: endpoint + '/v1', model: 'text-embedding-v4', contextWindowTokens: null, maxOutputTokens: null, credential: { action: 'replace', value: 'fixed-evaluation' } });
     await api('PUT', '/settings/models/generation', { endpoint: endpoint + '/v1', model: 'fixed-question-model', contextWindowTokens: 131072, maxOutputTokens: 4096, credential: { action: 'replace', value: 'fixed-evaluation' } });
-    const knowledgeBases = {};
+    const knowledgeBases = {}, importStarted = performance.now(), importBefore = args.includes('--resources') ? sample() : null;
     for (const group of [...new Set(manifest.map((item) => item.knowledgeBase))]) {
       const dataset = await api('POST', '/datasets', { name: '固定评测资料-' + group });
       for (const entry of manifest.filter((item) => item.knowledgeBase === group)) {
@@ -229,6 +316,10 @@ async function main() {
       }
       await api('POST', `/knowledge-bases/${id}/publish`);
     }
+    if (args.includes('--resources')) {
+      const after = sample();
+      resourceStages.push({ name: '固定中文资料含两页PDF导入解析索引', status: 'passed', elapsedMs: performance.now() - importStarted, before: importBefore, after, cpuMilliseconds: importBefore && after ? after.cpuMilliseconds - importBefore.cpuMilliseconds : null, result: { documents: documents.map(({ id, sha256 }) => ({ id, sha256 })), note: '包含全部固定资料，无法单独分离PDF时间；不含PDF子进程的CPU与内存。' } });
+    }
     await save('documents.json', { knowledgeBases, documents });
     for (const item of suite.cases) {
       const start = performance.now(), firstCall = modelCalls.length;
@@ -252,6 +343,7 @@ async function main() {
         results.push({ caseId: item.id, outcome: 'failed', latencyMs: performance.now() - start });
       }
     }
+    if (args.includes('--resources')) await measureResources({ api, wait, modelCalls, embedding, endpoint, sample, stages: resourceStages, fixtures: resourceFixtures });
     if (process.platform === 'win32') {
       resourceMeasurement = JSON.parse(execFileSync('powershell.exe', ['-NoProfile', '-Command', `$sample=Get-Process -Id ${app.pid}; [ordered]@{peakWorkingSetBytes=$sample.PeakWorkingSet64; cpuMilliseconds=$sample.TotalProcessorTime.TotalMilliseconds} | ConvertTo-Json -Compress`], { encoding: 'utf8', windowsHide: true }));
     }
@@ -262,9 +354,11 @@ async function main() {
     await save('raw-http.json', httpCalls);
     await save('raw-model.json', modelCalls);
     await save('observations.json', observations);
-    await save('resources.json', { mode: 'mock', applicationPid: app.pid, elapsedMs: performance.now() - started, measurement: resourceMeasurement, note: '固定小资料、单次串行模拟；进程峰值包含启动和导入，不是长期容量、并发基线或推荐限额。词元为替身固定值，不是实际分词测量。' });
+    await save('resources.json', { mode: 'mock', applicationPid: app.pid, elapsedMs: performance.now() - started, measurement: resourceMeasurement, note: args.includes('--resources') ? '固定资料与代表性上传、千片查询资源测量见resource-stages.json；主进程累计峰值不含PDF子进程和替身，不是长期容量或推荐限额。' : '固定小资料、单次串行模拟；进程峰值包含启动和导入，不是长期容量、并发基线或推荐限额。词元为替身固定值，不是实际分词测量。' });
+    if (args.includes('--resources')) await save('resource-stages.json', { mode: 'mock', implementation, environment: { platform: process.platform, architecture: process.arch, release: release(), cpu: cpus()[0]?.model ?? null, logicalProcessors: cpus().length, totalMemoryBytes: totalmem() }, stages: resourceStages, fixtures: resourceFixtures, note: '仅测本机固定资料及替身；阶段内存为首尾主进程观测，峰值为进程累计高水位，CPU为阶段差值。未计入PDF隔离子进程及替身进程，不能解释为整机峰值或长期容量。队列、预算与超时边界复用同快照根门禁，不重复模拟。默认值未修改，真实模型效果和供应商限流未经验证。' });
     const hashes = {};
     for (const name of ['raw-http.json', 'raw-model.json', 'observations.json', 'resources.json']) hashes[name] = createHash('sha256').update(await readFile(resolve(output, name))).digest('hex');
+    if (args.includes('--resources')) hashes['resource-stages.json'] = createHash('sha256').update(await readFile(resolve(output, 'resource-stages.json'))).digest('hex');
     await save('run.json', { mode: 'mock', runId: 'fixed-mock-' + new Date().toISOString(), implementation, evidence: JSON.stringify(hashes), results });
     await writeFile(resolve(output, 'application.log'), Buffer.concat(logs));
   }
