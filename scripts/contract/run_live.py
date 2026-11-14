@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def release_inputs(directory):
     """启动前核对已解压发行包清单，拒绝缺件、篡改、链接与越界路径。"""
-    directory = Path(directory).resolve(strict=True)
+    directory = Path(directory)
+    resolved_directory = directory.resolve(strict=True)
     manifest = json.loads((directory / 'manifest.json').read_text(encoding='utf-8-sig'))
     if not isinstance(manifest, list) or not manifest:
         raise ValueError('发行文件清单必须为非空数组。')
@@ -36,7 +37,7 @@ def release_inputs(directory):
                 or name in declared or not isinstance(expected, str) or len(expected) != 64):
             raise ValueError('发行文件清单路径或摘要非法。')
         path = directory / name
-        if (not path.is_file() or path.resolve().is_relative_to(directory) is False
+        if (not path.is_file() or path.resolve().is_relative_to(resolved_directory) is False
                 or any(parent.is_symlink() for parent in (path, *path.parents) if parent != directory)):
             raise ValueError('发行文件缺失或含链接。')
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
