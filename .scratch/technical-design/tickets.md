@@ -26,3 +26,5 @@
 - [22: 备份和恢复完整应用数据](issues/22-backup-restore.md)
 - [23: 评估中文检索问答质量与资源边界](issues/23-quality-evaluation.md)
 - [24: 验证 Windows 发行包和完整契约交付](issues/24-release-acceptance.md)
+
+当前实现前沿：09—22 已集成、待统一验证；23 正在实现，随后按依赖推进24。依赖已提交实现可用于后续编码，统一验证与验收后置，见根代理约定。

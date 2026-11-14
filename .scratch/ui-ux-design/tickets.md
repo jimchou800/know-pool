@@ -16,21 +16,21 @@
 | [06：显式配置模型与向量连接](issues/06-model-settings.md) | 技术 01 | [技术 06](../technical-design/issues/06-model-settings.md) | 已完成 |
 | [07：创建空知识库并关联资料](issues/07-knowledge-base.md) | 技术 03、技术 06 | [技术 07](../technical-design/issues/07-knowledge-base.md) | 已完成 |
 | [08：查看纯文本索引并执行管理检索](issues/08-text-index.md) | 技术 07 | [技术 08](../technical-design/issues/08-text-index.md) | 已完成 |
-| [09：核对文档索引结果的原文位置](issues/09-document-index.md) | 技术 04、技术 08 | [技术 09](../technical-design/issues/09-document-index.md) | 技术设计中 |
-| [10：配置切片并查看完整性预检](issues/10-chunk-preview.md) | 技术 09 | [技术 10](../technical-design/issues/10-chunk-preview.md) | 未开始 |
-| [11：管理数据集同步、多来源和单文件排除](issues/11-associations.md) | 技术 08 | [技术 11](../technical-design/issues/11-associations.md) | 未开始 |
-| [12：展示内容更新、旧版本服务和切换记录](issues/12-content-switch.md) | 技术 05、技术 08 | [技术 12](../technical-design/issues/12-content-switch.md) | 未开始 |
-| [13：发布、下线和显式复查知识库](issues/13-publication.md) | 技术 11 | [技术 13](../technical-design/issues/13-publication.md) | 未开始 |
-| [14：打通最小实例的多知识库检索](issues/14-multi-search.md) | 技术 13 | [技术 14](../technical-design/issues/14-multi-search.md) | 未开始 |
-| [15：完整管理检索实例及重启恢复](issues/15-search-instances.md) | 技术 14 | [技术 15](../technical-design/issues/15-search-instances.md) | 未开始 |
-| [16：提交首问并展示通过校验的引用回答](issues/16-grounded-answer.md) | 技术 14 | [技术 16](../technical-design/issues/16-grounded-answer.md) | 未开始 |
-| [17：继续会话、恢复首页最近问答并处理取消删除](issues/17-conversation-history.md) | 技术 16 | [技术 17](../technical-design/issues/17-conversation-history.md) | 未开始 |
-| [18：修改配置后观察整库重建与切换](issues/18-configuration-rebuild.md) | 技术 10、技术 12 | [技术 18](../technical-design/issues/18-configuration-rebuild.md) | 未开始 |
-| [19：恢复任务并显式重试失败资料](issues/19-index-recovery.md) | 技术 12 | [技术 19](../technical-design/issues/19-index-recovery.md) | 未开始 |
-| [20：确认删除影响并恢复失败清理](issues/20-deletion-cleanup.md) | 技术 11、技术 12、技术 13、技术 17 | [技术 20](../technical-design/issues/20-deletion-cleanup.md) | 未开始 |
-| [21：安全迁移数据目录并呈现恢复阶段](issues/21-data-migration.md) | 技术 17、技术 19、技术 20 | [技术 21](../technical-design/issues/21-data-migration.md) | 未开始 |
-| [22：备份恢复并明确索引和凭据边界](issues/22-backup-restore.md) | 技术 18、技术 19、技术 20 | [技术 22](../technical-design/issues/22-backup-restore.md) | 未开始 |
-| [23：设置实测资源参数并验证中文业务边界](issues/23-quality-evaluation.md) | 技术 09、技术 10、技术 14、技术 16、技术 17、技术 18、技术 19 | [技术 23](../technical-design/issues/23-quality-evaluation.md) | 未开始 |
+| [09：核对文档索引结果的原文位置](issues/09-document-index.md) | 技术 04、技术 08 | [技术 09](../technical-design/issues/09-document-index.md) | 已实现，待统一验证 |
+| [10：配置切片并查看完整性预检](issues/10-chunk-preview.md) | 技术 09 | [技术 10](../technical-design/issues/10-chunk-preview.md) | 已实现，待统一验证 |
+| [11：管理数据集同步、多来源和单文件排除](issues/11-associations.md) | 技术 08 | [技术 11](../technical-design/issues/11-associations.md) | 已实现，待统一验证 |
+| [12：展示内容更新、旧版本服务和切换记录](issues/12-content-switch.md) | 技术 05、技术 08 | [技术 12](../technical-design/issues/12-content-switch.md) | 已实现，待统一验证 |
+| [13：发布、下线和显式复查知识库](issues/13-publication.md) | 技术 11 | [技术 13](../technical-design/issues/13-publication.md) | 已实现，待统一验证 |
+| [14：打通最小实例的多知识库检索](issues/14-multi-search.md) | 技术 13 | [技术 14](../technical-design/issues/14-multi-search.md) | 已实现，待统一验证 |
+| [15：完整管理检索实例及重启恢复](issues/15-search-instances.md) | 技术 14 | [技术 15](../technical-design/issues/15-search-instances.md) | 已实现，待统一验证 |
+| [16：提交首问并展示通过校验的引用回答](issues/16-grounded-answer.md) | 技术 14 | [技术 16](../technical-design/issues/16-grounded-answer.md) | 已实现，待统一验证 |
+| [17：继续会话、恢复首页最近问答并处理取消删除](issues/17-conversation-history.md) | 技术 16 | [技术 17](../technical-design/issues/17-conversation-history.md) | 已实现，待统一验证 |
+| [18：修改配置后观察整库重建与切换](issues/18-configuration-rebuild.md) | 技术 10、技术 12 | [技术 18](../technical-design/issues/18-configuration-rebuild.md) | 已实现，待统一验证 |
+| [19：恢复任务并显式重试失败资料](issues/19-index-recovery.md) | 技术 12 | [技术 19](../technical-design/issues/19-index-recovery.md) | 已实现，待统一验证 |
+| [20：确认删除影响并恢复失败清理](issues/20-deletion-cleanup.md) | 技术 11、技术 12、技术 13、技术 17 | [技术 20](../technical-design/issues/20-deletion-cleanup.md) | 已实现，待统一验证 |
+| [21：安全迁移数据目录并呈现恢复阶段](issues/21-data-migration.md) | 技术 17、技术 19、技术 20 | [技术 21](../technical-design/issues/21-data-migration.md) | 已实现，待统一验证 |
+| [22：备份恢复并明确索引和凭据边界](issues/22-backup-restore.md) | 技术 18、技术 19、技术 20 | [技术 22](../technical-design/issues/22-backup-restore.md) | 已实现，待统一验证 |
+| [23：设置实测资源参数并验证中文业务边界](issues/23-quality-evaluation.md) | 技术 09、技术 10、技术 14、技术 16、技术 17、技术 18、技术 19 | [技术 23](../technical-design/issues/23-quality-evaluation.md) | 实现中 |
 | [24：验收完整网页发行与桌面适配边界](issues/24-release-acceptance.md) | 技术 15、技术 17、技术 18、技术 19、技术 20、技术 21、技术 22、技术 23 | [技术 24](../technical-design/issues/24-release-acceptance.md) | 未开始 |
 
 ## 当前可领取范围
@@ -49,3 +49,5 @@
 已检查 24 份独立文件、连续编号、阻塞与原技术票一致且无环、关联原切片链接有效，全部 95 个正式操作均在任务范围明确列出或继承。契约摘要与已批准基线一致。本检查只证明任务发布完整，不是正式业务实现对齐报告。
 
 06 已随技术切片完成验收，证据见 [06 实施记录](../technical-design/implementation-06.md)。后续按既定阻塞关系领取，不以领域完成代替验收。
+
+当前实现前沿：09—22 已集成、待统一验证；23 正在实现，随后按依赖推进24。依赖已提交实现可用于后续编码，统一验证与验收后置，见根代理约定。
