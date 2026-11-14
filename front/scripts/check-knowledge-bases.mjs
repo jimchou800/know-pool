@@ -107,7 +107,18 @@ export async function checkKnowledgeBases(page, tests) {
     const name = /^\/collections\/(kp_[a-f0-9]{32}(?:_[a-f0-9]{32})?)$/.exec(
       pathname,
     )?.[1];
-    if (!name) {
+    if (pathname === '/collections' && request.method === 'GET') {
+      response.end(
+        JSON.stringify({
+          status: 'ok',
+          result: {
+            collections: [...collections.keys()].map((collection) => ({
+              name: collection,
+            })),
+          },
+        }),
+      );
+    } else if (!name) {
       response.statusCode = 400;
       response.end(JSON.stringify({ status: 'error', result: null }));
     } else if (request.method === 'GET') {
