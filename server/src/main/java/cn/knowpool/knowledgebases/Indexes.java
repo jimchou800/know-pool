@@ -440,6 +440,12 @@ public final class Indexes {
                                                     t.path("state").asText().equals("succeeded"))
                                             .count())
                             .put("phase", "initializing");
+                    // 先等待所有已受理子任务结束，避免旧失败项使新重试在调度前被父任务阻断。
+                    if (children.stream().anyMatch(child -> List.of("queued", "running")
+                            .contains(child.path("state").asText()))) {
+                        persist(jdbc, parent);
+                        return null;
+                    }
                     for (JsonNode child : children) {
                         String state = child.path("state").asText();
                         if (List.of("failed", "interrupted", "cancelled").contains(state)) {

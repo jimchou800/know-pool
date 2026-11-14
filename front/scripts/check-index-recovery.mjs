@@ -10,6 +10,7 @@ export async function checkIndexRecovery(
   const root = `${base}/api/v1`,
     path = `${root}/knowledge-bases/${knowledgeBaseId}`;
   const files = await (await http.get(`${path}/files?limit=100`)).json();
+  const before = await (await http.get(path)).json();
   const failed = files.items.find(
     (item) =>
       item.failure &&
@@ -97,10 +98,32 @@ export async function checkIndexRecovery(
     'failed',
   );
   const current = await (await http.get(`${path}/files?limit=100`)).json();
-  assert.equal(
-    current.items.find((item) => item.fileId === failed.fileId).failure,
-    null,
-  );
+  const recovered = current.items.find((item) => item.fileId === failed.fileId);
+  assert.equal(recovered.task.state, 'succeeded');
+  assert.equal(recovered.task.failure, null);
+  if (current.items.some((item) => item.task?.state === 'failed')) {
+    await expect
+      .poll(
+        async () => {
+          const result = await (
+            await http.get(`${path}/files?limit=100`)
+          ).json();
+          return result.items.find((item) => item.fileId === failed.fileId)
+            .failure?.code;
+        },
+        { timeout: 30000 },
+      )
+      .toBe('INTEGRITY_FAILED');
+    const retained = await (await http.get(path)).json();
+    assert.equal(
+      retained.effectiveConfigVersionId,
+      before.effectiveConfigVersionId,
+    );
+    assert.equal(
+      retained.effectiveIndexVersionId,
+      before.effectiveIndexVersionId,
+    );
+  }
   await tasks
     .getByRole('button', { name: '刷新处理任务', exact: true })
     .click();
@@ -131,6 +154,41 @@ export async function checkIndexRecovery(
       (item) => item.fileId !== failed.fileId || item.outcome !== 'enqueued',
     ),
   );
+  for (const item of results.items.filter(
+    (item) => item.outcome === 'enqueued',
+  )) {
+    await expect
+      .poll(
+        async () => {
+          return (await (await http.get(`${root}/tasks/${item.taskId}`)).json())
+            .state;
+        },
+        { timeout: 30000 },
+      )
+      .toBe('succeeded');
+  }
+  await expect
+    .poll(
+      async () => {
+        const result = await (await http.get(path)).json();
+        return result.effectiveConfigVersionId;
+      },
+      { timeout: 30000 },
+    )
+    .toBe(before.targetConfigVersionId);
+  const completed = await (await http.get(`${path}/files?limit=100`)).json();
+  assert.ok(completed.items.every((item) => item.failure === null));
+  assert.ok(
+    completed.items.every(
+      (item) => item.effectiveConfigVersionId === before.targetConfigVersionId,
+    ),
+  );
+  const switched = await (await http.get(path)).json();
+  assert.notEqual(
+    switched.effectiveIndexVersionId,
+    before.effectiveIndexVersionId,
+  );
+  assert.equal(switched.publicationState, before.publicationState);
   for (const width of [1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
     await all.scrollIntoViewIfNeeded();
@@ -152,6 +210,7 @@ export async function checkIndexRecovery(
       '费用未确认不受理，单份POST无正文且新任务关联原失败',
       '活动重复重试返回已有同任务，旧失败记录保留',
       '成功项在全失败项重试中不重新入队；三宽逐项结果截图',
+      '单项暂存成功不掩盖其余失败；全部恢复后整库统一切换且发布决定不变',
     ],
   });
 }

@@ -34,7 +34,7 @@ async function selfCheck() {
   ];
   assert.deepEqual(mapEvidence(evidence, documents).ranked, ['unknown:unrelated', 'unknown:stale', 'u']);
   assert.equal(mapEvidence(evidence, documents).mappings.length, 4);
-  const calls = [], server = createMockModel(calls);
+  const calls = [], diagnostics = [], server = createMockModel(calls, diagnostics);
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
   const base = `http://127.0.0.1:${server.address().port}`;
   const send = async (method, path, body) => {
@@ -63,20 +63,25 @@ async function selfCheck() {
       assert.equal((await send('POST', '/v1/chat/completions', { model: '固定生成', messages })).status, 200);
     }
     assert.equal((await send('GET', '/unknown')).status, 500);
+    assert.ok(diagnostics.some((item) => item.event === 'handlerError' && item.path === '/unknown' && item.errorType === 'AssertionError'));
+    assert.ok(diagnostics.every((item) => !Object.hasOwn(item, 'request') && !Object.hasOwn(item, 'message')));
     assert.ok(calls.some((item) => item.path === '/v1/embeddings'));
   } finally {
     await new Promise((done) => server.close(done));
   }
 }
 
-export function createMockModel(modelCalls) {
+export function createMockModel(modelCalls, diagnostics = []) {
   const points = new Map(), collections = new Map();
-  return createServer(async (request, response) => {
+  const sockets = new WeakMap();
+  const server = createServer(async (request, response) => {
+    const path = new URL(request.url, 'http://127.0.0.1').pathname;
+    diagnostics.push({ event: 'request', at: new Date().toISOString(), socketId: sockets.get(request.socket), method: request.method, path });
+    response.once('finish', () => diagnostics.push({ event: 'response', at: new Date().toISOString(), socketId: sockets.get(request.socket), method: request.method, path, status: response.statusCode }));
     try {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : null;
-      const path = new URL(request.url, 'http://127.0.0.1').pathname;
       let result;
       if (path === '/v1/embeddings') {
         const input = Array.isArray(body.input) ? body.input : [body.input];
@@ -121,10 +126,22 @@ export function createMockModel(modelCalls) {
       response.setHeader('Content-Type', 'application/json');
       response.end(JSON.stringify(result));
     } catch (error) {
+      const errorType = error instanceof Error ? error.constructor.name : 'UnknownError';
+      diagnostics.push({ event: 'handlerError', at: new Date().toISOString(), socketId: sockets.get(request.socket), method: request.method, path, errorType });
       response.statusCode = 500;
-      response.end(JSON.stringify({ error: String(error) }));
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ error: '固定替身处理失败，详情仅记录异常类型。', errorType }));
     }
   });
+  let sequence = 0;
+  server.on('connection', (socket) => {
+    const socketId = ++sequence;
+    sockets.set(socket, socketId);
+    diagnostics.push({ event: 'connection', at: new Date().toISOString(), socketId });
+    socket.once('close', (hadError) => diagnostics.push({ event: 'close', at: new Date().toISOString(), socketId, hadError }));
+    socket.once('error', (error) => diagnostics.push({ event: 'socketError', at: new Date().toISOString(), socketId, errorType: error.constructor.name, code: error.code ?? null }));
+  });
+  return server;
 }
 
 async function measureResources({ api, wait, modelCalls, embedding, endpoint, sample, stages, fixtures }) {
@@ -226,9 +243,9 @@ async function main() {
   execFileSync('python', ['scripts/evaluation/materialize.py', '--output', resolve(output, 'materials')], { cwd: root });
   const manifest = JSON.parse(await readFile(resolve(output, 'materials/manifest.json'), 'utf8'));
   const implementation = execFileSync('python', ['scripts/contract/verify.py', '--snapshot'], { cwd: root, encoding: 'utf8' }).trim();
-  const modelCalls = [], httpCalls = [];
+  const modelCalls = [], httpCalls = [], modelDiagnostics = [];
   // 复用现有联调替身的固定向量、集合过滤和原文摘录语义，不模拟真实检索质量。
-  const model = createMockModel(modelCalls);
+  const model = createMockModel(modelCalls, modelDiagnostics);
   await new Promise((done) => model.listen(0, '127.0.0.1', done));
   const endpoint = `http://127.0.0.1:${model.address().port}`;
   const portServer = createServer();
@@ -353,11 +370,12 @@ async function main() {
     await new Promise((done) => model.close(done));
     await save('raw-http.json', httpCalls);
     await save('raw-model.json', modelCalls);
+    await save('raw-model-diagnostics.json', modelDiagnostics);
     await save('observations.json', observations);
     await save('resources.json', { mode: 'mock', applicationPid: app.pid, elapsedMs: performance.now() - started, measurement: resourceMeasurement, note: args.includes('--resources') ? '固定资料与代表性上传、千片查询资源测量见resource-stages.json；主进程累计峰值不含PDF子进程和替身，不是长期容量或推荐限额。' : '固定小资料、单次串行模拟；进程峰值包含启动和导入，不是长期容量、并发基线或推荐限额。词元为替身固定值，不是实际分词测量。' });
     if (args.includes('--resources')) await save('resource-stages.json', { mode: 'mock', implementation, environment: { platform: process.platform, architecture: process.arch, release: release(), cpu: cpus()[0]?.model ?? null, logicalProcessors: cpus().length, totalMemoryBytes: totalmem() }, stages: resourceStages, fixtures: resourceFixtures, note: '仅测本机固定资料及替身；阶段内存为首尾主进程观测，峰值为进程累计高水位，CPU为阶段差值。未计入PDF隔离子进程及替身进程，不能解释为整机峰值或长期容量。队列、预算与超时边界复用同快照根门禁，不重复模拟。默认值未修改，真实模型效果和供应商限流未经验证。' });
     const hashes = {};
-    for (const name of ['raw-http.json', 'raw-model.json', 'observations.json', 'resources.json']) hashes[name] = createHash('sha256').update(await readFile(resolve(output, name))).digest('hex');
+    for (const name of ['raw-http.json', 'raw-model.json', 'raw-model-diagnostics.json', 'observations.json', 'resources.json']) hashes[name] = createHash('sha256').update(await readFile(resolve(output, name))).digest('hex');
     if (args.includes('--resources')) hashes['resource-stages.json'] = createHash('sha256').update(await readFile(resolve(output, 'resource-stages.json'))).digest('hex');
     await save('run.json', { mode: 'mock', runId: 'fixed-mock-' + new Date().toISOString(), implementation, evidence: JSON.stringify(hashes), results });
     await writeFile(resolve(output, 'application.log'), Buffer.concat(logs));

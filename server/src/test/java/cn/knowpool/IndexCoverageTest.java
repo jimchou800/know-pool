@@ -33,6 +33,124 @@ class IndexCoverageTest {
     private final HttpClient http = HttpClient.newHttpClient();
 
     @Test
+    @DisplayName("整库旧失败项排在新重试之前仍允许子项执行，全部恢复后才原子切换")
+    void rebuildWaitsForRetriedChildrenBeforeFailing() throws Exception {
+        var embedded = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        HttpServer vector = indexedVector(embedded);
+        try (var app = start(Files.createTempDirectory(Path.of("target"), "rebuild-retry-order-")
+                .toAbsolutePath())) {
+            Client client = client(app);
+            String config = processing(client, vector.getAddress().getPort(), 0, "{}", "[]");
+            String kb = createIndexedBase(client, config, "重试排序核验库", "第一份固定原文。");
+            JsonNode first = read(client, "/knowledge-bases/" + kb + "/files").at("/items/0");
+            String dataset = read(client, "/files/" + first.path("fileId").asText())
+                    .path("datasetId")
+                    .asText();
+            uploadText(client, dataset, "第二份固定原文。", "second.txt");
+            for (JsonNode file :
+                    read(client, "/knowledge-bases/" + kb + "/files").path("items"))
+                assertThat(await(client, file.at("/task/id").asText())
+                                .path("state")
+                                .asText())
+                        .isEqualTo("succeeded");
+            KnowledgeBases bases = app.getBean(KnowledgeBases.class);
+            Indexes indexes = app.getBean(Indexes.class);
+            var data = app.getBean(cn.knowpool.infrastructure.ApplicationData.class);
+            JsonNode before = bases.get(kb);
+            String selected, retried, parent, target;
+            try (var exclusive = data.gate().exclusive()) {
+                ObjectNode updated = (ObjectNode) JSON.readTree(config);
+                ((ObjectNode) updated.path("chunking")).put("overlapCodePoints", 1);
+                var accepted =
+                        bases.updateConfig(kb, "coverage", UUID.randomUUID().toString(), updated);
+                target = accepted.task().targetConfigVersionId();
+                // 固定真实持久化失败检查点，避免依赖外部故障速度或随机任务标识排序。
+                data.write(jdbc -> {
+                    for (String payload : jdbc.sql(
+                                    "SELECT payload FROM tasks WHERE json_extract(payload,'$.targetConfigVersionId')=?")
+                            .param(target)
+                            .query(String.class)
+                            .list()) {
+                        ObjectNode task = (ObjectNode) JSON.readTree(payload);
+                        task.put("state", "failed")
+                                .put("phase", "completed")
+                                .put("finishedAt", java.time.Instant.now().toString());
+                        task.set(
+                                "failure",
+                                JSON.createObjectNode()
+                                        .put("code", "MODEL_UNAVAILABLE")
+                                        .put("message", "固定失败检查点。")
+                                        .put("retryable", false));
+                        jdbc.sql("UPDATE tasks SET state='failed',payload=? WHERE id=?")
+                                .params(task.toString(), task.path("id").asText())
+                                .update();
+                    }
+                    return null;
+                });
+                List<String> ordered = data.read(jdbc -> jdbc.sql(
+                                "SELECT f.file_id FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.config_version_id=?")
+                        .params(kb, target)
+                        .query(String.class)
+                        .list());
+                assertThat(ordered).hasSize(2);
+                selected = ordered.getLast();
+                retried = bases.retryFiles(
+                                kb, selected, "coverage", UUID.randomUUID().toString())
+                        .at("/items/0/taskId")
+                        .asText();
+                parent = data.read(jdbc -> jdbc.sql(
+                                "SELECT task_id FROM processing_rebuilds WHERE knowledge_base_id=? AND config_version_id=?")
+                        .params(kb, target)
+                        .query(String.class)
+                        .single());
+                List<String> states = data.read(jdbc -> jdbc.sql(
+                                "SELECT t.state FROM knowledge_base_files f JOIN tasks t ON t.id=f.task_id WHERE f.knowledge_base_id=? AND f.config_version_id=?")
+                        .params(kb, target)
+                        .query(String.class)
+                        .list());
+                assertThat(states).containsExactly("failed", "queued");
+                org.springframework.test.util.ReflectionTestUtils.invokeMethod(indexes, "rebuilds");
+                String state = data.read(jdbc -> jdbc.sql("SELECT state FROM tasks WHERE id=?")
+                        .param(parent)
+                        .query(String.class)
+                        .single());
+                assertThat(state).isEqualTo("running");
+            }
+            assertThat(await(client, retried).path("state").asText()).isEqualTo("succeeded");
+            assertThat(await(client, parent).path("state").asText()).isEqualTo("failed");
+            assertThat(bases.get(kb).path("effectiveConfigVersionId"))
+                    .isEqualTo(before.path("effectiveConfigVersionId"));
+            assertThat(bases.get(kb).path("effectiveIndexVersionId")).isEqualTo(before.path("effectiveIndexVersionId"));
+            JsonNode batch =
+                    bases.retryFiles(kb, null, "coverage", UUID.randomUUID().toString());
+            assertThat(batch.path("items")
+                            .valueStream()
+                            .filter(item -> item.path("outcome").asText().equals("enqueued"))
+                            .count())
+                    .isEqualTo(1);
+            assertThat(batch.path("items")
+                            .valueStream()
+                            .filter(item -> item.path("fileId").asText().equals(selected))
+                            .noneMatch(item -> item.path("outcome").asText().equals("enqueued")))
+                    .isTrue();
+            String finalParent = data.read(jdbc -> jdbc.sql(
+                            "SELECT task_id FROM processing_rebuilds WHERE knowledge_base_id=? AND config_version_id=?")
+                    .params(kb, target)
+                    .query(String.class)
+                    .single());
+            assertThat(await(client, finalParent).path("state").asText()).isEqualTo("succeeded");
+            assertThat(bases.get(kb).path("effectiveConfigVersionId").asText()).isEqualTo(target);
+            assertThat(bases.get(kb).path("effectiveIndexVersionId").asText()).isEqualTo(finalParent);
+            assertThat(bases.files(kb, 100, null).items()).allSatisfy(file -> {
+                assertThat(file.path("failure").isNull()).isTrue();
+                assertThat(file.path("effectiveConfigVersionId").asText()).isEqualTo(target);
+            });
+        } finally {
+            vector.stop(0);
+        }
+    }
+
+    @Test
     @DisplayName("查询拒绝不可信分数及超额候选，未知标识和阈值过滤不泄露原文")
     void retrievalBoundariesNeverLeakUntrustedEvidence() throws Exception {
         var mode = new AtomicReference<>("valid");

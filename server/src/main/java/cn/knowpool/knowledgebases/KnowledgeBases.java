@@ -188,6 +188,7 @@ public final class KnowledgeBases {
         ConnectionTests.Task task = pending.task();
         String collection = "kp_" + task.knowledgeBaseId().replace("-", "");
         String endpoint = pending.vector().endpoint(), secret = pending.vector().secret();
+        String initializationStage = "probe";
         try {
             if (vectors.request(endpoint, secret, collection, "GET", null) != null)
                 throw new ApiFailure(409, "INTEGRITY_FAILED", "专属集合名称已存在，未接管已有资源。", null);
@@ -200,6 +201,7 @@ public final class KnowledgeBases {
                         task(task.id(), task.knowledgeBaseId(), task.targetConfigVersionId(), "running", null, null));
                 return null;
             });
+            initializationStage = "create";
             String body = json.writeValueAsString(java.util.Map.of(
                     "vectors",
                     java.util.Map.of(
@@ -220,6 +222,7 @@ public final class KnowledgeBases {
                         .update();
                 return null;
             });
+            initializationStage = "verify";
             JsonNode actual = vectors.request(endpoint, secret, collection, "GET", null);
             if (actual == null
                     || actual.at("/result/config/params/vectors/size").asInt()
@@ -229,6 +232,7 @@ public final class KnowledgeBases {
                             .equals(VectorCollections.distance(
                                     pending.embedding().path("distance").asText())))
                 throw new ApiFailure(500, "INTEGRITY_FAILED", "专属集合的维度或距离配置核验失败。", null);
+            initializationStage = "commit";
             if (stopping.get()) return;
             data.write(jdbc -> {
                 jdbc.sql("UPDATE knowledge_bases SET visible=1 WHERE id=?")
@@ -256,6 +260,14 @@ public final class KnowledgeBases {
             });
         } catch (java.io.IOException | RuntimeException failure) {
             if (!stopping.get()) {
+                org.slf4j.LoggerFactory.getLogger(KnowledgeBases.class)
+                        .warn(
+                                "知识库初始化未完成。阶段：{}；异常类型：{}；直接原因类型：{}。",
+                                initializationStage,
+                                failure.getClass().getSimpleName(),
+                                failure.getCause() == null
+                                        ? "无"
+                                        : failure.getCause().getClass().getSimpleName());
                 String code = failure instanceof ApiFailure api
                         ? api.code()
                         : failure instanceof org.springframework.dao.DataAccessException
